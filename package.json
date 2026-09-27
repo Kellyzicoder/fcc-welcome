@@ -1,0 +1,26 @@
+{
+  "name": "fcc-welcome",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Welcome card for first-timers at Favourite Child Church — saves sign-ups to Supabase for approval in the FCC Attendance Tracker.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^16.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20.9"
+  }
+}
