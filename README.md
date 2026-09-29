@@ -22,6 +22,9 @@ The visit date is recorded in New Zealand time.
 - Row Level Security on `registrations` only lets that key **insert** rows with `status = 'pending'`. It can't read,
   edit or delete anything, so nobody can see other people's sign-ups through the form.
 - A hidden honeypot field quietly drops most bot submissions.
+- Each sign-up gets a random id when Send is first pressed, and keeps it for retries. If the connection drops after
+  the row was saved and the visitor presses Send again, the database already has that id, so no duplicate is created
+  (the same "idempotency key" idea banks use for payments).
 - Never put the Supabase **secret / service_role** key in this project.
 
 ## Setup
