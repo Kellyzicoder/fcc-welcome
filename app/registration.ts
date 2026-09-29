@@ -54,9 +54,22 @@ export function nzToday(now: Date = new Date()): string {
 
 export class SubmitError extends Error {}
 
-export async function submitSignUp(raw: SignUp, cfg: SupabaseConfig): Promise<void> {
+/** A random ID for one sign-up. It is sent as the row's id, so a retry of the same sign-up can't be saved twice. */
+export function newRequestId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const h = Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20)}`;
+}
+
+/**
+ * Save one sign-up. `requestId` works like a bank's idempotency key: if the connection drops after the row was
+ * saved and the visitor presses Send again, the database already has that id and answers 409 (conflict),
+ * which we treat as "already saved" instead of creating a duplicate.
+ */
+export async function submitSignUp(raw: SignUp, cfg: SupabaseConfig, requestId?: string): Promise<void> {
   const v = tidy(raw);
   const body = {
+    ...(requestId ? { id: requestId } : {}),
     full_name: v.fullName,
     phone: v.phone || null,
     email: v.email || null,
@@ -76,7 +89,7 @@ export async function submitSignUp(raw: SignUp, cfg: SupabaseConfig): Promise<vo
   } catch {
     throw new SubmitError("We couldn't send that — please check your internet connection and try again.");
   }
-  if (res.ok) return;
+  if (res.ok || res.status === 409) return; // 409: this exact sign-up was already saved
   const detail = await res.text().catch(() => "");
   console.error("Sign-up failed", res.status, detail);
   if (res.status === 401 || res.status === 403 || res.status === 404) {
