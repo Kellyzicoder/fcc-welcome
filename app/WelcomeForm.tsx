@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
-import { LIMITS, SubmitError, submitSignUp, validate, type FieldErrors, type SignUp, type SupabaseConfig } from "./registration";
+import { useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { LIMITS, SubmitError, newRequestId, submitSignUp, validate, type FieldErrors, type SignUp, type SupabaseConfig } from "./registration";
 
 const EMPTY: SignUp = { fullName: "", phone: "", email: "", invitedBy: "", notes: "", wantsContact: true };
 
@@ -15,6 +15,8 @@ export default function WelcomeForm({ config }: Props) {
   const [honeypot, setHoneypot] = useState("");
   const [sentName, setSentName] = useState("");
   const [sentWantsContact, setSentWantsContact] = useState(true);
+  // One id per sign-up, kept across retries so a resend after a dropped connection can't create a duplicate.
+  const requestId = useRef<string>("");
 
   const set = (field: keyof SignUp) => (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const value = e.target.type === "checkbox" ? (e.target as HTMLInputElement).checked : e.target.value;
@@ -38,7 +40,9 @@ export default function WelcomeForm({ config }: Props) {
     }
     setStatus("sending");
     try {
-      if (!honeypot) await submitSignUp(values, config); // bots fill the hidden field; quietly skip them
+      if (!requestId.current) requestId.current = newRequestId();
+      if (!honeypot) await submitSignUp(values, config, requestId.current); // bots fill the hidden field; skip them
+      requestId.current = ""; // saved: the next person gets a fresh id
       setSentName(values.fullName.trim().split(/\s+/)[0] ?? "");
       setSentWantsContact(values.wantsContact);
       setValues(EMPTY);
