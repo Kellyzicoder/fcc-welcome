@@ -50,3 +50,19 @@ npm run dev                  # http://localhost:3000
 - `app/WelcomeForm.tsx` — the form, validation messages, thank-you screen
 - `app/registration.ts` — validation and the insert into Supabase (REST API, no extra libraries)
 - `app/globals.css` — styles in the church colours, light and dark mode
+
+## The attendance app (in progress)
+
+`public/app/` is the new attendance app: sign-in by email, a dashboard, check-in, follow-up, people, an
+all-churches overview and an admin page, in light and dark, installable on a phone ("Add to Home Screen").
+It is plain HTML and JavaScript with no build step, and it reads the same Supabase database as the tracker.
+
+- **Who can see what is enforced by the database**, not by the app: run `supabase/app_setup.sql` once in the
+  Supabase SQL editor. It only adds things (two small tables, helper functions, Row Level Security rules) and can be
+  run again safely. A branch can only load its own people; the Bishop's sign-in can only call `church_numbers()`,
+  which returns counts and never names.
+- `app/app-config/route.ts` hands the app the two public Supabase settings already used by the welcome form.
+- In Supabase → Authentication → URL Configuration, add the app's address (ending in `/app/`) to the redirect URLs
+  so the emailed sign-in link can open it.
+- Never put the secret / service_role key in this project, and never commit real emails: add the first admin with
+  the one-line `insert` at the bottom of the SQL file, typed into the SQL editor.
