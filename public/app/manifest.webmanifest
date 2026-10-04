@@ -2,7 +2,7 @@
   "name": "FCC Attendance",
   "short_name": "FCC",
   "description": "Check-in, follow-up and attendance for Favourite Child Church",
-  "start_url": "/app/",
+  "start_url": "/app/index.html",
   "scope": "/app/",
   "display": "standalone",
   "background_color": "#eaf2fc",
