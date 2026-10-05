@@ -189,6 +189,7 @@ const ICON = {
   people: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   overview: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   admin: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>',
+  menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
   out: '<path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
 };
 const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg>`;
@@ -208,17 +209,21 @@ function render() {
   const list = pages(), who = S.me.name || S.me.email;
   const where = S.me.role === "bishop" ? "All churches" : S.church;
   root.innerHTML = `<div class="shell">
-    <aside class="side"><div class="brand"><span class="brand-mark">✝</span>Favourite Child Church</div>
+    <div class="scrim" data-close></div>
+    <aside class="side" id="menu"><div class="brand"><span class="brand-mark">✝</span>Favourite Child Church</div>
       <h6>ATTENDANCE</h6>${list.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}">${svg(k)}${t}</button>`).join("")}
       ${S.me.role === "admin" ? `<h6>CHURCHES</h6>${S.churches.map(c => `<button class="church ${c === S.church ? "on" : ""}" data-church="${esc(c)}"><i></i>${esc(c)}</button>`).join("")}` : ""}
       <div class="side-foot"><button class="nav out" data-out>${svg("out")}Log out</button></div></aside>
-    <main class="main"><div class="top"><span class="gap"></span>
+    <main class="main"><div class="top"><button class="icon-btn menu-btn" data-menu aria-label="Menu" aria-controls="menu" aria-expanded="false">${svg("menu")}</button><span class="gap"></span>
         <div class="mode" role="group" aria-label="Colour mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button></div>
         <div class="acct"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${ROLE[S.me.role]} · ${esc(where)}</small></span></div>
         <button class="icon-btn" data-out aria-label="Log out" title="Log out">${svg("out")}</button></div>
-      <div class="body" id="view"></div></main></div>
-    <nav class="tabs" style="grid-template-columns:repeat(${Math.min(list.length, 5)},1fr)">${list.slice(0, 5).map(([k, t]) =>
-      `<button class="${S.view === k ? "on" : ""}" data-view="${k}">${svg(k)}${t.replace("All churches", "Churches")}</button>`).join("")}</nav>`;
+      <div class="body" id="view"></div></main></div>`;
+  const shell = root.querySelector(".shell"), menuBtn = root.querySelector("[data-menu]");
+  const menu = open => { shell.classList.toggle("open", open); menuBtn.setAttribute("aria-expanded", open); };
+  menuBtn.onclick = () => menu(!shell.classList.contains("open"));
+  root.querySelector("[data-close]").onclick = () => menu(false);
+  document.onkeydown = e => { if (e.key === "Escape") menu(false); };
   setMode(document.documentElement.dataset.theme);
   root.querySelectorAll("[data-view]").forEach(b => b.onclick = () => { S.view = b.dataset.view; render(); });
   root.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => setMode(b.dataset.mode, true));
