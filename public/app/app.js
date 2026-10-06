@@ -64,6 +64,7 @@ function formDialog(title, fields, save, button = "Save") {
     <div class="fields">${fields.map(f => `<div><label class="f" for="fd-${f.k}">${esc(f.label)}</label>${f.type === "select"
       ? `<select class="in" id="fd-${f.k}">${f.options.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(f.value ?? "") ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`
       : `<input class="in" id="fd-${f.k}" type="${f.type || "text"}" value="${esc(f.value ?? "")}" maxlength="120" ${f.required ? "required" : ""} autocomplete="off">`}
+      ${f.suggest ? `<div class="suggest" id="fs-${f.k}" aria-label="Suggestions"></div>` : ""}
       ${f.hint ? `<p class="note" style="margin:6px 2px 0">${esc(f.hint)}</p>` : ""}</div>`).join("")}</div>
     <div class="msg bad" id="fd-err" hidden></div>
     <div class="modal-foot"><button type="button" class="pill-btn" data-x>Cancel</button><button class="pill-btn primary" id="fd-go">${esc(button)}</button></div></form>`;
@@ -77,6 +78,24 @@ function formDialog(title, fields, save, button = "Save") {
     go.disabled = true; err.hidden = true;
     try { await save(values); close(); } catch (ex) { err.textContent = ex.message; err.hidden = false; go.disabled = false; }
   };
+  // Autofill: as you type, the choices already in use appear under the box; tap one to fill it in.
+  // With f.many the box holds several, separated by commas, and only the one being typed is completed.
+  for (const f of fields.filter(x => x.suggest)) {
+    const inp = d.querySelector("#fd-" + f.k), box = d.querySelector("#fs-" + f.k);
+    const show = () => {
+      const parts = f.many ? inp.value.split(",") : [inp.value], typing = norm(parts.pop()), have = parts.map(norm);
+      const hits = f.suggest.filter(r => !have.includes(norm(r)) && norm(r) !== typing && norm(r).includes(typing))
+        .sort((a, b) => norm(b).startsWith(typing) - norm(a).startsWith(typing)).slice(0, 8);
+      box.innerHTML = hits.map(r => `<button type="button" class="chip sm" data-s="${esc(r)}">${esc(r)}</button>`).join("");
+    };
+    inp.oninput = inp.onfocus = show;
+    box.onclick = e => {
+      const b = e.target.closest("[data-s]"); if (!b) return;
+      const kept = f.many ? inp.value.split(",").slice(0, -1).map(x => x.trim()).filter(Boolean) : [];
+      inp.value = [...kept, b.dataset.s].join(", ") + (f.many ? ", " : "");
+      inp.focus(); show();
+    };
+  }
   d.querySelector("input, select")?.focus();
 }
 
@@ -555,17 +574,57 @@ function people(el) {
   const mine = S.roleF ? everyone.filter(m => rolesOf(m).some(r => norm(r) === S.roleF)) : everyone;
   const plist = S.pastorList[S.church] || [], admin = S.me.role === "admin";
   const edit = S.me.role !== "team", statuses = ["", "Away", "Inactive", "Moved", "Left", "Transferred", "Deceased"];
+  const roleNames = roleKeys.map(k => counts[k].label);
+  const ids = new Set(mine.map(m => m.id));
+  S.sel = new Set([...(S.sel || [])].filter(id => ids.has(id)));  // ticks only count for people on show
+  const picked = mine.filter(m => S.sel.has(m.id));
   const typeOf = m => m.type === "first_timer" ? "First-timer" : "Member", ageOf = m => isKid(m) ? "Child" : "Adult";
   el.innerHTML = head("People", `${esc(S.church)} · ${everyone.length} on the register`, `<button class="pill-btn" id="dl">Download</button>`) + `
     ${roleKeys.length ? `<div class="chips"><button class="chip ${S.roleF ? "" : "on"}" data-role="">Everyone · ${everyone.length}</button>${roleKeys.map(k =>
       `<button class="chip ${S.roleF === k ? "on" : ""}" data-role="${esc(k)}">${esc(counts[k].label)} · ${counts[k].n}</button>`).join("")}</div>` : ""}
-    <div class="card"><div class="scroll"><table><thead><tr><th>Name</th><th>Roles</th><th>Type</th><th>Adult / Child</th><th>Status</th><th>Pastor</th><th>Phone</th>${edit ? "<th></th>" : ""}</tr></thead><tbody>
-    ${mine.map(m => `<tr><td>${whoBtn(m)}</td><td>${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("")}</td><td class="muted">${typeOf(m)}</td><td class="muted">${ageOf(m)}</td>
+    ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
+    <div class="card"><div class="scroll"><table><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select everyone shown" ${mine.length && picked.length === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th><th>Roles</th><th>Type</th><th>Adult / Child</th><th>Status</th><th>Pastor</th><th>Phone</th>${edit ? "<th></th>" : ""}</tr></thead><tbody>
+    ${mine.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}<td>${whoBtn(m)}</td><td>${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("")}</td><td class="muted">${typeOf(m)}</td><td class="muted">${ageOf(m)}</td>
       <td>${m.status ? `<span class="badge">${esc(m.status)}</span>` : `<span class="muted">Active</span>`}</td>
       <td class="${m.pastor ? "" : "muted"}">${esc(m.pastor || "Not assigned")}</td><td class="muted">${esc(m.phone || "")}</td>
       ${edit ? `<td><button class="pill-btn sm" data-edit="${esc(m.id)}" aria-label="Edit ${esc(m.full_name)}">${svg("edit")}Edit</button></td>` : ""}</tr>`).join("")}
     </tbody></table></div>${mine.length ? "" : `<p class="empty">Nobody on this register yet. Add people from Check-in.</p>`}
-    ${edit ? `<p class="note">Edit changes a person's name, phone, pastor and other details${admin ? ", or moves them to another church" : ""}.</p>` : ""}</div>`;
+    ${edit ? `<p class="note">Edit changes a person's name, phone, pastor and other details${admin ? ", or moves them to another church" : ""}. To fix a role for several people at once, tick them (or tick the box at the top for everyone shown) and press Change roles.</p>` : ""}</div>`;
+  el.querySelectorAll("[data-pick]").forEach(c => c.onchange = () => { c.checked ? S.sel.add(c.dataset.pick) : S.sel.delete(c.dataset.pick); render(); });
+  const all = el.querySelector("#pick-all");
+  if (all) all.onchange = () => { S.sel = new Set(all.checked ? mine.map(m => m.id) : []); render(); };
+  const bx = el.querySelector("#bulk-x"); if (bx) bx.onclick = () => { S.sel = new Set(); render(); };
+  const bg = el.querySelector("#bulk-go");
+  if (bg) bg.onclick = () => {
+    const theirs = [...new Map(picked.flatMap(rolesOf).map(r => [norm(r), r])).values()].sort();
+    const ADD = "\u0000add";
+    formDialog(`Change roles for ${picked.length} ${picked.length === 1 ? "person" : "people"}`, [
+      {k: "from", label: "Role to change", type: "select", value: counts[S.roleF] && theirs.find(r => norm(r) === S.roleF) || theirs[0] || ADD,
+       options: [...theirs.map(r => [r, r]), [ADD, "Add a new role to them"]]},
+      {k: "to", label: "Correct spelling, or the new role", value: "", suggest: roleNames,
+       hint: "Leave this empty to take the role off the people you ticked. Their other roles are left alone."},
+    ], async v => {
+      const add = v.from === ADD, to = v.to.replace(/,/g, " ").trim().replace(/\s+/g, " ");
+      if (add && !to) throw new Error("Type the role to add.");
+      let done = 0, clash = 0;
+      for (const m of picked) {
+        const now = rolesOf(m), out = [];
+        for (const r of add ? [...now, to] : now.map(r => norm(r) === norm(v.from) ? to : r))
+          if (r && !out.some(x => norm(x) === norm(r))) out.push(r);  // no doubles if they already had the right one
+        const role = out.join(", ");
+        if (role === now.join(", ")) continue;
+        const ver = Number(m.version) || 1;
+        const rows = await api(`members?id=eq.${encodeURIComponent(m.id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {role, version: ver + 1}});
+        if (!rows?.length) { clash++; continue; }
+        Object.assign(m, {role, version: ver + 1}); done++;
+        log("edit", m.id, "done", "role");
+      }
+      if (clash) await load();
+      S.sel = new Set(); if (!add && S.roleF === norm(v.from)) S.roleF = to ? norm(to) : "";
+      toast(clash ? `Changed ${done}. ${clash} were edited by someone else just now and were left alone.` : done ? `Changed ${done} ${done === 1 ? "person" : "people"}.` : "Nothing needed changing.");
+      render();
+    }, "Change roles");
+  };
   el.querySelectorAll("[data-role]").forEach(b => b.onclick = () => { S.roleF = b.dataset.role; render(); });
   el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
     const m = S.members.find(x => x.id === b.dataset.edit), cur = (m.pastor || "").trim();
@@ -573,7 +632,7 @@ function people(el) {
     formDialog(`Edit ${m.full_name}`, [
       {k: "full_name", label: "Full name", value: m.full_name, required: true},
       {k: "phone", label: "Phone", value: m.phone || "", type: "tel"},
-      {k: "role", label: "Roles", value: rolesOf(m).join(", "), hint: "Someone with several roles: separate them with commas, e.g. Tech Team, Worship Team"},
+      {k: "role", label: "Roles", value: rolesOf(m).join(", "), suggest: roleNames, many: true, hint: "Someone with several roles: separate them with commas, e.g. Tech Team, Worship Team"},
       {k: "type", label: "They are a", value: m.type === "first_timer" ? "first_timer" : "member", type: "select", options: [["member", "Member"], ["first_timer", "First-timer"]]},
       {k: "age_group", label: "Adult or child", value: ageOf(m), type: "select", options: [["Adult", "Adult"], ["Child", "Child"]]},
       {k: "status", label: "Status", value: statuses.find(x => norm(x) === norm(m.status)) ?? m.status, type: "select",
