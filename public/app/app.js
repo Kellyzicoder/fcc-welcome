@@ -604,7 +604,7 @@ function people(el) {
   const bg = el.querySelector("#bulk-go");
   if (bg) bg.onclick = () => {
     const theirs = [...new Map(picked.flatMap(rolesOf).map(r => [norm(r), r])).values()].sort();
-    const ADD = "\u0000add";
+    const ADD = "__add__";
     formDialog(`Change roles for ${picked.length} ${picked.length === 1 ? "person" : "people"}`, [
       {k: "from", label: "Role to change", type: "select", value: counts[S.roleF] && theirs.find(r => norm(r) === S.roleF) || theirs[0] || ADD,
        options: [...theirs.map(r => [r, r]), [ADD, "Add a new role to them"]]},
