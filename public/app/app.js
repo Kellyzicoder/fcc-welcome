@@ -202,6 +202,8 @@ function loginView(message, bad) {
     <p class="note" style="margin-top:14px">Stuck? Check Spam for the email, and make sure your address is spelled correctly. If it says you have no access, ask your church admin to add your email.</p>
   </form></div>`;
   const f = root.querySelector("#login"), pw = f.querySelector("#pw"), code = f.querySelector("#code"), go = f.querySelector("#go");
+  let had = ""; try { had = localStorage.getItem("fcc-pw") || ""; } catch {}
+  if (had) setTimeout(() => { f.querySelector("#email").value ||= had; if (pw.hidden) f.querySelector("#use-pw").click(); }, 0);
   f.querySelector("#use-pw").onclick = e => {
     pw.hidden = !pw.hidden; code.hidden = true;
     go.textContent = pw.hidden ? "Email me a sign-in link" : "Sign in";
@@ -1060,12 +1062,33 @@ function account(el) {
       <p class="facts" style="margin-top:14px">Email: ${esc(S.me.email)}<br>Role: ${ROLE[S.me.role]}${S.me.church ? "<br>Church: " + esc(S.me.church) : ""}</p>
       <p class="note">Your email, role and church are set by an admin.</p>
       <div style="margin-top:14px"><button class="pill-btn primary">Save name</button></div></form>
+    <form class="card" id="setpw" style="max-width:560px;margin-bottom:14px"><div class="card-head"><h2>Sign in with a password</h2></div>
+      <p class="note" style="margin-top:0">Set a password once, and after logging out you can sign back in with it straight away: no email code needed. Let your phone save it when it offers.</p>
+      <input type="email" autocomplete="username" value="${esc(S.me.email)}" readonly hidden>
+      <label class="f" for="pw1">New password</label><input class="in" id="pw1" type="password" autocomplete="new-password" minlength="8" maxlength="72" required>
+      <label class="f" for="pw2" style="margin-top:12px">Type it again</label><input class="in" id="pw2" type="password" autocomplete="new-password" minlength="8" maxlength="72" required>
+      <div style="margin-top:14px"><button class="pill-btn primary">Save password</button></div></form>
     <div class="card" style="max-width:560px"><label class="check"><input type="checkbox" id="emoji" ${S.emoji ? "checked" : ""}> Use emojis in WhatsApp messages</label>
       <div style="margin-top:16px"><button class="pill-btn" data-bye>${svg("out")}Log out</button></div></div>`;
   el.querySelector("#me").onsubmit = async e => {
     e.preventDefault();
     try { S.me.name = await api("rpc/app_set_my_name", {method: "POST", body: {new_name: el.querySelector("#my-name").value}}); toast("Saved."); render(); }
     catch (err) { toast(/app_set_my_name/.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
+  };
+  el.querySelector("#setpw").onsubmit = async e => {
+    e.preventDefault();
+    const a = el.querySelector("#pw1").value, b = el.querySelector("#pw2").value;
+    if (a.length < 8) return toast("Not saved: use at least 8 characters.");
+    if (a !== b) return toast("Not saved: the two passwords don't match.");
+    try {
+      if (S.session.expires_at - Date.now() < 60000) await refresh();
+      const r = await fetch(S.cfg.url + "/auth/v1/user", {method: "PUT", body: JSON.stringify({password: a}),
+        headers: {apikey: S.cfg.key, "Content-Type": "application/json", Authorization: "Bearer " + S.session.access_token}});
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.msg || j.error_description || j.message || "The password was not accepted.");
+      try { localStorage.setItem("fcc-pw", S.me.email); } catch {}
+      e.target.reset(); toast("Password saved. Next time, sign in with your email and this password.");
+    } catch (err) { toast("Not saved: " + err.message); }
   };
   el.querySelector("#emoji").onchange = e => { S.emoji = e.target.checked; try { localStorage.setItem("fcc-emoji", S.emoji ? "on" : "off"); } catch {} toast(S.emoji ? "Emojis on." : "Emojis off."); };
   el.querySelector("[data-bye]").onclick = signOut;
