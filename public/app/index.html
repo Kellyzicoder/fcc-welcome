@@ -15,7 +15,7 @@
 :root {
   --page: #eaf2fc; --page-2: #dbe8fa; --panel: #ffffff; --card: #ffffff; --soft: #f5f7fa; --line: #e7ebf0;
   --ink: #10151c; --ink-2: #566070; --ink-3: #8a94a3;
-  --accent: #1f6fe5; --accent-ink: #ffffff; --accent-soft: #e8f1fe;
+  --accent: #1f6fe5; --accent-ink: #ffffff; --accent-soft: #e8f1fe; --dock: #141a24; --dock-line: transparent;
   --adults: #2a78d6; --kids: #1baf7a;
   --ok: #0ca30c; --ok-bg: #e6f6e6; --info: #2a78d6; --info-bg: #e8f1fe; --yellow: #fab219; --yellow-bg: #fff4d6;
   --red: #d03b3b; --red-bg: #fbe9e9;
@@ -24,7 +24,7 @@
 [data-theme="dark"] {
   --page: #0b0f14; --page-2: #0e141b; --panel: #11161d; --card: #151b23; --soft: #1b222c; --line: #232c38;
   --ink: #eef2f6; --ink-2: #a6b0be; --ink-3: #727d8c;
-  --accent: #3987e5; --accent-ink: #ffffff; --accent-soft: #17273d;
+  --accent: #3987e5; --accent-ink: #ffffff; --accent-soft: #17273d; --dock: #1e2632; --dock-line: #2f3a4a;
   --adults: #3987e5; --kids: #199e70;
   --ok-bg: #12301a; --info: #3987e5; --info-bg: #17273d; --yellow-bg: #3a2e0c; --red-bg: #3a1717;
   --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.28);
@@ -160,16 +160,47 @@ button.acct:hover {background: var(--accent-soft);}
 .legend .dot {width: 10px; height: 10px; border-width: 2px; margin-right: 6px; border-radius: 50%;}
 .check {display: flex; align-items: center; gap: 10px; font-weight: 500;} .check input {width: 20px; height: 20px; accent-color: var(--accent); flex: none;}
 textarea.in {width: 100%; resize: vertical; font: inherit;}
+.back {display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--accent); font: inherit; font-weight: 600;
+       padding: 6px 2px; margin: -4px 0 10px; cursor: pointer;} .back svg {width: 18px; height: 18px;}
+/* popup (WhatsApp messages) */
+.modal {position: fixed; inset: 0; z-index: 30; background: rgba(10, 16, 28, .55); display: grid; place-items: center; padding: 16px; overflow-y: auto;}
+.sheet {width: min(860px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 24px; padding: 22px;
+        box-shadow: 0 30px 80px rgba(8, 15, 30, .45);}
+.sheet .card-head h2 {font-size: 20px;}
+.modal-grid {display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 16px; align-items: start;}
+.opts {display: grid; gap: 12px;}
+.switch, .opt {display: block; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px;}
+.switch {display: flex; align-items: center; gap: 14px; cursor: pointer;}
+.switch span {flex: 1;} .switch b {display: block; font-weight: 600;} .switch small {color: var(--ink-3); font-size: 12.5px;}
+.switch input {position: absolute; opacity: 0; width: 1px; height: 1px;}
+.switch i {flex: none; width: 46px; height: 28px; border-radius: 999px; background: var(--line); position: relative; transition: background .15s;}
+.switch i::after {content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff;
+                  box-shadow: 0 1px 3px rgba(0, 0, 0, .3); transition: transform .15s;}
+.switch input:checked + i {background: var(--accent);} .switch input:checked + i::after {transform: translateX(18px);}
+.switch input:focus-visible + i {outline: 3px solid var(--accent-soft); outline-offset: 2px;}
+.opt .f {display: block;}
+.preview {margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+          background: var(--soft); border-radius: 12px; padding: 14px; max-height: 46vh; overflow-y: auto; color: var(--ink); user-select: text; -webkit-user-select: text;}
+.modal-foot {display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px;} .modal-foot .pill-btn {justify-content: center; padding: 13px 16px;}
+@media (max-width: 720px) { .modal {place-items: end center; padding: 0;} .sheet {border-radius: 24px 24px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); max-height: 92vh; overflow-y: auto;}
+  .modal-grid {grid-template-columns: 1fr;} .preview {max-height: 34vh;} }
+@media (prefers-reduced-motion: reduce) { .switch i, .switch i::after {transition: none;} }
 
 /* phone and tablet: a menu button sits by the thumb at the bottom right; the sidebar slides in from that side */
-.menu-btn, .scrim {display: none;}
+.dock, .scrim {display: none;}
 @media (max-width: 1080px) {
   .shell {grid-template-columns: 1fr; padding: 12px; gap: 12px;}
-  .menu-btn {display: grid; position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 18;
-             width: 58px; height: 58px; border: 0; background: var(--accent); color: var(--accent-ink);
-             box-shadow: 0 10px 24px rgba(31,111,229,.38);}
-  .menu-btn svg {width: 24px; height: 24px;}
-  body {padding-bottom: calc(84px + env(safe-area-inset-bottom));}
+  /* a dark bar at the bottom, by the thumb: the four most-used pages and More (which opens the full menu) */
+  .dock {display: flex; align-items: center; justify-content: space-between; gap: 4px; position: fixed; left: 12px; right: 12px;
+         bottom: calc(10px + env(safe-area-inset-bottom)); max-width: 520px; margin: 0 auto; z-index: 18; padding: 8px;
+         background: var(--dock); border: 1px solid var(--dock-line); border-radius: 26px;
+         box-shadow: 0 16px 36px rgba(8, 15, 30, .38), 0 2px 6px rgba(8, 15, 30, .22);}
+  .dock button {border: 0; background: none; color: #aab4c3; height: 48px; min-width: 48px; padding: 0 12px; border-radius: 18px;
+                display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; font-size: 14px;}
+  .dock svg {width: 22px; height: 22px; flex: none;}
+  .dock span {display: none;}
+  .dock button.on {background: var(--accent); color: #fff; padding: 0 16px;} .dock button.on span {display: inline;}
+  body {padding-bottom: calc(92px + env(safe-area-inset-bottom));}
   .side {position: fixed; top: 0; right: 0; bottom: 0; height: auto; width: min(290px, 84vw); border-radius: 24px 0 0 24px;
          z-index: 20; overflow-y: auto; transform: translateX(105%); visibility: hidden;
          transition: transform .2s ease, visibility .2s; padding-top: calc(18px + env(safe-area-inset-top));
@@ -212,7 +243,7 @@ input.in:focus, select.in:focus {border-color: var(--accent); box-shadow: 0 0 0 
 .name span {white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
 .name small {color: var(--ink-3); margin-left: auto; flex: none; font-size: 12px;}
 .name.on {background: var(--accent-soft); border-color: transparent;}
-.toast {position: fixed; left: 50%; bottom: calc(88px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--ink); color: var(--panel);
+.toast {position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); z-index: 40; transform: translateX(-50%); background: var(--ink); color: var(--panel);
         border-radius: 14px; padding: 11px 16px; font-size: 14px; z-index: 9; max-width: 90vw;}
 .empty {color: var(--ink-3); padding: 18px 4px;}
 td .x {border: 0; background: none; color: var(--red); font-weight: 600;}
