@@ -651,7 +651,7 @@ function people(el) {
     <input class="in" id="find" type="search" placeholder="Search by name, phone, role or pastor" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off" style="margin-bottom:12px">
     ${roleKeys.length ? `<div class="chips"><button class="chip ${S.roleF ? "" : "on"}" data-role="">Everyone · ${everyone.length}</button>${roleKeys.map(k =>
       `<button class="chip ${S.roleF === k ? "on" : ""}" data-role="${esc(k)}">${esc(counts[k].label)} · ${counts[k].n}</button>`).join("")}</div>` : ""}
-    ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
+    ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
     <div class="card"><div class="scroll"><table><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select everyone shown" ${mine.length && picked.length === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Roles</th><th>Type</th><th>Adult / Child</th><th>Status</th><th>Pastor</th><th>Phone</th></tr></thead><tbody>
     ${mine.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}<td>${whoBtn(m)}</td>${edit ? `<td><button class="pill-btn sm" data-edit="${esc(m.id)}" aria-label="Edit ${esc(m.full_name)}">${svg("edit")}Edit</button></td>` : ""}<td>${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("")}</td><td class="muted">${typeOf(m)}</td><td class="muted">${ageOf(m)}</td>
       <td>${m.status ? `<span class="badge">${esc(m.status)}</span>` : `<span class="muted">Active</span>`}</td>
@@ -661,6 +661,27 @@ function people(el) {
   el.querySelectorAll("[data-pick]").forEach(c => c.onchange = () => { c.checked ? S.sel.add(c.dataset.pick) : S.sel.delete(c.dataset.pick); render(); });
   const all = el.querySelector("#pick-all");
   if (all) all.onchange = () => { S.sel = new Set(all.checked ? mine.map(m => m.id) : []); render(); };
+  const bp = el.querySelector("#bulk-pastor");
+  if (bp) bp.onclick = () => {
+    if (!plist.length) return toast("Add your pastors on the Pastors page first, then come back.");
+    formDialog(`Set the pastor for ${picked.length} ${picked.length === 1 ? "person" : "people"}`, [
+      {k: "pastor", label: "Pastor", type: "select", value: plist[0], options: [...plist.map(n => [n, n]), ["", "Not assigned"]], hint: "Everyone you ticked gets this pastor. Nothing else about them changes."},
+    ], async v => {
+      let done = 0, clash = 0;
+      for (const m of picked) {
+        if ((m.pastor || "").trim() === v.pastor) continue;
+        const ver = Number(m.version) || 1;
+        const rows = await api(`members?id=eq.${encodeURIComponent(m.id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {pastor: v.pastor, version: ver + 1}});
+        if (!rows?.length) { clash++; continue; }
+        Object.assign(m, {pastor: v.pastor, version: ver + 1}); done++;
+        log("edit", m.id, "done", "pastor");
+      }
+      if (clash) await load();
+      S.sel = new Set();
+      toast(clash ? `Changed ${done}. ${clash} were edited by someone else just now and were left alone.` : done ? `Changed ${done} ${done === 1 ? "person" : "people"}.` : "Nothing needed changing.");
+      render();
+    }, "Set pastor");
+  };
   const bx = el.querySelector("#bulk-x"); if (bx) bx.onclick = () => { S.sel = new Set(); render(); };
   const bg = el.querySelector("#bulk-go");
   if (bg) bg.onclick = () => {
