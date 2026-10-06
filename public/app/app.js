@@ -495,12 +495,13 @@ function checkin(el) {
       <div class="card tile"><div class="label">Not yet</div><div class="num" id="n-not">0</div></div></div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Names A to Z</h2><span class="gap"></span><span id="shown" style="color:var(--ink-3);font-size:13px"></span></div>
       <div class="names" id="names"></div></div>
-    <form class="card" id="add"><div class="card-head"><h2>Add someone new and check them in</h2></div><div class="row">
+    <form class="card" id="add"><div class="card-head"><h2>Add someone new</h2></div><div class="row">
       <div><label class="f" for="a-name">Full name</label><input class="in" id="a-name" required></div>
       <div><label class="f" for="a-phone">Phone</label><input class="in" id="a-phone"></div>
       <div><label class="f" for="a-type">They are a</label><select class="in" id="a-type"><option value="first_timer">First-timer</option><option value="member">Member</option></select></div>
       <div><label class="f" for="a-age">Adult or child</label><select class="in" id="a-age"><option>Adult</option><option>Child</option></select></div>
-      <div style="flex:0 0 auto"><button class="pill-btn primary">Add &amp; check in</button></div></div></form>`;
+      <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap"><button class="pill-btn primary">Add &amp; check in</button><button class="pill-btn" data-only>Add only</button></div></div>
+      <p class="note">Add only puts them on the register without ticking them for this service.</p></form>`;
   const box = el.querySelector("#names");
   const draw = () => {
     const shown = mine.filter(m => !S.q || norm(m.full_name).includes(norm(S.q)));
@@ -534,7 +535,7 @@ function checkin(el) {
     const name = el.querySelector("#a-name").value.trim().replace(/\s+/g, " "), type = el.querySelector("#a-type").value;
     if (!name) return;
     const known = S.members.find(m => churchOf(m) === S.church && norm(m.full_name) === norm(name));
-    const id = known?.id || newId();
+    const id = known?.id || newId(), only = e.submitter?.hasAttribute("data-only");
     try {
       if (!known) {
         const m = {id, full_name: name, phone: el.querySelector("#a-phone").value.trim(), type, status: "", age_group: el.querySelector("#a-age").value,
@@ -542,6 +543,7 @@ function checkin(el) {
         await api("members", {method: "POST", prefer: "return=minimal", body: m});
         S.members.push(m); mine.push(m); mine.sort((a, b) => norm(a.full_name).localeCompare(norm(b.full_name)));
       }
+      if (only) { e.target.reset(); toast(known ? `${name} is already on the list.` : `${name} is added to the register.`); draw(); return; }
       await setPresent(id, true);
       e.target.reset(); toast(`${name} is checked in${known ? " (already on the list)" : ""}.`); pull();
     } catch (err) { toast("Not saved: " + err.message); }
