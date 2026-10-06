@@ -9,7 +9,7 @@ const FLAG = {red: "Red", yellow: "Yellow", blue: "Blue", ok: "On track"};
 const root = document.getElementById("root");
 const S = {cfg: null, session: null, me: null, churches: [], church: "", members: [], ticks: [], names: {}, view: "dashboard",
            back: "", cal: today().slice(0, 7), filter: "need", date: today(), q: "", poll: null, numbers: null, users: null,
-           seen: null, pastorList: {}, pending: 0, person: "", pastor: "", actDay: today(), actShow: "all", emoji: true};
+           seen: null, pastorList: {}, pending: 0, person: "", pq: "", pastor: "", actDay: today(), actShow: "all", emoji: true};
 
 // ---------------------------------------------------------------- small helpers
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
@@ -259,7 +259,7 @@ function pages() {  // the menu, in groups; what each role can actually load is 
   return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["followup", "Follow-up"], ["pastors", "Pastors"]]],
           ["PEOPLE", [["people", "People"], ["person", "One person"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ["archive", "Archive"]]],
           ...(r === "team" ? [] : [["RECORDS", [["activity", "Activity"],
-            ...(r === "admin" ? [["reports", "Reports"], ["overview", "All churches"], ["admin", "Admin"]] : [])]]])];
+            ...(r === "admin" ? [["reports", "Reports"], ["overview", "Churches"], ["admin", "Admin"]] : [])]]])];
 }
 function setMode(mode, remember) {
   document.documentElement.dataset.theme = mode;
@@ -279,7 +279,7 @@ function render() {
     <aside class="side" id="menu"><div class="brand"><span class="brand-mark">✝</span>Favourite Child Church</div>
       ${groups.map(([h, items]) => (h ? `<h6>${h}</h6>` : "") + items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}">${svg(k)}${t}${
         k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : ""}</button>`).join("")).join("")}
-      ${S.me.role === "admin" ? `<h6>CHURCHES</h6>${S.churches.map(c => `<button class="church ${c === S.church ? "on" : ""}" data-church="${esc(c)}"><i></i>${esc(c)}</button>`).join("")}` : ""}
+      ${S.me.role === "admin" ? `<h6>CHURCH</h6><button class="church on" data-view="overview" title="See every church and switch to another one"><i></i><span>${esc(S.church)}</span><em>Change</em></button>` : ""}
       <div class="side-foot"><button class="nav out" data-out>${svg("out")}Log out</button></div></aside>
     <main class="main"><div class="top"><span class="gap"></span>
         <div class="mode" role="group" aria-label="Colour mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button></div>
@@ -297,7 +297,6 @@ function render() {
   root.querySelectorAll("[data-view]").forEach(b => b.onclick = () => go(b.dataset.view));
   root.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => setMode(b.dataset.mode, true));
   root.querySelectorAll("[data-out]").forEach(b => b.onclick = signOut);
-  root.querySelectorAll("[data-church]").forEach(b => b.onclick = () => { S.church = b.dataset.church; render(); });
   const view = document.getElementById("view");
   view.onclick = e => {
     const b = e.target.closest("[data-person]"), back = e.target.closest("[data-back]");
@@ -549,24 +548,33 @@ function people(el) {
 
 // ---------------------------------------------------------------- all churches (numbers only) and admin
 async function overview(el) {
-  el.innerHTML = head("All churches", "Every branch side by side. Numbers only, no names.") + `<p class="empty">Loading…</p>`;
+  const sub = S.me.role === "admin" ? "Every branch, its pastors and its numbers. Open one to work in it." : "Every branch side by side. Numbers only, no names.";
+  el.innerHTML = head("All churches", sub) + `<p class="empty">Loading…</p>`;
   let rows;
   try { rows = await api("rpc/church_numbers", {method: "POST", body: {}}); } catch (e) { el.innerHTML = head("All churches", "") + `<div class="msg bad">${esc(e.message)}</div>`; return; }
   if (S.view !== "overview") return;
-  const sum = k => rows.reduce((n, r) => n + (r[k] || 0), 0), top = Math.max(1, ...rows.flatMap(r => r.trend || []));
+  const sum = k => rows.reduce((n, r) => n + (r[k] || 0), 0), top = Math.max(1, ...rows.flatMap(r => r.trend || [])), admin = S.me.role === "admin";
   const text = () => wa([`*FCC · all churches*${S.emoji ? " ⛪" : ""}`, nice(today(), true), "",
     ["✅", `Present: *${sum("present")}*`], ["🧑", `Adults: *${sum("adults")}*`], ["🧒", `Kids: *${sum("kids")}*`], ["👋", `First-timers: *${sum("first_timers")}*`],
     ...rows.flatMap(r => ["", `*${r.church}*${r.latest ? ` (${nice(r.latest)})` : ""}`, `Present ${r.present} · Adults ${r.adults} · Kids ${r.kids}`,
       `First-timers ${r.first_timers} · ${S.emoji ? `🔴 ${r.red} · 🟡 ${r.yellow}` : `Red ${r.red} · Yellow ${r.yellow}`}`])]);
-  el.innerHTML = head("All churches", "Every branch side by side. Numbers only, no names.", `<button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
+  el.innerHTML = head("All churches", sub, `<button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
     <div class="tiles"><div class="card tile"><div class="label">Churches</div><div class="num">${rows.length}</div></div>
       <div class="card tile"><div class="label">Present · latest services</div><div class="num">${sum("present")}</div></div>
       <div class="card tile"><div class="label">Adults and kids</div><div class="num">${sum("adults")}<small>+ ${sum("kids")} kids</small></div></div>
       <div class="card tile"><div class="label">Need a follow-up call</div><div class="num">${sum("red") + sum("yellow")}</div></div></div>
-    <div class="card"><div class="scroll"><table><thead><tr><th>Church</th><th>Latest service</th><th>Present</th><th>Adults</th><th>Kids</th><th>First-timers</th><th>On the register</th><th>Red</th><th>Yellow</th><th>Missed this service</th><th>Recent services</th></tr></thead><tbody>
-    ${rows.map(r => `<tr><td><b>${esc(r.church)}</b></td><td class="muted">${r.latest ? esc(nice(r.latest)) : "None yet"}</td><td>${r.present}</td><td>${r.adults}</td><td>${r.kids}</td><td>${r.first_timers}</td><td>${r.register}</td>
-      <td>${r.red}</td><td>${r.yellow}</td><td>${r.missed_this}</td><td><span class="spark" title="${(r.trend || []).join(", ")}">${(r.trend || []).map(n => `<i style="height:${Math.max(2, Math.round(22 * n / top))}px"></i>`).join("")}</span></td></tr>`).join("")}
-    </tbody></table></div></div>`;
+    <div class="branches">${rows.map(r => {
+      const pastors = S.pastorList[r.church] || [], here = admin && r.church === S.church;
+      return `<div class="card branch ${here ? "here" : ""}"><div class="card-head"><h2>${esc(r.church)}</h2>${here ? `<span class="badge blue">Viewing</span>` : ""}<span class="gap"></span>
+          <span class="spark" title="Recent services: ${(r.trend || []).join(", ")}">${(r.trend || []).map(n => `<i style="height:${Math.max(2, Math.round(22 * n / top))}px"></i>`).join("")}</span></div>
+        <p class="facts">${pastors.length ? `${pastors.length === 1 ? "Pastor" : "Pastors"}: ${esc(pastors.slice(0, 3).join(", "))}${pastors.length > 3 ? ` +${pastors.length - 3} more` : ""}` : (admin ? "No pastor list yet" : "")}</p>
+        <div class="branch-main"><div class="num">${r.present}<small>present</small></div><span class="muted">${r.latest ? esc(nice(r.latest, true)) : "No services yet"}</span></div>
+        <dl class="stats"><div><dt>Adults</dt><dd>${r.adults}</dd></div><div><dt>Kids</dt><dd>${r.kids}</dd></div><div><dt>First-timers</dt><dd>${r.first_timers}</dd></div>
+          <div><dt>Register</dt><dd>${r.register}</dd></div><div><dt>Red</dt><dd>${r.red}</dd></div><div><dt>Yellow</dt><dd>${r.yellow}</dd></div></dl>
+        ${admin ? `<button class="pill-btn ${here ? "" : "primary"} block" data-open="${esc(r.church)}">${here ? "Open dashboard" : `Open ${esc(r.church)}`}</button>` : ""}</div>`; }).join("")}</div>
+    ${rows.length ? "" : `<p class="empty">No churches yet.</p>`}
+    ${admin ? `<p class="note">Opening a church switches every page to that church. Add a new church on the Admin page.</p>` : ""}`;
+  el.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { S.church = b.dataset.open; S.view = "dashboard"; render(); });
   el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text);
   el.querySelector("#dl").onclick = () => download(`all_churches_${today()}.csv`, [["Church", "Latest service", "Present", "Adults", "Kids", "First-timers", "On the register", "Red", "Yellow", "Missed this service"],
     ...rows.map(r => [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this])]);
@@ -650,10 +658,20 @@ function pastors(el) {
 async function person(el) {
   const p = picture(), mine = p.mine.slice().sort(byName), m = mine.find(x => x.id === S.person);
   const top = backBtn() + head("One person", `${esc(S.church)} · every service someone came to`, m ? `<button class="pill-btn" id="dl">Download</button>` : "") + `
-    <div class="card" style="margin-bottom:14px"><label class="f" for="who">Person</label><select class="in" id="who"><option value="">Choose a person…</option>
-      ${mine.map(x => `<option value="${esc(x.id)}" ${x.id === S.person ? "selected" : ""}>${esc(x.full_name)}</option>`).join("")}</select></div>`;
-  const bind = () => { el.querySelector("#who").onchange = e => { S.person = e.target.value; render(); }; };
-  if (!m) { el.innerHTML = top + `<p class="empty">Choose someone to see every service they came to. You can also tap a name on any list.</p>`; bind(); return; }
+    <div class="card" style="margin-bottom:14px"><label class="f" for="who">Search for a person</label>
+      <input class="in" id="who" type="search" autocomplete="off" placeholder="Type a name…" value="${esc(S.pq)}"><div class="found" id="found"></div></div>`;
+  const bind = () => {
+    const box = el.querySelector("#who"), found = el.querySelector("#found");
+    const draw = () => {
+      const q = norm(S.pq), hits = q ? mine.filter(x => norm(x.full_name).includes(q)) : [];
+      found.innerHTML = !q ? "" : hits.length ? hits.slice(0, 8).map(x => `<button class="who" data-person="${esc(x.id)}"><span>${esc(initials(x.full_name))}</span>${esc(x.full_name)}</button>`).join("")
+        + (hits.length > 8 ? `<p class="note" style="margin:6px 2px 0">${hits.length - 8} more. Keep typing to narrow it down.</p>` : "") : `<p class="empty" style="padding:8px 2px 0">Nobody matches “${esc(S.pq)}”.</p>`;
+    };
+    box.oninput = () => { S.pq = box.value; draw(); };
+    found.onclick = e => { if (e.target.closest("[data-person]")) S.pq = ""; };  // the page-wide handler then opens that person
+    draw();
+  };
+  if (!m) { el.innerHTML = top + `<p class="empty">Search for someone to see every service they came to. You can also tap a name on any list.</p>`; bind(); return; }
   el.innerHTML = top + `<p class="empty">Loading…</p>`; bind();
   let rows;
   try { rows = await all(`attendance?select=service_date&member_id=eq.${encodeURIComponent(m.id)}&order=service_date.desc`); }
