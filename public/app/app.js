@@ -9,7 +9,7 @@ const FLAG = {red: "Red", yellow: "Yellow", blue: "Blue", ok: "On track"};
 const root = document.getElementById("root");
 const S = {cfg: null, session: null, me: null, churches: [], church: "", members: [], ticks: [], names: {}, view: "dashboard",
            back: "", cal: today().slice(0, 7), filter: "need", date: today(), q: "", poll: null, numbers: null, users: null,
-           seen: null, pastorList: {}, pending: 0, person: "", pq: "", pastor: "", actDay: today(), actShow: "all", emoji: true};
+           seen: null, pastorList: {}, pending: 0, person: "", pq: "", roleF: "", pastor: "", actDay: today(), actShow: "all", emoji: true};
 
 // ---------------------------------------------------------------- small helpers
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
@@ -34,6 +34,7 @@ function when(iso) {  // a saved timestamp as a short date and time
   const d = new Date(iso);
   return isNaN(d) ? String(iso || "") : d.toLocaleString("en-NZ", {day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"});
 }
+const rolesOf = m => String(m.role || "").split(",").map(x => x.trim().replace(/\s+/g, " ")).filter(Boolean);  // "Tech Team, Worship Team" is two roles
 const byName = (a, b) => norm(a.full_name).localeCompare(norm(b.full_name));
 const canApprove = () => S.me.role === "admin" || (S.me.role === "lead" && S.me.church === S.me.home);
 // WhatsApp text: a line is a string, or [emoji, text]; the emoji is left out when emojis are switched off
@@ -52,6 +53,33 @@ function download(name, rows) {
   const a = Object.assign(document.createElement("a"), {href: URL.createObjectURL(new Blob(["﻿" + csv], {type: "text/csv"})), download: name});
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
+// A popup form. fields: [{k, label, value, type?: "text"|"tel"|"select", options?: [[value, label]], hint?}].
+// save(values) does the work and may throw; the popup shows the message and stays open so nothing typed is lost.
+function formDialog(title, fields, save, button = "Save") {
+  document.querySelectorAll(".modal").forEach(m => m.remove());
+  const d = document.createElement("div");
+  d.className = "modal";
+  d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+    <div class="card-head"><h2>${esc(title)}</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+    <div class="fields">${fields.map(f => `<div><label class="f" for="fd-${f.k}">${esc(f.label)}</label>${f.type === "select"
+      ? `<select class="in" id="fd-${f.k}">${f.options.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(f.value ?? "") ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`
+      : `<input class="in" id="fd-${f.k}" type="${f.type || "text"}" value="${esc(f.value ?? "")}" maxlength="120" ${f.required ? "required" : ""} autocomplete="off">`}
+      ${f.hint ? `<p class="note" style="margin:6px 2px 0">${esc(f.hint)}</p>` : ""}</div>`).join("")}</div>
+    <div class="msg bad" id="fd-err" hidden></div>
+    <div class="modal-foot"><button type="button" class="pill-btn" data-x>Cancel</button><button class="pill-btn primary" id="fd-go">${esc(button)}</button></div></form>`;
+  document.body.append(d);
+  const close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
+  d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
+  document.addEventListener("keydown", onKey);
+  d.querySelector("form").onsubmit = async e => {
+    e.preventDefault();
+    const go = d.querySelector("#fd-go"), err = d.querySelector("#fd-err"), values = Object.fromEntries(fields.map(f => [f.k, d.querySelector("#fd-" + f.k).value.trim().replace(/\s+/g, " ")]));
+    go.disabled = true; err.hidden = true;
+    try { await save(values); close(); } catch (ex) { err.textContent = ex.message; err.hidden = false; go.disabled = false; }
+  };
+  d.querySelector("input, select")?.focus();
+}
+
 // A popup for a WhatsApp message: options on the left, a live preview on the right, then Copy.
 // build({names, link}) returns the text; opts says which options this message offers.
 function waDialog(title, build, opts = {}) {
@@ -195,7 +223,7 @@ async function signOut() { try { await auth("logout", {}, S.session?.access_toke
 async function load() {
   const since = new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10);
   const [members, ticks, services, seen, lists] = await Promise.all([
-    all("members?select=id,full_name,phone,type,status,age_group,pastor,church,date_joined,first_visit,created_at&order=full_name"),
+    all("members?select=id,full_name,phone,type,status,age_group,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name"),
     all(`attendance?select=service_date,member_id,checked_at&service_date=gte.${since}&order=service_date`),
     all(`services?select=service_date,name&service_date=gte.${since}`),
     api("rpc/app_last_seen", {method: "POST", body: {}}).catch(() => null),  // null until the newer setup SQL has been run
@@ -239,6 +267,7 @@ const ICON = {
   overview: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   admin: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>',
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   back: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
   prev: '<path d="M15 6l-6 6 6 6"/>',
@@ -518,32 +547,57 @@ function followup(el) {
      ...list.map(x => [S.church, x.full_name, FLAG[x.flag], x.missed, x.seen || "", x.phone || "", x.pastor || "", x.kid ? "Child" : "Adult"])]);
 }
 function people(el) {
-  const mine = S.members.filter(m => churchOf(m) === S.church).sort(byName);
-  const plist = S.pastorList[S.church] || [];
-  const pastorCell = m => {
-    const cur = (m.pastor || "").trim();
-    if (!plist.length) return `<input class="in" data-k="pastor" value="${esc(cur)}" style="min-width:130px">`;
-    return `<select class="in" data-k="pastor" style="min-width:150px"><option value="">Not assigned</option>${[...plist, ...(cur && !plist.includes(cur) ? [cur] : [])]
-      .map(n => `<option ${n === cur ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>`;
-  };
+  const everyone = S.members.filter(m => churchOf(m) === S.church).sort(byName);
+  const counts = {};  // each role with how many people have it, however the capitals were typed
+  for (const m of everyone) for (const r of new Set(rolesOf(m).map(norm))) (counts[r] ??= {label: rolesOf(m).find(x => norm(x) === r), n: 0}).n++;
+  const roleKeys = Object.keys(counts).sort();
+  if (S.roleF && !counts[S.roleF]) S.roleF = "";
+  const mine = S.roleF ? everyone.filter(m => rolesOf(m).some(r => norm(r) === S.roleF)) : everyone;
+  const plist = S.pastorList[S.church] || [], admin = S.me.role === "admin";
   const edit = S.me.role !== "team", statuses = ["", "Away", "Inactive", "Moved", "Left", "Transferred", "Deceased"];
-  el.innerHTML = head("People", `${esc(S.church)} · ${mine.length} on the register`, `<button class="pill-btn" id="dl">Download</button>`) + `
-    <div class="card"><div class="scroll"><table><thead><tr><th>Name</th><th>Type</th><th>Adult / Child</th><th>Status</th><th>Pastor</th><th>Phone</th>${S.me.role === "admin" ? "<th>Church</th>" : ""}</tr></thead><tbody>
-    ${mine.map(m => `<tr data-id="${esc(m.id)}"><td>${whoBtn(m)}</td>
-      <td class="muted">${m.type === "first_timer" ? "First-timer" : "Member"}</td>
-      <td>${edit ? `<select class="in" data-k="age_group"><option ${isKid(m) ? "" : "selected"}>Adult</option><option ${isKid(m) ? "selected" : ""}>Child</option></select>` : (isKid(m) ? "Child" : "Adult")}</td>
-      <td>${edit ? `<select class="in" data-k="status">${statuses.map(s => `<option value="${s}" ${norm(m.status) === norm(s) ? "selected" : ""}>${s || "Active"}</option>`).join("")}</select>` : esc(m.status || "Active")}</td>
-      <td>${edit ? pastorCell(m) : esc(m.pastor || "")}</td>
-      <td class="muted">${esc(m.phone || "")}</td>
-      ${S.me.role === "admin" ? `<td><select class="in" data-k="church">${S.churches.map(c => `<option ${c === churchOf(m) ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></td>` : ""}</tr>`).join("")}
-    </tbody></table></div>${mine.length ? "" : `<p class="empty">Nobody on this register yet. Add people from Check-in.</p>`}</div>`;
-  el.querySelector("tbody").onchange = async e => {
-    const id = e.target.closest("tr").dataset.id, k = e.target.dataset.k, v = e.target.value.trim(), m = S.members.find(x => x.id === id);
-    try { await api(`members?id=eq.${encodeURIComponent(id)}`, {method: "PATCH", prefer: "return=minimal", body: {[k]: v}}); m[k] = v; toast("Saved."); if (k === "church") render(); }
-    catch (err) { toast("Not saved: " + err.message); render(); }
-  };
-  el.querySelector("#dl").onclick = () => download(`people_${S.church}_${today()}.csv`, [["Church", "Name", "Type", "Adult / Child", "Status", "Pastor", "Phone"],
-    ...mine.map(m => [S.church, m.full_name, m.type === "first_timer" ? "First-timer" : "Member", isKid(m) ? "Child" : "Adult", m.status || "Active", m.pastor || "", m.phone || ""])]);
+  const typeOf = m => m.type === "first_timer" ? "First-timer" : "Member", ageOf = m => isKid(m) ? "Child" : "Adult";
+  el.innerHTML = head("People", `${esc(S.church)} · ${everyone.length} on the register`, `<button class="pill-btn" id="dl">Download</button>`) + `
+    ${roleKeys.length ? `<div class="chips"><button class="chip ${S.roleF ? "" : "on"}" data-role="">Everyone · ${everyone.length}</button>${roleKeys.map(k =>
+      `<button class="chip ${S.roleF === k ? "on" : ""}" data-role="${esc(k)}">${esc(counts[k].label)} · ${counts[k].n}</button>`).join("")}</div>` : ""}
+    <div class="card"><div class="scroll"><table><thead><tr><th>Name</th><th>Roles</th><th>Type</th><th>Adult / Child</th><th>Status</th><th>Pastor</th><th>Phone</th>${edit ? "<th></th>" : ""}</tr></thead><tbody>
+    ${mine.map(m => `<tr><td>${whoBtn(m)}</td><td>${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("")}</td><td class="muted">${typeOf(m)}</td><td class="muted">${ageOf(m)}</td>
+      <td>${m.status ? `<span class="badge">${esc(m.status)}</span>` : `<span class="muted">Active</span>`}</td>
+      <td class="${m.pastor ? "" : "muted"}">${esc(m.pastor || "Not assigned")}</td><td class="muted">${esc(m.phone || "")}</td>
+      ${edit ? `<td><button class="pill-btn sm" data-edit="${esc(m.id)}" aria-label="Edit ${esc(m.full_name)}">${svg("edit")}Edit</button></td>` : ""}</tr>`).join("")}
+    </tbody></table></div>${mine.length ? "" : `<p class="empty">Nobody on this register yet. Add people from Check-in.</p>`}
+    ${edit ? `<p class="note">Edit changes a person's name, phone, pastor and other details${admin ? ", or moves them to another church" : ""}.</p>` : ""}</div>`;
+  el.querySelectorAll("[data-role]").forEach(b => b.onclick = () => { S.roleF = b.dataset.role; render(); });
+  el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
+    const m = S.members.find(x => x.id === b.dataset.edit), cur = (m.pastor || "").trim();
+    const pastors = [["", "Not assigned"], ...[...plist, ...(cur && !plist.includes(cur) ? [cur] : [])].map(n => [n, n])];
+    formDialog(`Edit ${m.full_name}`, [
+      {k: "full_name", label: "Full name", value: m.full_name, required: true},
+      {k: "phone", label: "Phone", value: m.phone || "", type: "tel"},
+      {k: "role", label: "Roles", value: rolesOf(m).join(", "), hint: "Someone with several roles: separate them with commas, e.g. Tech Team, Worship Team"},
+      {k: "type", label: "They are a", value: m.type === "first_timer" ? "first_timer" : "member", type: "select", options: [["member", "Member"], ["first_timer", "First-timer"]]},
+      {k: "age_group", label: "Adult or child", value: ageOf(m), type: "select", options: [["Adult", "Adult"], ["Child", "Child"]]},
+      {k: "status", label: "Status", value: statuses.find(x => norm(x) === norm(m.status)) ?? m.status, type: "select",
+       options: [...statuses.map(x => [x, x || "Active"]), ...(m.status && !statuses.some(x => norm(x) === norm(m.status)) ? [[m.status, m.status]] : [])],
+       hint: "Away, Moved and the others take someone off the follow-up lists."},
+      plist.length || !cur ? {k: "pastor", label: "Pastor", value: cur, type: "select", options: pastors, hint: plist.length ? "" : "Add pastors on the Pastors page to choose one here."}
+                           : {k: "pastor", label: "Pastor", value: cur},
+      ...(admin ? [{k: "church", label: "Church", value: churchOf(m), type: "select", options: S.churches.map(c => [c, c]), hint: "Changing this moves them to that church's register."}] : []),
+    ], async v => {
+      if (!v.full_name) throw new Error("Type their name.");
+      v.role = v.role.split(",").map(x => x.trim()).filter(Boolean).join(", ");
+      const changed = Object.fromEntries(Object.entries(v).filter(([k, val]) => val !== String(k === "church" ? churchOf(m) : k === "age_group" ? ageOf(m) : k === "type" ? (m.type === "first_timer" ? "first_timer" : "member") : (m[k] ?? "")).trim()));
+      if (!Object.keys(changed).length) return;
+      // only save over the version this screen loaded: if someone else edited the person meanwhile, nothing is overwritten
+      const ver = Number(m.version) || 1;
+      const rows = await api(`members?id=eq.${encodeURIComponent(m.id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {...changed, version: ver + 1}});
+      if (!rows?.length) { await load(); render(); throw new Error("Someone else changed this person a moment ago, so nothing was saved. The list now shows the latest details: please make your change again."); }
+      Object.assign(m, changed, {version: ver + 1});
+      log("edit", m.id, "done", Object.keys(changed).join(", "));
+      toast("Saved."); render();
+    });
+  });
+  el.querySelector("#dl").onclick = () => download(`people_${S.church}_${today()}.csv`, [["Church", "Name", "Roles", "Type", "Adult / Child", "Status", "Pastor", "Phone"],
+    ...mine.map(m => [S.church, m.full_name, rolesOf(m).join(", "), typeOf(m), ageOf(m), m.status || "Active", m.pastor || "", m.phone || ""])]);
 }
 
 // ---------------------------------------------------------------- all churches (numbers only) and admin
@@ -585,7 +639,9 @@ async function admin(el) {
   if (S.view !== "admin") return;
   el.innerHTML = head("Admin", "Churches, and who can sign in") + `
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Churches</h2></div>
-      <div class="chips">${S.churches.map(c => `<span class="chip">${esc(c)}</span>`).join("")}</div>
+      <div class="chips">${S.churches.map(c => c === S.me.home ? `<span class="chip">${esc(c)} · home church</span>`
+        : `<button class="chip" data-rename="${esc(c)}" title="Rename ${esc(c)}">${esc(c)}${svg("edit")}</button>`).join("")}</div>
+      <p class="note" style="margin:-4px 2px 14px">Tap a church to rename it. Its people, sign-ins, pastor list and report list all move to the new name.</p>
       <form class="row" id="add-church"><div><label class="f" for="c-name">New church</label><input class="in" id="c-name" placeholder="e.g. Melbourne" required></div>
         <div style="flex:0 0 auto"><button class="pill-btn primary">Add church</button></div></form></div>
     <div class="card"><div class="card-head"><h2>People who can sign in</h2></div>
@@ -599,6 +655,17 @@ async function admin(el) {
         <div style="flex:0 0 auto"><button class="pill-btn primary">Add person</button></div></form>
       <p class="note">They sign in with this email. Nothing is sent until they ask for a sign-in link themselves.</p></div>`;
   const again = async fn => { try { await fn(); } catch (err) { toast("Not saved: " + err.message); } S.churches = (await api("churches?select=name&order=name")).map(c => c.name); render(); };
+  el.querySelectorAll("[data-rename]").forEach(b => b.onclick = () => formDialog(`Rename ${b.dataset.rename}`, [
+    {k: "name", label: "New name", value: b.dataset.rename, required: true, hint: "If this church has passwords on the Streamlit site, rename it in the Streamlit Secrets too."}],
+    async v => {
+      if (!v.name || v.name === b.dataset.rename) return;
+      let name;
+      try { name = await api("rpc/app_rename_church", {method: "POST", body: {old_name: b.dataset.rename, new_name: v.name}}); }
+      catch (err) { throw new Error(/app_rename_church/.test(err.message) ? "Run the latest setup SQL in Supabase once, then try again." : err.message.replace(/^./, c => c.toUpperCase()) + "."); }
+      if (S.church === b.dataset.rename) S.church = name;
+      S.churches = (await api("churches?select=name&order=name")).map(c => c.name); await load();
+      toast(`Renamed to ${name}.`); render();
+    }, "Rename"));
   el.querySelector("#add-church").onsubmit = e => { e.preventDefault(); const name = el.querySelector("#c-name").value.trim().replace(/\s+/g, " ");
     again(() => api("churches", {method: "POST", prefer: "return=minimal", body: {name}})); };
   el.querySelector("#add-user").onsubmit = e => { e.preventDefault(); const role = el.querySelector("#u-role").value;
@@ -757,7 +824,7 @@ function archive(el) {
 }
 
 // ---------------------------------------------------------------- activity: who did what, and when
-const KIND = {tick: "Ticked in", untick: "Unticked", clear_service: "Unticked everyone", edit: "Edited", add_person: "Added",
+const KIND = {rename_church: "Renamed a church", tick: "Ticked in", untick: "Unticked", clear_service: "Unticked everyone", edit: "Edited", add_person: "Added",
               signup_approved: "Approved sign-up", signup_rejected: "Rejected sign-up"};
 const RESULT = {done: "Done", already: "No change (already done)", changed: "Blocked: someone else changed it first"};
 async function activity(el) {
