@@ -511,12 +511,14 @@ function checkin(el) {
   el.innerHTML = head("Check-in", `${esc(S.church)} · tick people as they arrive`) + `
     <div class="card" style="margin-bottom:14px"><div class="row">
       <div style="flex:0 0 170px"><label class="f" for="d">Service date</label><input class="in" id="d" type="date" value="${S.date}"></div>
-      <div><label class="f" for="q">Find a person</label><input class="in" id="q" placeholder="Type a name…" value="${esc(S.q)}"></div></div></div>
+      <div><label class="f" for="q">Find a person or a team</label><input class="in" id="q" type="search" placeholder="Type a name or a role, e.g. worship" value="${esc(S.q)}"></div></div>
+      <div class="chips" id="ci-roles" style="margin:12px 0 0"></div></div>
     <div class="tiles"><div class="card tile"><div class="label">Checked in</div><div class="num" id="n-in">0</div></div>
       <div class="card tile"><div class="label">Adults</div><div class="num" id="n-ad">0</div></div>
       <div class="card tile"><div class="label">Kids</div><div class="num" id="n-kid">0</div></div>
       <div class="card tile"><div class="label">Not yet</div><div class="num" id="n-not">0</div></div></div>
-    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Names A to Z</h2><span class="gap"></span><span id="shown" style="color:var(--ink-3);font-size:13px"></span></div>
+    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span><span id="shown" style="color:var(--ink-3);font-size:13px"></span></div>
+      <div class="bulk" id="ci-bulk" hidden style="position:static;box-shadow:none"><b id="ci-count"></b><span class="gap"></span><button type="button" class="pill-btn sm primary" id="ci-all">Tick all</button><button type="button" class="pill-btn sm" id="ci-none">Untick all</button></div>
       <div class="names" id="names"></div></div>
     <form class="card" id="add"><div class="card-head"><h2>Add someone new</h2></div><div class="row">
       <div><label class="f" for="a-name">Full name</label><input class="in" id="a-name" required></div>
@@ -526,11 +528,28 @@ function checkin(el) {
       <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap"><button class="pill-btn primary">Add &amp; check in</button><button class="pill-btn" data-only>Add only</button></div></div>
       <p class="note">Add only puts them on the register without ticking them for this service.</p></form>`;
   const box = el.querySelector("#names");
+  const teams = {};  // each role in this church with how many people have it
+  for (const m of mine) for (const r of new Set(rolesOf(m).map(norm))) (teams[r] ??= {label: rolesOf(m).find(x => norm(x) === r), n: 0}).n++;
+  if (S.ciRole && !teams[S.ciRole]) S.ciRole = "";
+  const chips = el.querySelector("#ci-roles"), teamKeys = Object.keys(teams).sort();
+  const drawChips = () => { chips.innerHTML = teamKeys.length ? `<button type="button" class="chip sm ${S.ciRole ? "" : "on"}" data-team="">Everyone</button>` +
+    teamKeys.map(k => `<button type="button" class="chip sm ${S.ciRole === k ? "on" : ""}" data-team="${esc(k)}">${esc(teams[k].label)} · ${teams[k].n}</button>`).join("") : ""; };
+  chips.onclick = e => { const b = e.target.closest("[data-team]"); if (!b) return; S.ciRole = b.dataset.team; armed = false; drawChips(); draw(); };
+  let armed = false, busy = false;
+  const showing = () => { const q = norm(S.q);
+    return mine.filter(m => (!S.ciRole || rolesOf(m).some(r => norm(r) === S.ciRole)) && (!q || norm(m.full_name).includes(q) || rolesOf(m).some(r => norm(r).includes(q)))); };
   const draw = () => {
-    const shown = mine.filter(m => !S.q || norm(m.full_name).includes(norm(S.q)));
+    const shown = showing(), narrowed = !!(S.ciRole || norm(S.q)), ticked = shown.filter(m => here[m.id]).length;
     box.innerHTML = shown.map(m => `<label class="name ${here[m.id] ? "on" : ""}"><input type="checkbox" data-id="${esc(m.id)}" ${here[m.id] ? "checked" : ""}>
-      <span>${esc(m.full_name)}</span><small>${m.type === "first_timer" ? "first-timer" : ""}${isKid(m) ? " child" : ""}</small></label>`).join("") || `<p class="empty">Nobody matches.</p>`;
+      <span>${esc(m.full_name)}</span><small>${[narrowed ? rolesOf(m).join(", ") : "", m.type === "first_timer" ? "first-timer" : "", isKid(m) ? "child" : ""].filter(Boolean).map(esc).join(" · ")}</small></label>`).join("") || `<p class="empty">Nobody matches.</p>`;
     el.querySelector("#shown").textContent = `showing ${shown.length} of ${mine.length}`;
+    el.querySelector("#ci-title").textContent = S.ciRole ? teams[S.ciRole].label : "Names A to Z";
+    // ticking a whole group is only offered once the list is narrowed to a team or a search, never for the whole church
+    const bar = el.querySelector("#ci-bulk"); bar.hidden = !narrowed || !shown.length;
+    el.querySelector("#ci-count").textContent = `${ticked} of ${shown.length} here`;
+    const all = el.querySelector("#ci-all"), none = el.querySelector("#ci-none");
+    all.textContent = `Tick all ${shown.length}`; all.disabled = busy || ticked === shown.length;
+    none.textContent = armed ? `Tap again to untick ${ticked}` : "Untick all"; none.disabled = busy || !ticked;
     const ids = mine.filter(m => here[m.id]), kids = ids.filter(isKid).length;
     el.querySelector("#n-in").textContent = ids.length; el.querySelector("#n-ad").textContent = ids.length - kids;
     el.querySelector("#n-kid").textContent = kids; el.querySelector("#n-not").textContent = mine.length - ids.length;
@@ -551,7 +570,29 @@ function checkin(el) {
     } catch (err) { toast("Not saved: " + err.message); }
     e.target.blur(); pull();
   };
-  el.querySelector("#q").oninput = e => { S.q = e.target.value; draw(); };
+  el.querySelector("#q").oninput = e => { S.q = e.target.value; armed = false; draw(); };
+  el.querySelector("#ci-all").onclick = async () => {
+    const todo = showing().filter(m => !here[m.id]); if (!todo.length || busy) return;
+    busy = true; armed = false; draw();
+    try {
+      await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, name: "Sunday Service"}});
+      const at = isoLocal();  // one request for the whole group; anyone already ticked on another phone is left as they are
+      await api("attendance?on_conflict=service_date,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: todo.map(m => ({service_date: S.date, member_id: m.id, checked_at: at}))});
+      for (const m of todo) { here[m.id] = at; log("tick", m.id, "done", S.ciRole ? `with ${teams[S.ciRole].label}` : "with a group"); }
+      toast(`Ticked ${todo.length} ${todo.length === 1 ? "person" : "people"}. Untick anyone who isn't here.`);
+    } catch (err) { toast("Not saved: " + err.message); }
+    busy = false; draw(); pull();
+  };
+  el.querySelector("#ci-none").onclick = async () => {
+    const todo = showing().filter(m => here[m.id]); if (!todo.length || busy) return;
+    if (!armed) { armed = true; draw(); setTimeout(() => { if (armed) { armed = false; if (S.view === "checkin") draw(); } }, 4000); return; }
+    busy = true; armed = false; draw();
+    let n = 0;
+    try { for (const m of todo) { if (await setPresent(m.id, false, here[m.id]) === "done") { delete here[m.id]; n++; } } toast(`Unticked ${n} ${n === 1 ? "person" : "people"}.`); }
+    catch (err) { toast("Not saved: " + err.message); }
+    busy = false; draw(); pull();
+  };
+  drawChips();
   el.querySelector("#d").onchange = e => { S.date = e.target.value || today(); here = {}; draw(); pull(); };
   el.querySelector("#a-phone").oninput = digitsOnly;
   el.querySelector("#add").onsubmit = async e => {
