@@ -155,6 +155,128 @@ end $$;
 revoke all on function church_numbers() from public, anon;
 grant execute on function church_numbers(), app_me(), app_role(), app_church(), app_can_see(text), app_home_church() to authenticated;
 
+-- ---------------------------------------------------------------- more screens (second round; safe to run again)
+-- The last service each person was ticked at, so the app does not have to load years of ticks to know who
+-- belongs in the archive. It runs with the caller's own rules, so a branch only gets its own people.
+create or replace function app_last_seen() returns table (member_id text, last_seen date)
+language sql stable set search_path = public as
+$$ select a.member_id, max(a.service_date) from attendance a group by 1 $$;
+
+-- Anyone who can sign in may change the name shown on their own account (and nothing else about it).
+create or replace function app_set_my_name(new_name text) returns text
+language plpgsql security definer set search_path = public as $$
+declare clean text := left(trim(regexp_replace(coalesce(new_name, ''), '\s+', ' ', 'g')), 80);
+begin
+  if app_role() is null then raise exception 'not allowed'; end if;
+  update app_users set name = nullif(clean, '') where email = lower(auth.jwt() ->> 'email');
+  return clean;
+end $$;
+
+-- Welcome-form sign-ups belong to the home church: the admin and the home church's leads handle them.
+create or replace function app_can_approve() returns boolean language sql stable security definer set search_path = public as
+$$ select coalesce(app_role() = 'admin' or (app_role() = 'lead' and app_church() = app_home_church()), false) $$;
+
+create or replace function app_who() returns text language sql stable security definer set search_path = public as
+$$ select left(coalesce(nullif(trim(u.name), ''), u.email) || ' (' ||
+          case u.role when 'admin' then 'Admin' when 'lead' then 'Church admin' when 'bishop' then 'Bishop' else 'Team' end || ')', 80)
+   from app_users u where u.email = lower(auth.jwt() ->> 'email') $$;
+
+drop policy if exists "app: see sign-ups" on registrations;
+create policy "app: see sign-ups" on registrations for select to authenticated using (app_can_approve());
+grant select on registrations to authenticated;
+
+-- Approve a sign-up: one all-or-nothing step. It starts by claiming the sign-up (pending -> approved), so if two
+-- people press Approve together only one succeeds and nobody is added twice. Returns the person's id.
+create or replace function app_approve_signup(reg uuid, match_id text default null, check_in boolean default true,
+                                              at_txt text default null) returns text
+language plpgsql security definer set search_path = public as $$
+declare r registrations%rowtype; mid text; visit date;
+        stamp text := left(coalesce(nullif(trim(at_txt), ''), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF')), 40);
+        log_id text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 12);
+begin
+  if not app_can_approve() then raise exception 'not allowed'; end if;
+  update registrations set status = 'approved' where id = reg and status = 'pending' returning * into r;
+  if not found then raise exception 'already handled'; end if;
+  visit := coalesce(r.first_visit, (now() at time zone 'Pacific/Auckland')::date);
+  if match_id is not null then  -- existing person: only fill in what the form gave, never blank anything
+    update members set phone = coalesce(nullif(trim(r.phone), ''), phone), email = coalesce(nullif(trim(r.email), ''), email),
+                       invited_by = coalesce(nullif(trim(r.invited_by), ''), invited_by), version = version + 1
+     where id = match_id and coalesce(nullif(trim(church), ''), app_home_church()) = app_home_church();
+    if not found then raise exception 'that person is not on the home church register'; end if;
+    mid := match_id;
+  else
+    mid := substr(replace(gen_random_uuid()::text, '-', ''), 1, 12);
+    insert into members (id, full_name, phone, email, invited_by, type, status, first_visit, follow_up, created_at)
+    values (mid, regexp_replace(trim(r.full_name), '\s+', ' ', 'g'), trim(coalesce(r.phone, '')), trim(coalesce(r.email, '')),
+            trim(coalesce(r.invited_by, '')), 'first_timer', '', visit,
+            'Welcome form' || case when coalesce(r.wants_contact, true) then '' else ' · prefers no contact' end
+              || case when trim(coalesce(r.notes, '')) <> '' then ' · ' || trim(r.notes) else '' end, stamp);
+  end if;
+  if check_in then
+    insert into services (service_date, name) values (visit, 'Sunday Service') on conflict (service_date) do nothing;
+    insert into attendance (service_date, member_id, checked_at) values (visit, mid, stamp) on conflict do nothing;
+    insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+    values (log_id || 't', stamp, 'tick', visit, mid, '', app_who(), 'done');
+  end if;
+  update registrations set member_id = mid where id = reg;
+  insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+  values (log_id, stamp, 'signup_approved', null, mid,
+          case when match_id is null then 'new first-timer' else 'matched existing person' end, app_who(), 'done');
+  return mid;
+end $$;
+
+-- Reject a sign-up. Returns false if someone else already handled it.
+create or replace function app_reject_signup(reg uuid, at_txt text default null) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare n int; stamp text := left(coalesce(nullif(trim(at_txt), ''), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF')), 40);
+begin
+  if not app_can_approve() then raise exception 'not allowed'; end if;
+  update registrations set status = 'rejected' where id = reg and status = 'pending';
+  get diagnostics n = row_count;
+  insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+  values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), stamp, 'signup_rejected', null, null, '', app_who(),
+          case when n > 0 then 'done' else 'already' end);
+  return n > 0;
+end $$;
+
+-- A church's leads can read the activity for their own people (the admin already reads all of it).
+drop policy if exists "app: leads read their church's activity" on activity_log;
+create policy "app: leads read their church's activity" on activity_log for select to authenticated
+  using (app_role() = 'lead' and exists (select 1 from members m where m.id = member_id and app_can_see(m.church)));
+
+-- Reports: the admin can see who receives the daily email, change that list, and read the log of emails sent.
+alter table settings enable row level security;
+alter table email_log enable row level security;
+drop policy if exists "app: admin sees report recipients" on settings;
+create policy "app: admin sees report recipients" on settings for select to authenticated
+  using (app_role() = 'admin' and key = 'report_recipients');
+drop policy if exists "app: admin adds report recipients" on settings;
+create policy "app: admin adds report recipients" on settings for insert to authenticated
+  with check (app_role() = 'admin' and key = 'report_recipients');
+drop policy if exists "app: admin changes report recipients" on settings;
+create policy "app: admin changes report recipients" on settings for update to authenticated
+  using (app_role() = 'admin' and key = 'report_recipients') with check (app_role() = 'admin' and key = 'report_recipients');
+drop policy if exists "app: admin reads the email log" on email_log;
+create policy "app: admin reads the email log" on email_log for select to authenticated using (app_role() = 'admin');
+-- Each church's list of pastors to choose from (settings key 'pastors:<church>', one name per line): everyone in
+-- that church can read it; the admin and that church's leads can change it.
+drop policy if exists "app: see own church's pastor list" on settings;
+create policy "app: see own church's pastor list" on settings for select to authenticated
+  using (key like 'pastors:%' and app_can_see(substr(key, 9)));
+drop policy if exists "app: leads add their pastor list" on settings;
+create policy "app: leads add their pastor list" on settings for insert to authenticated
+  with check (key like 'pastors:%' and app_role() in ('admin', 'lead') and app_can_see(substr(key, 9)));
+drop policy if exists "app: leads change their pastor list" on settings;
+create policy "app: leads change their pastor list" on settings for update to authenticated
+  using (key like 'pastors:%' and app_role() in ('admin', 'lead') and app_can_see(substr(key, 9)))
+  with check (key like 'pastors:%' and app_role() in ('admin', 'lead') and app_can_see(substr(key, 9)));
+grant select, insert, update on settings to authenticated;
+grant select on email_log to authenticated;
+
+revoke all on function app_approve_signup(uuid, text, boolean, text), app_reject_signup(uuid, text), app_set_my_name(text) from public, anon;
+grant execute on function app_last_seen(), app_set_my_name(text), app_can_approve(), app_who(),
+  app_approve_signup(uuid, text, boolean, text), app_reject_signup(uuid, text) to authenticated;
+
 -- ---------------------------------------------------------------- first church and first admin
 insert into churches (name) values (app_home_church()) on conflict do nothing;
 -- Then add yourself as the first admin (use your own email, lower case):
