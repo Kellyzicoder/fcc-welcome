@@ -8,7 +8,7 @@ const ROLE = {admin: "Admin", bishop: "Bishop", lead: "Church admin", team: "Tea
 const FLAG = {red: "Red", yellow: "Yellow", blue: "Blue", ok: "On track"};
 const root = document.getElementById("root");
 const S = {cfg: null, session: null, me: null, churches: [], church: "", members: [], ticks: [], names: {}, view: "dashboard",
-           back: "", filter: "need", date: today(), q: "", poll: null, numbers: null, users: null,
+           back: "", cal: today().slice(0, 7), filter: "need", date: today(), q: "", poll: null, numbers: null, users: null,
            seen: null, pastorList: {}, pending: 0, person: "", pastor: "", actDay: today(), actShow: "all", emoji: true};
 
 // ---------------------------------------------------------------- small helpers
@@ -241,6 +241,8 @@ const ICON = {
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   back: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
+  prev: '<path d="M15 6l-6 6 6 6"/>',
+  next: '<path d="M9 6l6 6-6 6"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   pastors: '<circle cx="9" cy="8" r="3.5"/><path d="M2 21a7 7 0 0 1 14 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a7 7 0 0 1 4 6.5"/>',
   person: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
@@ -348,6 +350,41 @@ function chart(el, rows) {  // stacked bars: adults + kids per service
   });
 }
 const whoBtn = m => `<button class="who" data-person="${esc(m.id)}" title="See every day they came"><span>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</button>`;
+function donut(el, parts) {  // parts: [flag, label, count]; a ring with a gap between segments and the total in the middle
+  const total = parts.reduce((n, x) => n + x[2], 0), R = 54, C = 2 * Math.PI * R, gap = total && parts.filter(x => x[2]).length > 1 ? 3 : 0;
+  let at = 0, s = `<svg viewBox="0 0 140 140" role="img" aria-label="Where everyone stands: ${parts.map(x => `${x[2]} ${x[1]}`).join(", ")}">
+    <circle cx="70" cy="70" r="${R}" fill="none" stroke="var(--line)" stroke-width="16"/>`;
+  parts.forEach(([f, label, n], i) => {
+    if (!n) return;
+    const len = C * n / total;
+    s += `<circle class="seg" tabindex="0" data-i="${i}" cx="70" cy="70" r="${R}" fill="none" stroke="var(--${f === "blue" ? "info" : f})" stroke-width="16"
+      stroke-dasharray="${Math.max(len - gap, 1)} ${C}" stroke-dashoffset="${-at}" transform="rotate(-90 70 70)"/>`;
+    at += len;
+  });
+  el.innerHTML = `<div class="tip"></div>${s}<text class="big" x="70" y="68" text-anchor="middle">${total}</text><text x="70" y="86" text-anchor="middle">${total === 1 ? "person" : "people"}</text></svg>`;
+  const tip = el.querySelector(".tip");
+  el.querySelectorAll(".seg").forEach(c => {
+    const show = () => { const [f, label, n] = parts[c.dataset.i]; tip.innerHTML = `<b>${esc(FLAG[f])}</b><br>${n} of ${total} · ${Math.round(100 * n / total)}%<br>${esc(label)}`;
+      tip.style.left = "50%"; tip.style.top = "8px"; tip.style.opacity = 1; };
+    c.onpointerenter = c.onfocus = show; c.onpointerleave = c.onblur = () => tip.style.opacity = 0;
+  });
+}
+function calendar(el, p) {  // a month of services: days with a service show how many came; tapping a day opens Check-in for it
+  const [y, m] = S.cal.split("-").map(Number), first = new Date(y, m - 1, 1), days = new Date(y, m, 0).getDate(), now = today();
+  const shift = n => { const d = new Date(y, m - 1 + n, 1); S.cal = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; calendar(el, p); };
+  let cells = "<span></span>".repeat(first.getDay());
+  for (let d = 1; d <= days; d++) {
+    const iso = `${S.cal}-${pad(d)}`, n = p.byDate[iso] ? Object.keys(p.byDate[iso]).length : 0;
+    const label = new Date(y, m - 1, d).toLocaleDateString("en-NZ", {weekday: "long", day: "numeric", month: "long"}) + (n ? `, ${n} present` : ", no service recorded");
+    cells += `<button class="day ${n ? "has" : ""} ${iso === now ? "today" : ""}" data-day="${iso}" aria-label="${label}. Open check-in for this day">${d}${n ? `<small>${n}</small>` : ""}</button>`;
+  }
+  el.innerHTML = `<div class="card-head"><h2>${first.toLocaleDateString("en-NZ", {month: "long", year: "numeric"})}</h2><span class="gap"></span>
+      <button class="icon-btn sm" data-cal="-1" aria-label="Previous month">${svg("prev")}</button><button class="icon-btn sm" data-cal="1" aria-label="Next month">${svg("next")}</button></div>
+    <div class="cal"><b>Sun</b><b>Mon</b><b>Tue</b><b>Wed</b><b>Thu</b><b>Fri</b><b>Sat</b>${cells}</div>
+    <p class="note">Shaded days had a service; the small number is how many came. Tap any day to check people in for it.</p>`;
+  el.querySelectorAll("[data-cal]").forEach(b => b.onclick = () => shift(Number(b.dataset.cal)));
+  el.querySelectorAll("[data-day]").forEach(b => b.onclick = () => { S.date = b.dataset.day; S.view = "checkin"; render(); });
+}
 function rowsHtml(list, cols) {
   return list.map(p => `<tr><td>${whoBtn(p)}</td><td>${badge(p.flag)}</td><td>${p.missed}</td>
     <td class="muted hide-sm">${esc(nice(p.seen))}</td>${cols ? `<td class="muted hide-sm">${esc(p.pastor || "")}</td>` : ""}<td class="muted">${esc(p.phone || "")}</td></tr>`).join("");
@@ -356,6 +393,7 @@ function dashboard(el) {
   const p = picture(), kidIds = new Set(p.mine.filter(isKid).map(m => m.id));
   const series = p.dates.map(d => { const ids = Object.keys(p.byDate[d]), k = ids.filter(i => kidIds.has(i)).length; return [d, ids.length - k, k]; });
   const need = p.people.filter(x => x.level !== "ok");
+  const stands = [["ok", "came this service"], ["blue", "missed this service"], ["yellow", `missed ${YELLOW_AT}–${RED_AT - 1} in a row`], ["red", `missed ${RED_AT} or more`]].map(([f, t]) => [f, t, p.count(f)]);
   el.innerHTML = head("Dashboard", p.last ? `${esc(S.names[p.last] || "Service")} · ${esc(nice(p.last, true))}` : "No services recorded yet",
     `<button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `
     <div class="tiles">
@@ -367,11 +405,14 @@ function dashboard(el) {
         <div class="legend"><span><i style="background:var(--adults)"></i>Adults</span><span><i style="background:var(--kids)"></i>Kids</span></div></div>
         <div class="chart" id="chart"></div></div>
       <div class="card"><div class="card-head"><h2>Where everyone stands</h2></div>
-        ${[["ok", "came this service"], ["blue", "missed this service"], ["yellow", `missed ${YELLOW_AT}–${RED_AT - 1} in a row`], ["red", `missed ${RED_AT} or more`]].map(([f, t]) =>
-          `<div class="status-row">${badge(f)}<span class="txt"><small>${t}</small></span><b>${p.count(f)}</b></div>`).join("")}</div></div>
-    <div class="card"><div class="card-head"><h2>Needs a follow-up call</h2><span class="gap"></span><button class="pill-btn" data-go="followup">See all ${need.length}</button></div>
+        <div class="stand"><div class="donut" id="donut"></div><div class="stand-rows">
+        ${stands.map(([f, t, n]) => `<div class="status-row">${badge(f)}<span class="txt"><small>${t}</small></span><b>${n}</b></div>`).join("")}</div></div></div></div>
+    <div class="grid-2"><div class="card"><div class="card-head"><h2>Needs a follow-up call</h2><span class="gap"></span><button class="pill-btn" data-go="followup">See all ${need.length}</button></div>
       ${need.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th>Phone</th></tr></thead>
-        <tbody>${rowsHtml(need.slice(0, 6))}</tbody></table></div>` : `<p class="empty">Nobody has missed ${YELLOW_AT} or more services in a row.</p>`}</div>`;
+        <tbody>${rowsHtml(need.slice(0, 6))}</tbody></table></div>` : `<p class="empty">Nobody has missed ${YELLOW_AT} or more services in a row.</p>`}</div>
+      <div class="card" id="cal"></div></div>`;
+  donut(el.querySelector("#donut"), stands);
+  calendar(el.querySelector("#cal"), p);
   chart(el.querySelector("#chart"), series);
   el.querySelector("#wa").onclick = () => waDialog("Summary for WhatsApp", o => summary(p, o), {names: true, link: true});
   el.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { S.view = b.dataset.go; render(); });
@@ -730,7 +771,7 @@ async function activity(el) {
 
 // ---------------------------------------------------------------- reports: the daily email
 async function reports(el) {
-  const sub = "The daily email to church leaders: who gets it, what was sent, and lists to download";
+  const sub = "The email to church leaders: who gets it, what was sent, and lists to download";
   el.innerHTML = head("Reports", sub) + `<p class="empty">Loading…</p>`;
   let setting, sent;
   try {
@@ -740,17 +781,17 @@ async function reports(el) {
   if (S.view !== "reports") return;
   const list = (setting[0]?.value || "").split(/[,\s;]+/).filter(Boolean), p = picture();
   el.innerHTML = head("Reports", sub) + `
-    <form class="card" id="to" style="margin-bottom:14px"><div class="card-head"><h2>Who gets the daily email</h2></div>
+    <form class="card" id="to" style="margin-bottom:14px"><div class="card-head"><h2>Who gets the email</h2></div>
       <label class="f" for="emails">Email addresses, one per line</label>
       <textarea class="in" id="emails" rows="${Math.max(3, list.length + 1)}" placeholder="name@example.com">${esc(list.join("\n"))}</textarea>
-      <div class="row" style="margin-top:12px"><p class="note" style="margin:0">${list.length ? "The email goes out by itself at about 1pm New Zealand time, every day." : "No list is saved here yet, so the email goes to the default address."}</p>
+      <div class="row" style="margin-top:12px"><p class="note" style="margin:0">${list.length ? "Nothing is sent automatically. The email goes to these addresses when the admin sends it." : "No list is saved here yet, so the email goes to the default address when the admin sends it."}</p>
         <div style="flex:0 0 auto"><button class="pill-btn primary">Save</button></div></div></form>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Emails sent</h2></div>
       ${sent.length ? `<div class="scroll"><table><thead><tr><th>Sent</th><th>Report for</th><th>Type</th><th>To</th><th>Result</th></tr></thead><tbody>
-        ${sent.map(r => `<tr><td class="muted">${esc(when(r.sent_at))}</td><td>${esc(full(r.report_date))}</td><td class="muted">${r.kind === "daily" ? "1pm (automatic)" : "Sent by hand"}</td>
+        ${sent.map(r => `<tr><td class="muted">${esc(when(r.sent_at))}</td><td>${esc(full(r.report_date))}</td><td class="muted">${r.kind === "daily" ? "Automatic (old schedule)" : "Sent by the admin"}</td>
           <td class="muted">${esc(r.recipients || "")}</td><td>${r.ok ? "Sent" : `<span class="badge red" title="${esc(r.detail || "")}">Failed</span>`}</td></tr>`).join("")}</tbody></table></div>`
         : `<p class="empty">No emails have been sent yet.</p>`}
-      <p class="note">To send the report straight away, use “Send report now” on the Streamlit site. Sending from this app is not built yet.</p></div>
+      <p class="note">The admin sends the report with “Send report now” on the Streamlit site. Sending from this app is not built yet.</p></div>
     <div class="card"><div class="card-head"><h2>Lists to download</h2></div>
       <div class="chips" style="margin:0"><button class="pill-btn" data-dl="in">Checked in${p.last ? " · " + esc(nice(p.last)) : ""}</button>
         <button class="pill-btn" data-dl="call">Needs a follow-up call</button><button class="pill-btn" data-dl="all">Whole register</button></div>

@@ -117,6 +117,21 @@ details.table table {margin-top: 8px;}
 /* status */
 .status-row {display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line);}
 .status-row:last-child {border-bottom: 0;}
+.stand {display: flex; flex-direction: column; gap: 10px;} .stand-rows {min-width: 0;}
+.donut {position: relative; align-self: center;} .donut svg {display: block; width: 150px; height: 150px;}
+.donut text {fill: var(--ink-3); font-size: 11px; pointer-events: none;} .donut text.big {fill: var(--ink); font-size: 26px; font-weight: 600;}
+.donut .seg {cursor: pointer; outline: none; transition: stroke-width .12s;} .donut .seg:hover, .donut .seg:focus-visible {stroke-width: 20;}
+.donut .tip {transform: translate(-50%, -100%); white-space: nowrap;}
+.cal {display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; text-align: center;}
+.cal b {font-size: 12px; font-weight: 500; color: var(--ink-3); padding: 4px 0 8px;}
+.day {border: 0; background: none; font: inherit; color: var(--ink-2); border-radius: 12px; min-height: 46px; display: grid; align-content: center; justify-items: center;
+      line-height: 1.15; cursor: pointer; font-variant-numeric: tabular-nums;}
+.day small {font-size: 10.5px; font-weight: 600; color: var(--accent);}
+.day:hover {background: var(--soft);} .day.has {background: var(--accent-soft); color: var(--ink); font-weight: 600;}
+.day.today {box-shadow: inset 0 0 0 2px var(--accent);}
+.day:focus-visible {outline: 3px solid var(--accent-soft); outline-offset: 1px;}
+.icon-btn.sm {width: 34px; height: 34px;}
+@media (prefers-reduced-motion: reduce) { .donut .seg {transition: none;} }
 .status-row .txt {flex: 1; min-width: 0;} .status-row .txt small {display: block; color: var(--ink-3); font-size: 12.5px;}
 .status-row b {font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums;}
 .badge {display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 4px 10px; font-size: 12.5px;
