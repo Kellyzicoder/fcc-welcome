@@ -273,6 +273,36 @@ create policy "app: leads change their pastor list" on settings for update to au
 grant select, insert, update on settings to authenticated;
 grant select on email_log to authenticated;
 
+-- Rename a church everywhere it is recorded, in one all-or-nothing step: the church itself, its sign-ins, its
+-- people, its pastor list, its report list and its email log. Only the admin may do this. The home church keeps its
+-- name here because that name is also set outside the database.
+create or replace function app_rename_church(old_name text, new_name text) returns text
+language plpgsql security definer set search_path = public as $$
+declare o text := trim(coalesce(old_name, '')); n text := left(trim(regexp_replace(coalesce(new_name, ''), '\s+', ' ', 'g')), 60);
+begin
+  if app_role() is distinct from 'admin' then raise exception 'not allowed'; end if;
+  if n = '' then raise exception 'type the new name'; end if;
+  if n ~ '[:*]' then raise exception 'a church name cannot contain : or *'; end if;
+  if o = app_home_church() then raise exception 'the home church cannot be renamed here'; end if;
+  if not exists (select 1 from churches where name = o) then raise exception 'there is no church called %', o; end if;
+  if lower(n) <> lower(o) and exists (select 1 from churches where lower(name) = lower(n)) then raise exception 'there is already a church called %', n; end if;
+  if lower(n) = lower(app_home_church()) then raise exception 'there is already a church called %', n; end if;
+  update churches set name = n where name = o;                      -- sign-ins follow (on update cascade)
+  update members set church = n, version = version + 1 where trim(church) = o;
+  delete from settings where key in ('pastors:' || n, 'report_recipients:' || n, 'pastor_group_size:' || n);
+  update settings set key = 'pastors:' || n where key = 'pastors:' || o;
+  update settings set key = 'report_recipients:' || n where key = 'report_recipients:' || o;
+  update settings set key = 'pastor_group_size:' || n where key = 'pastor_group_size:' || o;
+  update email_log set kind = split_part(kind, ':', 1) || ':' || n where kind like '%:' || o;
+  insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+  values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF'), 'rename_church',
+          null, null, o || ' → ' || n, app_who(), 'done');
+  return n;
+end $$;
+
+revoke all on function app_rename_church(text, text) from public, anon;
+grant execute on function app_rename_church(text, text) to authenticated;
+
 revoke all on function app_approve_signup(uuid, text, boolean, text), app_reject_signup(uuid, text), app_set_my_name(text) from public, anon;
 grant execute on function app_last_seen(), app_set_my_name(text), app_can_approve(), app_who(),
   app_approve_signup(uuid, text, boolean, text), app_reject_signup(uuid, text) to authenticated;
