@@ -55,6 +55,8 @@ function download(name, rows) {
 }
 // A popup form. fields: [{k, label, value, type?: "text"|"tel"|"select", options?: [[value, label]], hint?}].
 // save(values) does the work and may throw; the popup shows the message and stays open so nothing typed is lost.
+// Phone boxes take numbers only (plus + and spaces), whether typed or pasted.
+function digitsOnly(e) { const v = e.target.value.replace(/[^0-9+ ]/g, ""); if (v !== e.target.value) e.target.value = v; }
 function formDialog(title, fields, save, button = "Save") {
   document.querySelectorAll(".modal").forEach(m => m.remove());
   const d = document.createElement("div");
@@ -96,6 +98,7 @@ function formDialog(title, fields, save, button = "Save") {
       inp.focus(); show();
     };
   }
+  d.querySelectorAll('input[type="tel"]').forEach(i => i.addEventListener("input", digitsOnly));
   d.querySelector("input, select")?.focus();
 }
 
@@ -497,7 +500,7 @@ function checkin(el) {
       <div class="names" id="names"></div></div>
     <form class="card" id="add"><div class="card-head"><h2>Add someone new</h2></div><div class="row">
       <div><label class="f" for="a-name">Full name</label><input class="in" id="a-name" required></div>
-      <div><label class="f" for="a-phone">Phone</label><input class="in" id="a-phone"></div>
+      <div><label class="f" for="a-phone">Phone</label><input class="in" id="a-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="off"></div>
       <div><label class="f" for="a-type">They are a</label><select class="in" id="a-type"><option value="first_timer">First-timer</option><option value="member">Member</option></select></div>
       <div><label class="f" for="a-age">Adult or child</label><select class="in" id="a-age"><option>Adult</option><option>Child</option></select></div>
       <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap"><button class="pill-btn primary">Add &amp; check in</button><button class="pill-btn" data-only>Add only</button></div></div>
@@ -530,6 +533,7 @@ function checkin(el) {
   };
   el.querySelector("#q").oninput = e => { S.q = e.target.value; draw(); };
   el.querySelector("#d").onchange = e => { S.date = e.target.value || today(); here = {}; draw(); pull(); };
+  el.querySelector("#a-phone").oninput = digitsOnly;
   el.querySelector("#add").onsubmit = async e => {
     e.preventDefault();
     const name = el.querySelector("#a-name").value.trim().replace(/\s+/g, " "), type = el.querySelector("#a-type").value;
