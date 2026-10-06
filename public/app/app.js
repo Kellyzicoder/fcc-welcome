@@ -55,6 +55,20 @@ function download(name, rows) {
 }
 // A popup form. fields: [{k, label, value, type?: "text"|"tel"|"select", options?: [[value, label]], hint?}].
 // save(values) does the work and may throw; the popup shows the message and stays open so nothing typed is lost.
+// What is wrong with a typed email address, in plain words; "" when it looks right. Catches the usual slips too.
+const SLIPS = {"gmial.com": "gmail.com", "gmai.com": "gmail.com", "gmail.con": "gmail.com", "gmail.co": "gmail.com", "gamil.com": "gmail.com", "gnail.com": "gmail.com", "gmail.comm": "gmail.com",
+  "hotmial.com": "hotmail.com", "hotmail.con": "hotmail.com", "outlok.com": "outlook.com", "outlook.con": "outlook.com", "yaho.com": "yahoo.com", "yahoo.con": "yahoo.com", "icloud.con": "icloud.com"};
+function emailProblem(raw) {
+  const x = String(raw || "").trim().toLowerCase();
+  if (!x) return "Type an email address.";
+  if (/\s/.test(x)) return `${x} has a space in it.`;
+  if ((x.match(/@/g) || []).length !== 1) return `${x} needs one @, like name@example.com.`;
+  const [name, host] = x.split("@");
+  if (!name || !/^[a-z0-9._%+'-]+$/.test(name) || /^\.|\.$|\.\./.test(name)) return `${x}: the part before the @ doesn't look right.`;
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/.test(host) || /(^|\.)-|-(\.|$)/.test(host)) return `${x}: the part after the @ doesn't look right, e.g. gmail.com.`;
+  if (SLIPS[host]) return `${x}: did you mean ${name}@${SLIPS[host]}?`;
+  return "";
+}
 // Phone boxes take numbers only (plus + and spaces), whether typed or pasted.
 function digitsOnly(e) { const v = e.target.value.replace(/[^0-9+ ]/g, ""); if (v !== e.target.value) e.target.value = v; }
 function formDialog(title, fields, save, button = "Save") {
@@ -179,7 +193,7 @@ function loginView(message, bad) {
   root.innerHTML = `<div class="center"><form class="login" id="login">
     <div class="brand" style="padding:0"><span class="brand-mark">✝</span>Favourite Child Church</div>
     <h1>Sign in</h1><p>Enter your email and we'll send you a sign-in link.</p>
-    <label class="f" for="email">Email</label><input class="in" id="email" type="email" autocomplete="email" required>
+    <label class="f" for="email">Email</label><input class="in" id="email" type="email" inputmode="email" autocapitalize="none" autocomplete="email" required>
     <div id="pw" hidden><label class="f" for="password">Password</label><input class="in" id="password" type="password" autocomplete="current-password"></div>
     <div id="code" hidden><label class="f" for="token">Code from the email</label><input class="in" id="token" inputmode="numeric" autocomplete="one-time-code"></div>
     <button class="pill-btn primary block" id="go">Email me a sign-in link</button>
@@ -194,7 +208,8 @@ function loginView(message, bad) {
   };
   f.onsubmit = async e => {
     e.preventDefault();
-    const email = f.querySelector("#email").value.trim().toLowerCase();
+    const email = f.querySelector("#email").value.trim().toLowerCase(), wrong = emailProblem(email);
+    if (wrong) { f.querySelectorAll(".msg").forEach(m => m.remove()); f.insertAdjacentHTML("beforeend", `<div class="msg bad">${esc(wrong)}</div>`); return; }
     go.disabled = true;
     try {
       if (!pw.hidden) keep(await auth("token?grant_type=password", {email, password: f.querySelector("#password").value}));
@@ -577,7 +592,8 @@ function people(el) {
   for (const m of everyone) for (const r of new Set(rolesOf(m).map(norm))) (counts[r] ??= {label: rolesOf(m).find(x => norm(x) === r), n: 0}).n++;
   const roleKeys = Object.keys(counts).sort();
   if (S.roleF && !counts[S.roleF]) S.roleF = "";
-  const mine = S.roleF ? everyone.filter(m => rolesOf(m).some(r => norm(r) === S.roleF)) : everyone;
+  const q = norm(S.findQ), inRole = S.roleF ? everyone.filter(m => rolesOf(m).some(r => norm(r) === S.roleF)) : everyone;
+  const mine = q ? inRole.filter(m => [m.full_name, m.phone, m.role, m.pastor, m.status].some(x => norm(x).includes(q))) : inRole;
   const plist = S.pastorList[S.church] || [], admin = S.me.role === "admin";
   const edit = S.me.role !== "team", statuses = ["", "Away", "Inactive", "Moved", "Left", "Transferred", "Deceased"];
   const roleNames = roleKeys.map(k => counts[k].label);
@@ -586,6 +602,7 @@ function people(el) {
   const picked = mine.filter(m => S.sel.has(m.id));
   const typeOf = m => m.type === "first_timer" ? "First-timer" : "Member", ageOf = m => isKid(m) ? "Child" : "Adult";
   el.innerHTML = head("People", `${esc(S.church)} · ${everyone.length} on the register`, `<button class="pill-btn" id="dl">Download</button>`) + `
+    <input class="in" id="find" type="search" placeholder="Search by name, phone, role or pastor" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off" style="margin-bottom:12px">
     ${roleKeys.length ? `<div class="chips"><button class="chip ${S.roleF ? "" : "on"}" data-role="">Everyone · ${everyone.length}</button>${roleKeys.map(k =>
       `<button class="chip ${S.roleF === k ? "on" : ""}" data-role="${esc(k)}">${esc(counts[k].label)} · ${counts[k].n}</button>`).join("")}</div>` : ""}
     ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
@@ -593,7 +610,7 @@ function people(el) {
     ${mine.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}<td>${whoBtn(m)}</td>${edit ? `<td><button class="pill-btn sm" data-edit="${esc(m.id)}" aria-label="Edit ${esc(m.full_name)}">${svg("edit")}Edit</button></td>` : ""}<td>${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("")}</td><td class="muted">${typeOf(m)}</td><td class="muted">${ageOf(m)}</td>
       <td>${m.status ? `<span class="badge">${esc(m.status)}</span>` : `<span class="muted">Active</span>`}</td>
       <td class="${m.pastor ? "" : "muted"}">${esc(m.pastor || "Not assigned")}</td><td class="muted">${esc(m.phone || "")}</td></tr>`).join("")}
-    </tbody></table></div>${mine.length ? "" : `<p class="empty">Nobody on this register yet. Add people from Check-in.</p>`}
+    </tbody></table></div>${mine.length ? "" : `<p class="empty">${q ? "Nobody matches that search." : "Nobody on this register yet. Add people from Check-in."}</p>`}
     ${edit ? `<p class="note">Edit changes a person's name, phone, pastor and other details${admin ? ", or moves them to another church" : ""}. To fix a role for several people at once, tick them (or tick the box at the top for everyone shown) and press Change roles.</p>` : ""}</div>`;
   el.querySelectorAll("[data-pick]").forEach(c => c.onchange = () => { c.checked ? S.sel.add(c.dataset.pick) : S.sel.delete(c.dataset.pick); render(); });
   const all = el.querySelector("#pick-all");
@@ -602,7 +619,7 @@ function people(el) {
   const bg = el.querySelector("#bulk-go");
   if (bg) bg.onclick = () => {
     const theirs = [...new Map(picked.flatMap(rolesOf).map(r => [norm(r), r])).values()].sort();
-    const ADD = "\u0000add";
+    const ADD = "__add__";
     formDialog(`Change roles for ${picked.length} ${picked.length === 1 ? "person" : "people"}`, [
       {k: "from", label: "Role to change", type: "select", value: counts[S.roleF] && theirs.find(r => norm(r) === S.roleF) || theirs[0] || ADD,
        options: [...theirs.map(r => [r, r]), [ADD, "Add a new role to them"]]},
@@ -629,6 +646,10 @@ function people(el) {
       toast(clash ? `Changed ${done}. ${clash} were edited by someone else just now and were left alone.` : done ? `Changed ${done} ${done === 1 ? "person" : "people"}.` : "Nothing needed changing.");
       render();
     }, "Change roles");
+  };
+  el.querySelector("#find").oninput = e => {  // redraw, then put the cursor back where it was
+    S.findQ = e.target.value; const at = e.target.selectionStart; render();
+    const f = document.querySelector("#find"); if (f) { f.focus(); try { f.setSelectionRange(at, at); } catch {} }
   };
   el.querySelectorAll("[data-role]").forEach(b => b.onclick = () => { S.roleF = b.dataset.role; render(); });
   el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
@@ -733,6 +754,7 @@ async function admin(el) {
   el.querySelector("#add-church").onsubmit = e => { e.preventDefault(); const name = el.querySelector("#c-name").value.trim().replace(/\s+/g, " ");
     again(() => api("churches", {method: "POST", prefer: "return=minimal", body: {name}})); };
   el.querySelector("#add-user").onsubmit = e => { e.preventDefault(); const role = el.querySelector("#u-role").value;
+    const wrong = emailProblem(el.querySelector("#u-email").value); if (wrong) return toast("Not added: " + wrong);
     again(() => api("app_users?on_conflict=email", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {email: el.querySelector("#u-email").value.trim().toLowerCase(),
       name: el.querySelector("#u-name").value.trim(), role, church: ["admin", "bishop"].includes(role) ? null : el.querySelector("#u-church").value}})); };
   el.querySelectorAll("[data-del]").forEach(b => b.onclick = () => again(() => api(`app_users?email=eq.${encodeURIComponent(b.dataset.del)}`, {method: "DELETE", prefer: "return=minimal"})));
@@ -947,8 +969,8 @@ async function reports(el) {
       <p class="note">These are for ${esc(S.church)} and open in Excel, Numbers and Google Sheets.</p></div>`;
   el.querySelector("#to").onsubmit = async e => {
     e.preventDefault();
-    const items = el.querySelector("#emails").value.split(/[,\s;]+/).filter(Boolean), bad = items.filter(x => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
-    if (bad.length) return toast(`Not saved: ${bad[0]} doesn't look like an email address.`);
+    const items = el.querySelector("#emails").value.split(/[,\s;]+/).filter(Boolean), bad = items.map(emailProblem).filter(Boolean);
+    if (bad.length) return toast("Not saved: " + bad[0]);
     if (!items.length) return toast("Not saved: add at least one email address.");
     const value = [...new Set(items.map(x => x.toLowerCase()))].join(", ");
     try { await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key: "report_recipients", value}}); toast("Saved."); render(); }
