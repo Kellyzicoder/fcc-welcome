@@ -247,17 +247,46 @@ create policy "app: leads read their church's activity" on activity_log for sele
 -- Reports: the admin can see who receives the daily email, change that list, and read the log of emails sent.
 alter table settings enable row level security;
 alter table email_log enable row level security;
+-- Report lists: 'report_recipients' is the home church's, 'report_recipients:<church>' a branch's, and
+-- 'report_recipients:*' the all-churches list. The admin manages all of them; a church admin only their own church's.
+create or replace function app_report_church(k text) returns text language sql stable security definer set search_path = public as
+$$ select case when k = 'report_recipients' then app_home_church()
+               when k like 'report_recipients:%' and length(k) > 18 then substr(k, 19) end $$;
+create or replace function app_report_ok(k text) returns boolean language sql stable security definer set search_path = public as
+$$ select coalesce(app_report_church(k) is not null and (app_role() = 'admin'
+     or (app_role() = 'lead' and app_report_church(k) = app_church())), false) $$;
+revoke all on function app_report_church(text), app_report_ok(text) from public, anon;
+grant execute on function app_report_church(text), app_report_ok(text) to authenticated;
 drop policy if exists "app: admin sees report recipients" on settings;
-create policy "app: admin sees report recipients" on settings for select to authenticated
-  using (app_role() = 'admin' and key = 'report_recipients');
 drop policy if exists "app: admin adds report recipients" on settings;
-create policy "app: admin adds report recipients" on settings for insert to authenticated
-  with check (app_role() = 'admin' and key = 'report_recipients');
 drop policy if exists "app: admin changes report recipients" on settings;
-create policy "app: admin changes report recipients" on settings for update to authenticated
-  using (app_role() = 'admin' and key = 'report_recipients') with check (app_role() = 'admin' and key = 'report_recipients');
+drop policy if exists "app: see report lists" on settings;
+create policy "app: see report lists" on settings for select to authenticated using (app_report_ok(key));
+drop policy if exists "app: add report lists" on settings;
+create policy "app: add report lists" on settings for insert to authenticated with check (app_report_ok(key));
+drop policy if exists "app: change report lists" on settings;
+create policy "app: change report lists" on settings for update to authenticated using (app_report_ok(key)) with check (app_report_ok(key));
+-- Emails sent: the admin sees all; a church admin sees and records only their own church's
+-- ('manual' and 'daily' belong to the home church, 'manual:<church>' to a branch).
+create or replace function app_log_ok(k text) returns boolean language sql stable security definer set search_path = public as
+$$ select coalesce(app_role() = 'admin' or (app_role() = 'lead' and
+     case when k in ('manual', 'daily') then app_church() = app_home_church() else k = 'manual:' || app_church() end), false) $$;
+revoke all on function app_log_ok(text) from public, anon;
+grant execute on function app_log_ok(text) to authenticated;
 drop policy if exists "app: admin reads the email log" on email_log;
-create policy "app: admin reads the email log" on email_log for select to authenticated using (app_role() = 'admin');
+drop policy if exists "app: read the email log" on email_log;
+create policy "app: read the email log" on email_log for select to authenticated using (app_log_ok(kind));
+drop policy if exists "app: record a sent email" on email_log;
+create policy "app: record a sent email" on email_log for insert to authenticated with check (app_log_ok(kind));
+grant select, insert on email_log to authenticated;
+-- Help page: who to contact (settings key 'help_contact'). Everyone who can sign in reads it; the admin writes it.
+drop policy if exists "app: see the help contact" on settings;
+create policy "app: see the help contact" on settings for select to authenticated using (key = 'help_contact' and app_role() is not null);
+drop policy if exists "app: admin adds the help contact" on settings;
+create policy "app: admin adds the help contact" on settings for insert to authenticated with check (key = 'help_contact' and app_role() = 'admin');
+drop policy if exists "app: admin changes the help contact" on settings;
+create policy "app: admin changes the help contact" on settings for update to authenticated
+  using (key = 'help_contact' and app_role() = 'admin') with check (key = 'help_contact' and app_role() = 'admin');
 -- Each church's list of pastors to choose from (settings key 'pastors:<church>', one name per line): everyone in
 -- that church can read it; the admin and that church's leads can change it.
 drop policy if exists "app: see own church's pastor list" on settings;
