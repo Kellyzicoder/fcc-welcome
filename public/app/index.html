@@ -37,7 +37,7 @@ button {font: inherit; color: inherit; cursor: pointer;}
 .shell {display: grid; grid-template-columns: 248px minmax(0, 1fr); gap: 20px; max-width: 1440px; margin: 0 auto; padding: 20px;}
 
 /* sidebar */
-.side {background: var(--panel); border-radius: 24px; padding: 18px 14px; box-shadow: var(--shadow); display: flex;
+.side {background: var(--panel); border-radius: 24px; padding: 18px 14px; box-shadow: var(--shadow); display: flex; overflow-y: auto;
        flex-direction: column; position: sticky; top: 20px; height: calc(100vh - 40px);}
 .brand {display: flex; align-items: center; gap: 10px; padding: 4px 8px 14px; font-weight: 700;}
 .brand-mark {width: 36px; height: 36px; border-radius: 12px; background: linear-gradient(135deg, #17616a, #2aa686);
@@ -151,7 +151,9 @@ details.table table {margin-top: 8px;}
 
 /* table */
 table {width: 100%; border-collapse: collapse;}
-th {text-align: left; font-size: 12.5px; color: var(--ink-3); font-weight: 500; padding: 10px 12px; background: var(--soft);}
+th {text-align: left; font-size: 12.5px; color: var(--ink-3); font-weight: 500; padding: 10px 12px; background: var(--soft); white-space: nowrap;}
+td select.in {min-width: 124px;} td input.in {min-width: 150px;}  /* boxes in a table keep a readable width; the table scrolls sideways if it must */
+.found {display: grid; gap: 4px; margin-top: 8px;} .found .who {padding: 8px 6px; border-radius: 12px;} .found .who:hover {background: var(--soft);}
 th:first-child {border-radius: 12px 0 0 12px;} th:last-child {border-radius: 0 12px 12px 0;}
 td {padding: 13px 12px; border-bottom: 1px solid var(--line); white-space: nowrap;}
 tr:last-child td {border-bottom: 0;}
@@ -175,6 +177,16 @@ button.acct:hover {background: var(--accent-soft);}
 .legend .dot {width: 10px; height: 10px; border-width: 2px; margin-right: 6px; border-radius: 50%;}
 .check {display: flex; align-items: center; gap: 10px; font-weight: 500;} .check input {width: 20px; height: 20px; accent-color: var(--accent); flex: none;}
 textarea.in {width: 100%; resize: vertical; font: inherit;}
+.church span {flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.church em {font-style: normal; font-size: 12px; font-weight: 600; color: var(--accent);} .church[data-view] {cursor: pointer;}
+.branches {display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 14px;}
+.branch.here {box-shadow: inset 0 0 0 2px var(--accent);}
+.branch .facts {min-height: 22px; margin: -6px 0 12px;}
+.branch-main {display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;}
+.branch-main .num {font-size: 34px; font-weight: 600; letter-spacing: -.03em; font-variant-numeric: tabular-nums;}
+.branch-main .num small {font-size: 13px; color: var(--ink-3); font-weight: 500; letter-spacing: 0; margin-left: 6px;}
+.stats {display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 8px; margin: 14px 0 0;}
+.stats dt {font-size: 12px; color: var(--ink-3);} .stats dd {margin: 2px 0 0; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums;}
 .back {display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--accent); font: inherit; font-weight: 600;
        padding: 6px 2px; margin: -4px 0 10px; cursor: pointer;} .back svg {width: 18px; height: 18px;}
 /* popup (WhatsApp messages) */
