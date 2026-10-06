@@ -732,7 +732,8 @@ async function admin(el) {
     <div class="card"><div class="card-head"><h2>People who can sign in</h2></div>
       <div class="scroll"><table><thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Church</th><th></th></tr></thead><tbody>
       ${users.map(u => `<tr><td>${esc(u.email)}</td><td class="muted">${esc(u.name || "")}</td><td>${ROLE[u.role]}</td><td class="muted">${esc(u.church || "All churches")}</td>
-        <td>${u.email === S.me.email ? "" : `<button class="x" data-del="${esc(u.email)}">Remove</button>`}</td></tr>`).join("")}</tbody></table></div>
+        <td style="white-space:nowrap">${u.email === S.me.email ? `<span class="muted">You</span>` : `<button class="pill-btn sm" data-chg="${esc(u.email)}">${svg("edit")}Change</button> <button class="x" data-del="${esc(u.email)}">Remove</button>`}</td></tr>`).join("")}</tbody></table></div>
+      <p class="note">Change moves someone up or down, for example from ushers to Admin so they see every church. Each role includes everything the ones below it can do.</p>
       <form class="row" id="add-user" style="margin-top:14px"><div><label class="f" for="u-email">Email</label><input class="in" id="u-email" type="email" required></div>
         <div><label class="f" for="u-name">Name</label><input class="in" id="u-name"></div>
         <div><label class="f" for="u-role">Role</label><select class="in" id="u-role"><option value="team">Team (ushers)</option><option value="lead">Church admin (pastor, follow-up)</option><option value="bishop">Bishop (numbers only)</option><option value="admin">Admin (everything)</option></select></div>
@@ -757,6 +758,19 @@ async function admin(el) {
     const wrong = emailProblem(el.querySelector("#u-email").value); if (wrong) return toast("Not added: " + wrong);
     again(() => api("app_users?on_conflict=email", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {email: el.querySelector("#u-email").value.trim().toLowerCase(),
       name: el.querySelector("#u-name").value.trim(), role, church: ["admin", "bishop"].includes(role) ? null : el.querySelector("#u-church").value}})); };
+  el.querySelectorAll("[data-chg]").forEach(b => b.onclick = () => {
+    const u = users.find(x => x.email === b.dataset.chg);
+    formDialog(`Change ${u.name || u.email}`, [
+      {k: "role", label: "Role", value: u.role, type: "select", options: [["team", "Team (ushers)"], ["lead", "Church admin (pastor, follow-up)"], ["bishop", "Bishop (numbers only, all churches)"], ["admin", "Admin (everything, all churches)"]]},
+      {k: "church", label: "Church", value: u.church || S.churches[0], type: "select", options: S.churches.map(c => [c, c]), hint: "Only used for Team and Church admin. Admin and Bishop see all churches."},
+    ], async v => {
+      const church = ["admin", "bishop"].includes(v.role) ? null : v.church;
+      const rows = await api(`app_users?email=eq.${encodeURIComponent(u.email)}`, {method: "PATCH", prefer: "return=representation", body: {role: v.role, church}});
+      if (!rows?.length) throw new Error("Not saved. Check you are still signed in as an admin.");
+      log("role_change", "", "done", `${u.email}: ${v.role}${church ? " · " + church : ""}`);
+      toast("Saved. They will see the change next time they open the app."); render();
+    });
+  });
   el.querySelectorAll("[data-del]").forEach(b => b.onclick = () => again(() => api(`app_users?email=eq.${encodeURIComponent(b.dataset.del)}`, {method: "DELETE", prefer: "return=minimal"})));
 }
 
@@ -910,7 +924,7 @@ function archive(el) {
 }
 
 // ---------------------------------------------------------------- activity: who did what, and when
-const KIND = {rename_church: "Renamed a church", tick: "Ticked in", untick: "Unticked", clear_service: "Unticked everyone", edit: "Edited", add_person: "Added",
+const KIND = {rename_church: "Renamed a church", role_change: "Changed a sign-in", tick: "Ticked in", untick: "Unticked", clear_service: "Unticked everyone", edit: "Edited", add_person: "Added",
               signup_approved: "Approved sign-up", signup_rejected: "Rejected sign-up"};
 const RESULT = {done: "Done", already: "No change (already done)", changed: "Blocked: someone else changed it first"};
 async function activity(el) {
