@@ -199,6 +199,7 @@ function loginView(message, bad) {
     <button class="pill-btn primary block" id="go">Email me a sign-in link</button>
     <button type="button" class="link" id="use-pw">Use a password instead</button>
     ${message ? `<div class="msg ${bad ? "bad" : ""}">${esc(message)}</div>` : ""}
+    <p class="note" style="margin-top:14px">Stuck? Check Spam for the email, and make sure your address is spelled correctly. If it says you have no access, ask your church admin to add your email.</p>
   </form></div>`;
   const f = root.querySelector("#login"), pw = f.querySelector("#pw"), code = f.querySelector("#code"), go = f.querySelector("#go");
   f.querySelector("#use-pw").onclick = e => {
@@ -316,16 +317,18 @@ const ICON = {
   archive: '<rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9M10 13h4"/>',
   activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
   reports: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 8l9 6 9-6"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7"/><path d="M12 17h.01"/>',
   out: '<path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
 };
 const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg>`;
 function pages() {  // the menu, in groups; what each role can actually load is decided by the database
   const r = S.me.role;
-  if (r === "bishop") return [["", [["overview", "All churches"]]]];
+  if (r === "bishop") return [["", [["overview", "All churches"], ["help", "Help"]]]];
   return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["followup", "Follow-up"], ["pastors", "Pastors"]]],
           ["PEOPLE", [["people", "People"], ["person", "One person"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ["archive", "Archive"]]],
-          ...(r === "team" ? [] : [["RECORDS", [["activity", "Activity"],
-            ...(r === "admin" ? [["reports", "Reports"], ["overview", "Churches"], ["admin", "Admin"]] : [])]]])];
+          ...(r === "team" ? [] : [["RECORDS", [["activity", "Activity"], ["reports", "Reports"],
+            ...(r === "admin" ? [["overview", "Churches"], ["admin", "Admin"]] : [])]]]),
+          ["", [["help", "Help"]]]];
 }
 function setMode(mode, remember) {
   document.documentElement.dataset.theme = mode;
@@ -369,7 +372,7 @@ function render() {
     if (b) { S.person = b.dataset.person; go("person"); }
     else if (back) { S.view = allowed.includes(S.back) ? S.back : allowed[0]; S.back = ""; render(); }
   };
-  ({dashboard, checkin, followup, pastors, people, person, signups, archive, activity, reports, overview, admin, account}[S.view] || dashboard)(view);
+  ({dashboard, checkin, followup, pastors, people, person, signups, archive, activity, reports, overview, admin, account, help}[S.view] || dashboard)(view);
 }
 const backBtn = () => S.back ? `<button class="back" data-back>${svg("back")}Back to ${esc(TITLE[S.back] || "the last page")}</button>` : "";
 const TITLE = {dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", pastors: "Pastors", people: "People", signups: "Sign-ups", archive: "Archive",
@@ -956,12 +959,13 @@ async function activity(el) {
 
 // ---------------------------------------------------------------- reports: the daily email
 async function reports(el) {
-  const sub = "The email to church leaders: who gets it, what was sent, and lists to download";
+  const sub = `${esc(S.church)} · the email to church leaders: who gets it, what was sent, and lists to download`;
+  const isHome = S.church === S.me.home, key = isHome ? "report_recipients" : `report_recipients:${S.church}`;
   el.innerHTML = head("Reports", sub) + `<p class="empty">Loading…</p>`;
   let setting, sent;
   try {
-    [setting, sent] = await Promise.all([api("settings?select=value&key=eq.report_recipients"),
-      api("email_log?select=kind,report_date,sent_at,recipients,ok,detail&order=sent_at.desc&limit=15")]);
+    [setting, sent] = await Promise.all([api(`settings?select=value&key=eq.${encodeURIComponent(key)}`),
+      api(`email_log?select=kind,report_date,sent_at,recipients,ok,detail&kind=in.(${isHome ? '"manual","daily"' : `"manual:${S.church.replace(/"/g, "")}"`})&order=sent_at.desc&limit=15`)]);
   } catch (e) { el.innerHTML = head("Reports", sub) + `<div class="msg bad">Reports can't be loaded yet. Run the latest setup SQL in Supabase once, then open this page again. (${esc(e.message)})</div>`; return; }
   if (S.view !== "reports") return;
   const list = (setting[0]?.value || "").split(/[,\s;]+/).filter(Boolean), p = picture();
@@ -969,14 +973,14 @@ async function reports(el) {
     <form class="card" id="to" style="margin-bottom:14px"><div class="card-head"><h2>Who gets the email</h2></div>
       <label class="f" for="emails">Email addresses, one per line</label>
       <textarea class="in" id="emails" rows="${Math.max(3, list.length + 1)}" placeholder="name@example.com">${esc(list.join("\n"))}</textarea>
-      <div class="row" style="margin-top:12px"><p class="note" style="margin:0">${list.length ? "Nothing is sent automatically. The email goes to these addresses when the admin sends it." : "No list is saved here yet, so the email goes to the default address when the admin sends it."}</p>
-        <div style="flex:0 0 auto"><button class="pill-btn primary">Save</button></div></div></form>
+      <div class="row" style="margin-top:12px"><p class="note" style="margin:0">${list.length ? "Nothing is sent automatically. The email goes to these addresses when you press Send report now." : "No list is saved for this church yet. Add at least one address and press Save before sending."}</p>
+        <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap"><button class="pill-btn">Save</button><button type="button" class="pill-btn primary" id="send" ${list.length && p.last ? "" : "disabled"}>${svg("reports")}Send report now</button></div></div></form>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Emails sent</h2></div>
       ${sent.length ? `<div class="scroll"><table><thead><tr><th>Sent</th><th>Report for</th><th>Type</th><th>To</th><th>Result</th></tr></thead><tbody>
         ${sent.map(r => `<tr><td class="muted">${esc(when(r.sent_at))}</td><td>${esc(full(r.report_date))}</td><td class="muted">${r.kind === "daily" ? "Automatic (old schedule)" : "Sent by the admin"}</td>
           <td class="muted">${esc(r.recipients || "")}</td><td>${r.ok ? "Sent" : `<span class="badge red" title="${esc(r.detail || "")}">Failed</span>`}</td></tr>`).join("")}</tbody></table></div>`
         : `<p class="empty">No emails have been sent yet.</p>`}
-      <p class="note">The admin sends the report with “Send report now” on the Streamlit site. Sending from this app is not built yet.</p></div>
+      <p class="note">Emails sent for ${esc(S.church)}, from this app or the old site.</p></div>
     <div class="card"><div class="card-head"><h2>Lists to download</h2></div>
       <div class="chips" style="margin:0"><button class="pill-btn" data-dl="in">Checked in${p.last ? " · " + esc(nice(p.last)) : ""}</button>
         <button class="pill-btn" data-dl="call">Needs a follow-up call</button><button class="pill-btn" data-dl="all">Whole register</button></div>
@@ -987,7 +991,7 @@ async function reports(el) {
     if (bad.length) return toast("Not saved: " + bad[0]);
     if (!items.length) return toast("Not saved: add at least one email address.");
     const value = [...new Set(items.map(x => x.toLowerCase()))].join(", ");
-    try { await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key: "report_recipients", value}}); toast("Saved."); render(); }
+    try { await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key, value}}); toast("Saved."); render(); }
     catch (err) { toast("Not saved: " + err.message); }
   };
   const type = m => m.type === "first_timer" ? "First-timer" : "Member", age = m => isKid(m) ? "Child" : "Adult";
@@ -997,6 +1001,54 @@ async function reports(el) {
     all: () => [`register_${S.church}_${today()}.csv`, [["Church", "Name", "Type", "Adult / Child", "Status", "Pastor", "Phone"], ...p.mine.slice().sort(byName).map(m => [S.church, m.full_name, type(m), age(m), m.status || "Active", m.pastor || "", m.phone || ""])]],
   };
   el.querySelectorAll("[data-dl]").forEach(b => b.onclick = () => download(...files[b.dataset.dl]()));
+  const csv = rows => rows.map(r => r.map(v => /[",\n]/.test(String(v ?? "")) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? "")).join(",")).join("\r\n");
+  el.querySelector("#send").onclick = () => formDialog(`Send ${S.church}'s report`, [
+    {k: "names", label: "Include names of first-timers and people to follow up", type: "select", value: "yes", options: [["yes", "Yes, with names"], ["no", "No, numbers only"]],
+     hint: `Goes to ${list.join(", ")} for ${p.last ? nice(p.last, true) : "the latest service"}. The check-in and follow-up lists are attached when names are included.`},
+  ], async v => {
+    const was = S.emoji; S.emoji = false;
+    let text; try { text = summary(p, {names: v.names === "yes"}); } finally { S.emoji = was; }
+    if (S.session && S.session.expires_at - Date.now() < 60000) await refresh();
+    const r = await fetch("/app-send", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Bearer " + S.session.access_token},
+      body: JSON.stringify({church: S.church, date: p.last, at: isoLocal(), text,
+        files: v.names === "yes" ? ["in", "call"].map(k => files[k]()).map(([name, rows]) => ({name: name.replace(/[^\w .()-]/g, "_"), text: csv(rows)})) : []})});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { render(); throw new Error(j.message || "The email was not sent."); }
+    toast(`Sent to ${j.sent} ${j.sent === 1 ? "person" : "people"}.`); render();
+  }, "Send now");
+}
+
+// ---------------------------------------------------------------- help: quick fixes and who to contact
+async function help(el) {
+  const admin = S.me.role === "admin";
+  el.innerHTML = head("Help", "Quick fixes, and who to contact if you are stuck") + `<p class="empty">Loading…</p>`;
+  let contact = "";
+  try { contact = (await api("settings?select=value&key=eq.help_contact"))[0]?.value || ""; } catch {}
+  if (S.view !== "help") return;
+  const link = t => esc(t).replace(/[^\s<>@]+@[^\s<>@]+\.[a-z]{2,}/gi, m => `<a href="mailto:${m}">${m}</a>`).replace(/\+?\d[\d ]{6,}\d/g, m => `<a href="tel:${m.replace(/ /g, "")}">${m}</a>`);
+  const faq = [
+    ["I can't see a person on the list", "Check the church name at the top is the right one, then use the search box. If they are new, add them at the bottom of Check-in."],
+    ["I ticked the wrong person", "Tap their name again on Check-in to untick them. Nothing else is changed."],
+    ["A name, phone number or role is wrong", "A church admin can fix it: People, then Edit beside the name."],
+    ["The numbers look out of date", "Pull the page down to refresh, or close the app and open it again."],
+    ["The sign-in email didn't arrive", "Wait two minutes, check Spam or Junk, and check the email address is spelled correctly."],
+    ["I need to see more than I can", "Ask the admin below to change your role."],
+  ];
+  el.innerHTML = head("Help", "Quick fixes, and who to contact if you are stuck") + `
+    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Contact the admin</h2></div>
+      ${contact ? `<p style="white-space:pre-line;margin:0;line-height:1.6">${link(contact)}</p>` : `<p class="empty">${admin ? "Nothing is shown here yet. Add how people can reach you below." : "Ask your church admin or pastor."}</p>`}
+      ${admin ? `<form id="hc" style="margin-top:14px"><label class="f" for="hc-text">What everyone sees here</label>
+        <textarea class="in" id="hc-text" rows="3" maxlength="400" placeholder="e.g. your name, a phone number and an email address">${esc(contact)}</textarea>
+        <div class="row" style="margin-top:12px"><p class="note" style="margin:0">Everyone who can sign in sees this. Phone numbers and email addresses become tappable.</p>
+          <div style="flex:0 0 auto"><button class="pill-btn primary">Save</button></div></div></form>` : ""}</div>
+    <div class="card"><div class="card-head"><h2>Quick fixes</h2></div>
+      ${faq.map(([q, a]) => `<details class="faq"><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join("")}</div>`;
+  const f = el.querySelector("#hc");
+  if (f) f.onsubmit = async e => {
+    e.preventDefault();
+    try { await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key: "help_contact", value: f.querySelector("#hc-text").value.trim()}}); toast("Saved."); render(); }
+    catch (err) { toast(/row-level|policy/i.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
+  };
 }
 
 // ---------------------------------------------------------------- your own account
