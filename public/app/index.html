@@ -209,6 +209,9 @@ textarea.in {width: 100%; resize: vertical; font: inherit;}
 .preview {margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
           background: var(--soft); border-radius: 12px; padding: 14px; max-height: 46vh; overflow-y: auto; color: var(--ink); user-select: text; -webkit-user-select: text;}
 .tag {display: inline-block; background: var(--accent-soft); color: var(--ink); border-radius: 999px; padding: 3px 9px; font-size: 12.5px; font-weight: 500; margin: 1px 4px 1px 0;}
+.suggest {display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px;} .suggest:empty {display: none;} .chip.sm {padding: 5px 11px; font-size: 13px;}
+.bulk {white-space: nowrap; display: flex; align-items: center; gap: 8px; position: sticky; top: 8px; z-index: 5; background: var(--card); border: 1px solid var(--accent); border-radius: 14px; padding: 8px 10px 8px 14px; margin-bottom: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.12);}
+.bulk .gap {flex: 1;} .tick {width: 36px;} .tick input {width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer;}
 .sheet.narrow {width: min(520px, 100%);} .fields {display: grid; gap: 14px;} .fields .f {display: block;}
 .pill-btn.sm {padding: 7px 12px; font-size: 13.5px;} .chip svg {width: 14px; height: 14px; margin-left: 8px; vertical-align: -2px; opacity: .6;}
 button.chip {cursor: pointer; font: inherit; font-weight: 500;} button.chip:not(.on):hover {border-color: var(--accent); color: var(--accent);}
