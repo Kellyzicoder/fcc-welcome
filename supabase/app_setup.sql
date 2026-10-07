@@ -112,7 +112,9 @@ grant select, insert on activity_log to authenticated;
 -- ---------------------------------------------------------------- numbers for every church (Bishop and admin)
 -- Returns counts only. The Bishop's sign-in has no rule that lets it read the members table, so names and phone
 -- numbers cannot be loaded with it; this function is the only thing it can call.
-create or replace function church_numbers() returns table (
+-- Called with a date it gives the numbers as they stood after that day's services (for sharing an earlier day).
+drop function if exists church_numbers();
+create or replace function church_numbers(upto date default null) returns table (
   church text, latest date, present int, adults int, kids int, first_timers int, register int,
   red int, yellow int, missed_this int, trend int[]
 ) language plpgsql stable security definer set search_path = public as $$
@@ -129,7 +131,7 @@ begin
     where lower(coalesce(m.status, '')) not in ('inactive', 'moved', 'left', 'deceased', 'transferred', 'away')
   ),
   ticks as (select p.ch, p.id, a.service_date from attendance a join people p on p.id = a.member_id
-            where a.service_date <= current_date + 1),
+            where a.service_date <= coalesce(upto, current_date + 1)),
   svc as (select t.ch, t.service_date, count(*)::int as n from ticks t group by 1, 2),
   latest as (select s.ch, max(s.service_date) as d from svc s group by 1),
   seen as (select p.id, max(t.service_date) as d from people p left join ticks t on t.id = p.id group by 1),
@@ -158,8 +160,8 @@ begin
   order by (c.ch <> app_home_church()), c.ch;
 end $$;
 
-revoke all on function church_numbers() from public, anon;
-grant execute on function church_numbers(), app_me(), app_role(), app_church(), app_can_see(text), app_home_church() to authenticated;
+revoke all on function church_numbers(date) from public, anon;
+grant execute on function church_numbers(date), app_me(), app_role(), app_church(), app_can_see(text), app_home_church() to authenticated;
 
 -- ---------------------------------------------------------------- more screens (second round; safe to run again)
 -- The last service each person was ticked at, so the app does not have to load years of ticks to know who
