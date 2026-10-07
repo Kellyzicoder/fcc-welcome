@@ -101,6 +101,11 @@ create policy "app: admin reads the activity log" on activity_log for select to 
 grant select, insert, update, delete on churches, app_users to authenticated;
 grant select, insert, update on members to authenticated;
 grant select, insert on services to authenticated;
+-- A service's title can be changed ("Midweek Service", "Prayer Meeting") by anyone who does check-in.
+drop policy if exists "app: rename a service" on services;
+create policy "app: rename a service" on services for update to authenticated
+  using (app_role() in ('admin', 'lead', 'team')) with check (app_role() in ('admin', 'lead', 'team'));
+grant update (name) on services to authenticated;
 grant select, insert, delete on attendance to authenticated;
 grant select, insert on activity_log to authenticated;
 
