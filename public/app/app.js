@@ -131,7 +131,7 @@ function waDialog(title, build, opts = {}) {
         ${opts.link ? `<div class="opt"><label class="f" for="m-link">Livestream link (optional)</label><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>` : ""}
       </div>
       <div class="opt"><span class="f">Preview</span><pre class="preview" id="m-text" tabindex="0"></pre></div></div>
-    <div class="modal-foot"><button class="pill-btn" data-x>Close</button><button class="pill-btn primary" id="m-copy">Copy message</button></div></div>`;
+    <div class="modal-foot"><button class="pill-btn" data-x>Close</button><button class="pill-btn" id="m-copy">Copy</button><button class="pill-btn primary" id="m-send">Open in WhatsApp</button></div></div>`;
   document.body.append(d);
   const text = d.querySelector("#m-text"), draw = () => { text.textContent = build(st); };
   const close = () => { d.remove(); document.removeEventListener("keydown", esc2); }, esc2 = e => { if (e.key === "Escape") close(); };
@@ -141,8 +141,10 @@ function waDialog(title, build, opts = {}) {
   const names = d.querySelector("#m-names"), link = d.querySelector("#m-link");
   if (names) names.onchange = e => { st.names = e.target.checked; draw(); };
   if (link) link.oninput = e => { st.link = e.target.value.trim(); draw(); };
+  // opens WhatsApp with exactly what the preview shows (emojis, names and link as chosen); the person picks the chat and sends
+  d.querySelector("#m-send").onclick = () => { window.open("https://wa.me/?text=" + encodeURIComponent(text.textContent), "_blank", "noopener"); };
   d.querySelector("#m-copy").onclick = async e => {
-    try { await navigator.clipboard.writeText(text.textContent); e.target.textContent = "Copied"; toast("Copied. Paste it into WhatsApp."); setTimeout(() => { e.target.textContent = "Copy message"; }, 2500); }
+    try { await navigator.clipboard.writeText(text.textContent); e.target.textContent = "Copied"; toast("Copied."); setTimeout(() => { e.target.textContent = "Copy"; }, 2500); }
     catch {  // no clipboard access here: select the text so it can be copied by hand
       const r = document.createRange(); r.selectNodeContents(text); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
       toast("The message is selected. Press and hold it, then choose Copy.");
