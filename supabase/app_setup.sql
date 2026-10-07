@@ -135,8 +135,9 @@ begin
   seen as (select p.id, max(t.service_date) as d from people p left join ticks t on t.id = p.id group by 1),
   streak as (
     select p.id, p.ch,
+           -- only Sunday services count as missed; midweek services still count as being seen
            (select count(*) from svc s where s.ch = p.ch and s.service_date > coalesce(sn.d, date '0001-01-01')
-              and s.service_date >= coalesce(p.started, date '0001-01-01'))::int as missed,
+              and s.service_date >= coalesce(p.started, date '0001-01-01') and extract(dow from s.service_date) = 0)::int as missed,
            coalesce(sn.d::text, p.started::text, p.added) as last_sign
     from people p join seen sn on sn.id = p.id
   ),
