@@ -495,6 +495,15 @@ async function log(kind, member_id, result = "done", detail = "") {
   try { await api("activity_log", {method: "POST", prefer: "return=minimal", body: {id: newId() + newId(), at: isoLocal(), kind, service_date: S.date,
     member_id, detail, by_name: `${S.me.name || S.me.email} (${ROLE[S.me.role]})`, result}}); } catch {}
 }
+// Which team pills to show: the biggest few (plus the one in use) until "more" is tapped, then all A to Z.
+const FEW = 5;
+function fewKeys(keys, counts, picked, open) {
+  if (open || keys.length <= FEW + 1) return {show: keys, more: 0};
+  const top = [...keys].sort((a, b) => counts[b].n - counts[a].n || a.localeCompare(b)).slice(0, FEW);
+  if (picked && !top.includes(picked)) top[FEW - 1] = picked;
+  return {show: keys.filter(k => top.includes(k)), more: keys.length - FEW};
+}
+const moreChip = (more, open, total) => more ? `<button type="button" class="chip sm ghost" data-more>+${more} more</button>` : open && total > FEW + 1 ? `<button type="button" class="chip sm ghost" data-more>Show less</button>` : "";
 // A service's title. Until someone types one, Sunday and Wednesday get the usual names.
 const svcName = d => S.names[d] || (S.titles?.[d]) || ({0: "Sunday Service", 3: "Midweek Service"})[new Date(d + "T12:00:00").getDay()] || "Service";
 async function setPresent(id, on, seen) {
@@ -547,9 +556,11 @@ function checkin(el) {
     if (!teamsOn) S.ciRole = ""; armed = false; drawChips(); draw();
   };
   const drawChips = () => { tg.setAttribute("aria-expanded", teamsOn); tg.classList.toggle("primary", teamsOn); chips.hidden = !teamsOn;
+    const few = fewKeys(teamKeys, teams, S.ciRole, S.ciMore);
     chips.innerHTML = teamKeys.length ? `<button type="button" class="chip sm ${S.ciRole ? "" : "on"}" data-team="">Everyone</button>` +
-    teamKeys.map(k => `<button type="button" class="chip sm ${S.ciRole === k ? "on" : ""}" data-team="${esc(k)}">${esc(teams[k].label)} · ${teams[k].n}</button>`).join("") : ""; };
-  chips.onclick = e => { const b = e.target.closest("[data-team]"); if (!b) return; S.ciRole = b.dataset.team; armed = false; drawChips(); draw(); };
+    few.show.map(k => `<button type="button" class="chip sm ${S.ciRole === k ? "on" : ""}" data-team="${esc(k)}">${esc(teams[k].label)} · ${teams[k].n}</button>`).join("") + moreChip(few.more, S.ciMore, teamKeys.length) : ""; };
+  chips.onclick = e => { if (e.target.closest("[data-more]")) { S.ciMore = !S.ciMore; drawChips(); return; }
+    const b = e.target.closest("[data-team]"); if (!b) return; S.ciRole = b.dataset.team; armed = false; drawChips(); draw(); };
   let armed = false, armedAll = false, busy = false;
   const showing = () => { const q = norm(S.q);
     return mine.filter(m => (!S.ciRole || rolesOf(m).some(r => norm(r) === S.ciRole)) && (!q || norm(m.full_name).includes(q) || rolesOf(m).some(r => norm(r).includes(q)))); };
@@ -697,8 +708,8 @@ function people(el) {
   const typeOf = m => m.type === "first_timer" ? "First-timer" : "Member", ageOf = m => isKid(m) ? "Child" : "Adult";
   el.innerHTML = head("People", `${esc(S.church)} · ${everyone.length} people`, `<button class="pill-btn" id="dl">Download</button>`) + `
     <input class="in" id="find" type="search" placeholder="Search" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off" style="margin-bottom:12px">
-    ${roleKeys.length ? `<div class="chips"><button class="chip ${S.roleF ? "" : "on"}" data-role="">Everyone · ${everyone.length}</button>${roleKeys.map(k =>
-      `<button class="chip ${S.roleF === k ? "on" : ""}" data-role="${esc(k)}">${esc(counts[k].label)} · ${counts[k].n}</button>`).join("")}</div>` : ""}
+    ${roleKeys.length ? `<div class="chips"><button class="chip ${S.roleF ? "" : "on"}" data-role="">Everyone · ${everyone.length}</button>${fewKeys(roleKeys, counts, S.roleF, S.roleMore).show.map(k =>
+      `<button class="chip ${S.roleF === k ? "on" : ""}" data-role="${esc(k)}">${esc(counts[k].label)} · ${counts[k].n}</button>`).join("")}${moreChip(fewKeys(roleKeys, counts, S.roleF, S.roleMore).more, S.roleMore, roleKeys.length).replace("chip sm ghost", "chip ghost")}</div>` : ""}
     ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
     <div class="card"><div class="scroll"><table><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select everyone shown" ${mine.length && picked.length === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Roles</th><th>Type</th><th>Adult / Child</th><th>Status</th><th>Pastor</th><th>Phone</th></tr></thead><tbody>
     ${mine.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}<td>${whoBtn(m)}</td>${edit ? `<td><button class="pill-btn sm" data-edit="${esc(m.id)}" aria-label="Edit ${esc(m.full_name)}">${svg("edit")}Edit</button></td>` : ""}<td>${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("")}</td><td class="muted">${typeOf(m)}</td><td class="muted">${ageOf(m)}</td>
@@ -767,6 +778,7 @@ function people(el) {
     const f = document.querySelector("#find"); if (f) { f.focus(); try { f.setSelectionRange(at, at); } catch {} }
   };
   el.querySelectorAll("[data-role]").forEach(b => b.onclick = () => { S.roleF = b.dataset.role; render(); });
+  const moreB = el.querySelector(".chips [data-more]"); if (moreB) moreB.onclick = () => { S.roleMore = !S.roleMore; render(); };
   el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
     const m = S.members.find(x => x.id === b.dataset.edit), cur = (m.pastor || "").trim();
     const pastors = [["", "Not assigned"], ...[...plist, ...(cur && !plist.includes(cur) ? [cur] : [])].map(n => [n, n])];
