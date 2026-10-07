@@ -493,9 +493,11 @@ async function log(kind, member_id, result = "done", detail = "") {
   try { await api("activity_log", {method: "POST", prefer: "return=minimal", body: {id: newId() + newId(), at: isoLocal(), kind, service_date: S.date,
     member_id, detail, by_name: `${S.me.name || S.me.email} (${ROLE[S.me.role]})`, result}}); } catch {}
 }
+// A service's title. Until someone types one, Sunday and Wednesday get the usual names.
+const svcName = d => S.names[d] || (S.titles?.[d]) || ({0: "Sunday Service", 3: "Midweek Service"})[new Date(d + "T12:00:00").getDay()] || "Service";
 async function setPresent(id, on, seen) {
   if (on) {
-    await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, name: "Sunday Service"}});
+    await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, name: svcName(S.date)}});
     const at = isoLocal();
     await api("attendance?on_conflict=service_date,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, member_id: id, checked_at: at}});
     log("tick", id); return "done";
@@ -511,7 +513,10 @@ function checkin(el) {
   el.innerHTML = head("Check-in", esc(S.church)) + `
     <div class="card" style="margin-bottom:14px"><div class="row">
       <div style="flex:0 0 170px"><label class="f" for="d">Service date</label><input class="in" id="d" type="date" value="${S.date}"></div>
-      <div><label class="f" for="q">Search</label><input class="in" id="q" type="search" placeholder="Name or team" value="${esc(S.q)}"></div></div>
+      <div><label class="f" for="svc">Service</label><input class="in" id="svc" list="svc-list" maxlength="60" autocomplete="off" value="${esc(svcName(S.date))}">
+        <datalist id="svc-list">${[...new Set(["Sunday Service", "Midweek Service", "Prayer Meeting", "Special Service", ...Object.values(S.names)])].map(n => `<option value="${esc(n)}">`).join("")}</datalist></div>
+      <div><label class="f" for="q">Search</label><div style="display:flex;gap:8px;align-items:center"><input class="in" id="q" type="search" placeholder="Name or team" value="${esc(S.q)}" style="flex:1;min-width:0">
+        <button type="button" class="pill-btn sm" id="ci-tg" hidden aria-controls="ci-roles">Teams</button></div></div></div>
       <div class="chips" id="ci-roles" style="margin:12px 0 0"></div></div>
     <div class="tiles"><div class="card tile"><div class="label">Checked in</div><div class="num" id="n-in">0</div></div>
       <div class="card tile"><div class="label">Adults</div><div class="num" id="n-ad">0</div></div>
@@ -519,7 +524,8 @@ function checkin(el) {
       <div class="card tile"><div class="label">Not yet</div><div class="num" id="n-not">0</div></div></div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span><span id="shown" style="color:var(--ink-3);font-size:13px"></span></div>
       <div class="bulk" id="ci-bulk" hidden style="position:static;box-shadow:none"><b id="ci-count"></b><span class="gap"></span><button type="button" class="pill-btn sm primary" id="ci-all">Tick all</button><button type="button" class="pill-btn sm" id="ci-none">Untick all</button></div>
-      <div class="names" id="names"></div></div>
+      <div class="names" id="names"></div>
+      <div style="margin-top:12px;text-align:right" id="ci-clear-wrap" hidden><button type="button" class="pill-btn sm" id="ci-clear">Untick everyone</button></div></div>
     <form class="card" id="add"><div class="card-head"><h2>Add someone new</h2></div><div class="row">
       <div><label class="f" for="a-name">Full name</label><input class="in" id="a-name" required></div>
       <div><label class="f" for="a-phone">Phone</label><input class="in" id="a-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="off"></div>
@@ -532,10 +538,17 @@ function checkin(el) {
   for (const m of mine) for (const r of new Set(rolesOf(m).map(norm))) (teams[r] ??= {label: rolesOf(m).find(x => norm(x) === r), n: 0}).n++;
   if (S.ciRole && !teams[S.ciRole]) S.ciRole = "";
   const chips = el.querySelector("#ci-roles"), teamKeys = Object.keys(teams).sort();
-  const drawChips = () => { chips.innerHTML = teamKeys.length ? `<button type="button" class="chip sm ${S.ciRole ? "" : "on"}" data-team="">Everyone</button>` +
+  let teamsOn = true; try { teamsOn = localStorage.getItem("fcc-teams") !== "off"; } catch {}
+  const tg = el.querySelector("#ci-tg"); tg.hidden = !teamKeys.length;
+  tg.onclick = () => {  // hide or bring back the team pills; hiding also goes back to everyone so no filter is left on unseen
+    teamsOn = !teamsOn; try { localStorage.setItem("fcc-teams", teamsOn ? "on" : "off"); } catch {}
+    if (!teamsOn) S.ciRole = ""; armed = false; drawChips(); draw();
+  };
+  const drawChips = () => { tg.setAttribute("aria-expanded", teamsOn); tg.classList.toggle("primary", teamsOn); chips.hidden = !teamsOn;
+    chips.innerHTML = teamKeys.length ? `<button type="button" class="chip sm ${S.ciRole ? "" : "on"}" data-team="">Everyone</button>` +
     teamKeys.map(k => `<button type="button" class="chip sm ${S.ciRole === k ? "on" : ""}" data-team="${esc(k)}">${esc(teams[k].label)} · ${teams[k].n}</button>`).join("") : ""; };
   chips.onclick = e => { const b = e.target.closest("[data-team]"); if (!b) return; S.ciRole = b.dataset.team; armed = false; drawChips(); draw(); };
-  let armed = false, busy = false;
+  let armed = false, armedAll = false, busy = false;
   const showing = () => { const q = norm(S.q);
     return mine.filter(m => (!S.ciRole || rolesOf(m).some(r => norm(r) === S.ciRole)) && (!q || norm(m.full_name).includes(q) || rolesOf(m).some(r => norm(r).includes(q)))); };
   const draw = () => {
@@ -550,6 +563,10 @@ function checkin(el) {
     const all = el.querySelector("#ci-all"), none = el.querySelector("#ci-none");
     all.textContent = `Tick all ${shown.length}`; all.disabled = busy || ticked === shown.length;
     none.textContent = armed ? `Tap again to untick ${ticked}` : "Untick all"; none.disabled = busy || !ticked;
+    // clearing the whole service is for admins and church admins, and only from the full list
+    const total = mine.filter(m => here[m.id]).length, wrap = el.querySelector("#ci-clear-wrap"), clear = el.querySelector("#ci-clear");
+    wrap.hidden = narrowed || !total || S.me.role === "team";
+    clear.textContent = armedAll ? `Tap again to untick all ${total}` : "Untick everyone"; clear.disabled = busy;
     const ids = mine.filter(m => here[m.id]), kids = ids.filter(isKid).length;
     el.querySelector("#n-in").textContent = ids.length; el.querySelector("#n-ad").textContent = ids.length - kids;
     el.querySelector("#n-kid").textContent = kids; el.querySelector("#n-not").textContent = mine.length - ids.length;
@@ -575,7 +592,7 @@ function checkin(el) {
     const todo = showing().filter(m => !here[m.id]); if (!todo.length || busy) return;
     busy = true; armed = false; draw();
     try {
-      await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, name: "Sunday Service"}});
+      await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, name: svcName(S.date)}});
       const at = isoLocal();  // one request for the whole group; anyone already ticked on another phone is left as they are
       await api("attendance?on_conflict=service_date,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: todo.map(m => ({service_date: S.date, member_id: m.id, checked_at: at}))});
       for (const m of todo) { here[m.id] = at; log("tick", m.id, "done", S.ciRole ? `with ${teams[S.ciRole].label}` : "with a group"); }
@@ -592,8 +609,37 @@ function checkin(el) {
     catch (err) { toast("Not saved: " + err.message); }
     busy = false; draw(); pull();
   };
+  el.querySelector("#ci-clear").onclick = async () => {
+    const todo = mine.filter(m => here[m.id]); if (!todo.length || busy) return;
+    if (!armedAll) { armedAll = true; draw(); setTimeout(() => { if (armedAll) { armedAll = false; if (S.view === "checkin") draw(); } }, 4000); return; }
+    busy = true; armedAll = false; draw();
+    try {
+      let n = 0;
+      for (let i = 0; i < todo.length; i += 80) {
+        const gone = await api(`attendance?service_date=eq.${S.date}&member_id=in.(${todo.slice(i, i + 80).map(m => `"${m.id}"`).join(",")})`, {method: "DELETE", prefer: "return=representation"});
+        n += gone?.length || 0;
+      }
+      here = {}; log("clear_service", "", "done", `${n} unticked · ${S.church}`);
+      toast(`Unticked ${n} ${n === 1 ? "person" : "people"}.`);
+    } catch (err) { toast("Not saved: " + err.message); }
+    busy = false; draw(); pull();
+  };
   drawChips();
-  el.querySelector("#d").onchange = e => { S.date = e.target.value || today(); here = {}; draw(); pull(); };
+  const svc = el.querySelector("#svc");
+  el.querySelector("#d").onchange = e => { S.date = e.target.value || today(); svc.value = svcName(S.date); here = {}; draw(); pull(); };
+  svc.onchange = async () => {
+    const name = svc.value.trim().replace(/\s+/g, " "), was = svcName(S.date);
+    if (!name) { svc.value = was; return; }
+    if (name === was) return;
+    (S.titles ??= {})[S.date] = name;  // used when the first person is ticked, if the service isn't saved yet
+    try {
+      await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {service_date: S.date, name}});
+      S.names[S.date] = name; log("edit", "", "done", `service title: ${name}`); toast("Saved.");
+    } catch (err) {
+      if (S.names[S.date]) { delete S.titles[S.date]; svc.value = was; toast(/row-level|policy|permission/i.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
+      else toast("Saved.");  // nothing ticked yet: the title goes in with the first tick
+    }
+  };
   el.querySelector("#a-phone").oninput = digitsOnly;
   el.querySelector("#add").onsubmit = async e => {
     e.preventDefault();
