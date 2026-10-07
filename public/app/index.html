@@ -291,6 +291,17 @@ td .x {border: 0; background: none; color: var(--red); font-weight: 600;}
 .name small {flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right;} .name span {flex: 0 1 auto; min-width: 0; max-width: 72%;}
 button.chip.ghost {border-style: dashed; color: var(--accent); background: none;}
 #m-send {white-space: nowrap; grid-column: 1 / -1; order: -1;}
+/* every text box, dropdown, date and text area looks and measures the same */
+input.in, select.in, textarea.in {width: 100%; min-height: 46px; box-sizing: border-box; font: inherit; line-height: 1.35; color: var(--ink); background-color: var(--card);
+  border: 1px solid var(--line); border-radius: 14px; padding: 11px 14px; margin: 0; outline: none; -webkit-appearance: none; appearance: none;}
+textarea.in {min-height: 92px; resize: vertical; display: block;}
+select.in {padding-right: 40px; cursor: pointer; text-overflow: ellipsis; background-repeat: no-repeat; background-position: right 14px center; background-size: 14px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a94a6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");}
+input.in[type="date"] {display: block; text-align: left;} input.in[type="date"]::-webkit-date-and-time-value {text-align: left;}
+input.in[type="search"]::-webkit-search-decoration {-webkit-appearance: none;}
+input.in:focus, select.in:focus, textarea.in:focus {border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);}
+input.in::placeholder, textarea.in::placeholder {color: var(--ink-3); opacity: 1;}
+.preview.muted {color: var(--ink-3); font-family: inherit;}
 </style>
 </head>
 <body>
