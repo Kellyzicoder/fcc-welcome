@@ -120,13 +120,13 @@ function formDialog(title, fields, save, button = "Save") {
 // build({names, link}) returns the text; opts says which options this message offers.
 function waDialog(title, build, opts = {}) {
   document.querySelectorAll(".modal").forEach(m => m.remove());
-  const st = {names: false, link: "", day: opts.days?.[0] || ""}, d = document.createElement("div");
+  const st = {names: false, link: "", day: opts.day || ""}, d = document.createElement("div");
   const toggle = (id, label, hint, on) => `<label class="switch"><span><b>${label}</b><small>${hint}</small></span><input type="checkbox" id="${id}" ${on ? "checked" : ""}><i></i></label>`;
   d.className = "modal";
   d.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}">
     <div class="card-head"><h2>${esc(title)}</h2><span class="gap"></span><button class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
     <div class="modal-grid"><div class="opts">
-        ${opts.days?.length > 1 ? `<div class="opt"><label class="f" for="m-day">Service</label><select class="in" id="m-day">${opts.days.map(x => `<option value="${x}">${esc(nice(x, true))} · ${esc(S.names[x] || "Service")}</option>`).join("")}</select></div>` : ""}
+        ${opts.day ? `<div class="opt"><label class="f" for="m-day">Service date</label><input class="in" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}
         ${toggle("m-emoji", "Emojis", "Turn off for a plain-text message", S.emoji)}
         ${opts.names ? toggle("m-names", "Include names", "Leave off for big group chats", false) : ""}
         ${opts.link ? `<div class="opt"><label class="f" for="m-link">Livestream link (optional)</label><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>` : ""}
@@ -134,13 +134,22 @@ function waDialog(title, build, opts = {}) {
       <div class="opt"><span class="f">Preview</span><pre class="preview" id="m-text" tabindex="0"></pre></div></div>
     <div class="modal-foot"><button class="pill-btn" data-x>Close</button><button class="pill-btn" id="m-copy">Copy</button><button class="pill-btn primary" id="m-send">Open in WhatsApp</button></div></div>`;
   document.body.append(d);
-  const text = d.querySelector("#m-text"), draw = () => { text.textContent = build(st); };
+  const text = d.querySelector("#m-text");
+  let turn = 0;
+  const draw = async () => {  // build may load numbers for the chosen day; null means there is nothing for that day
+    const mine = ++turn, send = d.querySelector("#m-send"), copy = d.querySelector("#m-copy");
+    let out; try { out = await build(st); } catch (err) { out = null; text.dataset.why = err.message; }
+    if (mine !== turn) return;
+    const none = out == null;
+    text.textContent = none ? (text.dataset.why || `No summary for ${st.day ? nice(st.day, true) : "this day"}. No service was recorded.`) : out;
+    delete text.dataset.why; text.classList.toggle("muted", none); send.disabled = copy.disabled = none;
+  };
   const close = () => { d.remove(); document.removeEventListener("keydown", esc2); }, esc2 = e => { if (e.key === "Escape") close(); };
   d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
   document.addEventListener("keydown", esc2);
   d.querySelector("#m-emoji").onchange = e => { S.emoji = e.target.checked; try { localStorage.setItem("fcc-emoji", S.emoji ? "on" : "off"); } catch {} draw(); };
   const names = d.querySelector("#m-names"), link = d.querySelector("#m-link"), day = d.querySelector("#m-day");
-  if (day) day.onchange = e => { st.day = e.target.value; draw(); };
+  if (day) day.onchange = e => { st.day = e.target.value || opts.day; if (!e.target.value) e.target.value = opts.day; draw(); };
   if (names) names.onchange = e => { st.names = e.target.checked; draw(); };
   if (link) link.oninput = e => { st.link = e.target.value.trim(); draw(); };
   // opens WhatsApp with exactly what the preview shows (emojis, names and link as chosen); the person picks the chat and sends
@@ -490,7 +499,7 @@ function dashboard(el) {
   donut(el.querySelector("#donut"), stands);
   calendar(el.querySelector("#cal"), p);
   chart(el.querySelector("#chart"), series);
-  el.querySelector("#wa").onclick = () => waDialog("Summary for WhatsApp", o => summary(o.day && o.day !== p.last ? picture(o.day) : p, o), {names: true, link: true, days: [...p.dates].reverse().slice(0, 30)});
+  el.querySelector("#wa").onclick = () => waDialog("Summary for WhatsApp", o => !p.dates.includes(o.day) ? null : summary(o.day !== p.last ? picture(o.day) : p, o), {names: true, link: true, day: p.last || today()});
   el.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { S.view = b.dataset.go; render(); });
 }
 
@@ -823,10 +832,20 @@ async function overview(el) {
   try { rows = await api("rpc/church_numbers", {method: "POST", body: {}}); } catch (e) { el.innerHTML = head("All churches", "") + `<div class="msg bad">${esc(e.message)}</div>`; return; }
   if (S.view !== "overview") return;
   const sum = k => rows.reduce((n, r) => n + (r[k] || 0), 0), top = Math.max(1, ...rows.flatMap(r => r.trend || [])), admin = S.me.role === "admin";
-  const text = () => wa([`*FCC · all churches*${S.emoji ? " ⛪" : ""}`, nice(today(), true), "",
-    ["✅", `Present: *${sum("present")}*`], ["🧑", `Adults: *${sum("adults")}*`], ["🧒", `Kids: *${sum("kids")}*`], ["👋", `First-timers: *${sum("first_timers")}*`],
-    ...rows.flatMap(r => ["", `*${r.church}*${r.latest ? ` (${nice(r.latest)})` : ""}`, `Present ${r.present} · Adults ${r.adults} · Kids ${r.kids}`,
-      `First-timers ${r.first_timers} · ${S.emoji ? `🔴 ${r.red} · 🟡 ${r.yellow}` : `Red ${r.red} · Yellow ${r.yellow}`}`])]);
+  const newest = rows.map(r => r.latest).filter(Boolean).sort().pop() || today(), byDay = {[newest]: rows};
+  const text = async o => {  // every church for one day; a church with no service that day says so
+    const day = o.day || newest;
+    if (!byDay[day]) {
+      try { byDay[day] = await api("rpc/church_numbers", {method: "POST", body: {upto: day}}); }
+      catch (err) { throw new Error(/church_numbers|upto|schema cache/i.test(err.message) ? "Run the latest setup SQL in Supabase once to share an earlier day." : err.message); }
+    }
+    const all = byDay[day], had = all.filter(r => r.latest === day), tot = k => had.reduce((n, r) => n + (r[k] || 0), 0);
+    if (!had.length) return null;
+    return wa([`*FCC · all churches*${S.emoji ? " ⛪" : ""}`, nice(day, true), "",
+      ["✅", `Present: *${tot("present")}*`], ["🧑", `Adults: *${tot("adults")}*`], ["🧒", `Kids: *${tot("kids")}*`], ["👋", `First-timers: *${tot("first_timers")}*`],
+      ...all.flatMap(r => r.latest !== day ? ["", `*${r.church}*`, "No service this day"] : ["", `*${r.church}*`, `Present ${r.present} · Adults ${r.adults} · Kids ${r.kids}`,
+        `First-timers ${r.first_timers} · ${S.emoji ? `🔴 ${r.red} · 🟡 ${r.yellow}` : `Red ${r.red} · Yellow ${r.yellow}`}`])]);
+  };
   el.innerHTML = head("All churches", sub, `<button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
     <div class="tiles"><div class="card tile"><div class="label">Churches</div><div class="num">${rows.length}</div></div>
       <div class="card tile"><div class="label">Present · latest services</div><div class="num">${sum("present")}</div></div>
@@ -844,7 +863,7 @@ async function overview(el) {
     ${rows.length ? "" : `<p class="empty">No churches yet.</p>`}
     ${admin ? `` : ""}`;
   el.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { S.church = b.dataset.open; S.view = "dashboard"; render(); });
-  el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text);
+  el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text, {day: newest});
   el.querySelector("#dl").onclick = () => download(`all_churches_${today()}.csv`, [["Church", "Latest service", "Present", "Adults", "Kids", "First-timers", "On the register", "Red", "Yellow", "Missed this service"],
     ...rows.map(r => [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this])]);
 }
@@ -906,14 +925,17 @@ async function admin(el) {
 
 // ---------------------------------------------------------------- pastors: each pastor's people
 function pastors(el) {
-  const NONE = "Not assigned yet", p = picture(), groups = {};
+  const NONE = "Not assigned yet", p = picture(), p0 = p, groups = {};
   for (const x of p.people) (groups[(x.pastor || "").trim() || NONE] ??= []).push(x);
   const plist = S.pastorList[S.church] || [], canEdit = S.me.role !== "team";
   for (const n of plist) groups[n] ??= [];  // pastors on the list show even before anyone is assigned to them
   const names = Object.keys(groups).sort((a, b) => (a === NONE) - (b === NONE) || a.localeCompare(b));
   if (!names.includes(S.pastor)) S.pastor = names[0] || "";
   const list = (groups[S.pastor] || []).slice().sort(byName), came = list.filter(x => p.here[x.id]), need = list.filter(x => x.level !== "ok");
-  const message = () => {
+  const message = (o = {}) => {
+    if (o.day && !p0.dates.includes(o.day)) return null;
+    const p = o.day && o.day !== p0.last ? picture(o.day) : p0;
+    const list = p.people.filter(x => ((x.pastor || "").trim() || NONE) === S.pastor).sort(byName), came = list.filter(x => p.here[x.id]), need = list.filter(x => x.level !== "ok");
     const out = [`*${S.pastor} · your people*${S.emoji ? " ⛪" : ""}`, p.last ? nice(p.last, true) : "", "", ["✅", `Came: *${came.length} of ${list.length}*`]];
     if (came.length) out.push(came.map(x => x.full_name).join(", "));
     const not = list.filter(x => !p.here[x.id]);
@@ -948,7 +970,7 @@ function pastors(el) {
     } catch (err) { toast(/settings|policy|permission/i.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
   };
   el.querySelectorAll("[data-pastor]").forEach(b => b.onclick = () => { S.pastor = b.dataset.pastor; render(); });
-  const btn = el.querySelector("#wa"); if (btn) btn.onclick = () => waDialog(`Message for ${S.pastor}`, message);
+  const btn = el.querySelector("#wa"); if (btn) btn.onclick = () => waDialog(`Message for ${S.pastor}`, message, {day: p.last || today()});
 }
 
 // ---------------------------------------------------------------- one person: every day they came
