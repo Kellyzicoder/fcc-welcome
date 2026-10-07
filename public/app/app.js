@@ -272,6 +272,7 @@ async function load() {
   S.seen = seen && Object.fromEntries(seen.map(r => [r.member_id, r.last_seen]));
   S.members = members; S.ticks = ticks; S.names = Object.fromEntries(services.map(s => [s.service_date, s.name]));
 }
+const isSunday = d => new Date(d + "T12:00:00").getDay() === 0;
 function picture() {  // everything the pages show, worked out the same way as the Streamlit site
   const mine = S.members.filter(m => churchOf(m) === S.church);
   const ids = new Set(mine.map(m => m.id)), byDate = {};
@@ -282,7 +283,8 @@ function picture() {  // everything the pages show, worked out the same way as t
     if (AWAY.has(norm(m.status))) continue;
     const start = [m.date_joined, m.first_visit].filter(Boolean).sort()[0] || "0000";
     let missed = 0, seen = null;
-    for (let i = dates.length - 1; i >= 0 && dates[i] >= start; i--) { if (byDate[dates[i]][m.id]) { seen = dates[i]; break; } missed++; }
+    // only Sunday services count as missed; coming to any service (midweek too) counts as being seen
+    for (let i = dates.length - 1; i >= 0 && dates[i] >= start; i--) { if (byDate[dates[i]][m.id]) { seen = dates[i]; break; } if (isSunday(dates[i])) missed++; }
     if (!seen) seen = [...dates].reverse().find(d => byDate[d][m.id]) || S.seen?.[m.id] || null;
     const sign = seen || (start !== "0000" ? start : (m.created_at || "").slice(0, 10));
     if (sign && sign < cutoff) { archived.push({...m, seen, kid: isKid(m)}); continue; }  // not seen for two years
