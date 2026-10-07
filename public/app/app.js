@@ -120,12 +120,13 @@ function formDialog(title, fields, save, button = "Save") {
 // build({names, link}) returns the text; opts says which options this message offers.
 function waDialog(title, build, opts = {}) {
   document.querySelectorAll(".modal").forEach(m => m.remove());
-  const st = {names: false, link: ""}, d = document.createElement("div");
+  const st = {names: false, link: "", day: opts.days?.[0] || ""}, d = document.createElement("div");
   const toggle = (id, label, hint, on) => `<label class="switch"><span><b>${label}</b><small>${hint}</small></span><input type="checkbox" id="${id}" ${on ? "checked" : ""}><i></i></label>`;
   d.className = "modal";
   d.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}">
     <div class="card-head"><h2>${esc(title)}</h2><span class="gap"></span><button class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
     <div class="modal-grid"><div class="opts">
+        ${opts.days?.length > 1 ? `<div class="opt"><label class="f" for="m-day">Service</label><select class="in" id="m-day">${opts.days.map(x => `<option value="${x}">${esc(nice(x, true))} · ${esc(S.names[x] || "Service")}</option>`).join("")}</select></div>` : ""}
         ${toggle("m-emoji", "Emojis", "Turn off for a plain-text message", S.emoji)}
         ${opts.names ? toggle("m-names", "Include names", "Leave off for big group chats", false) : ""}
         ${opts.link ? `<div class="opt"><label class="f" for="m-link">Livestream link (optional)</label><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>` : ""}
@@ -138,7 +139,8 @@ function waDialog(title, build, opts = {}) {
   d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
   document.addEventListener("keydown", esc2);
   d.querySelector("#m-emoji").onchange = e => { S.emoji = e.target.checked; try { localStorage.setItem("fcc-emoji", S.emoji ? "on" : "off"); } catch {} draw(); };
-  const names = d.querySelector("#m-names"), link = d.querySelector("#m-link");
+  const names = d.querySelector("#m-names"), link = d.querySelector("#m-link"), day = d.querySelector("#m-day");
+  if (day) day.onchange = e => { st.day = e.target.value; draw(); };
   if (names) names.onchange = e => { st.names = e.target.checked; draw(); };
   if (link) link.oninput = e => { st.link = e.target.value.trim(); draw(); };
   // opens WhatsApp with exactly what the preview shows (emojis, names and link as chosen); the person picks the chat and sends
@@ -275,10 +277,10 @@ async function load() {
   S.members = members; S.ticks = ticks; S.names = Object.fromEntries(services.map(s => [s.service_date, s.name]));
 }
 const isSunday = d => new Date(d + "T12:00:00").getDay() === 0;
-function picture() {  // everything the pages show, worked out the same way as the Streamlit site
+function picture(upTo = today()) {  // everything the pages show, as things stood on upTo (today unless a past service is asked for)
   const mine = S.members.filter(m => churchOf(m) === S.church);
   const ids = new Set(mine.map(m => m.id)), byDate = {};
-  for (const t of S.ticks) if (ids.has(t.member_id) && t.service_date <= today()) (byDate[t.service_date] ??= {})[t.member_id] = t.checked_at;
+  for (const t of S.ticks) if (ids.has(t.member_id) && t.service_date <= upTo) (byDate[t.service_date] ??= {})[t.member_id] = t.checked_at;
   const dates = Object.keys(byDate).sort(), cutoff = new Date(Date.now() - ARCHIVE_DAYS * 864e5).toISOString().slice(0, 10);
   const people = [], archived = [];
   for (const m of mine) {
@@ -478,17 +480,17 @@ function dashboard(el) {
     <div class="grid-2"><div class="card"><div class="card-head"><h2>People present</h2><span class="gap"></span>
         <div class="legend"><span><i style="background:var(--adults)"></i>Adults</span><span><i style="background:var(--kids)"></i>Kids</span></div></div>
         <div class="chart" id="chart"></div></div>
-      <div class="card"><div class="card-head"><h2>Where everyone stands</h2></div>
-        <div class="stand"><div class="donut" id="donut"></div><div class="stand-rows">
-        ${stands.map(([f, t, n]) => `<div class="status-row">${badge(f)}<span class="txt"><small>${t}</small></span><b>${n}</b></div>`).join("")}</div></div></div></div>
+      <div class="card" id="cal"></div></div>
     <div class="grid-2"><div class="card"><div class="card-head"><h2>Needs a follow-up call</h2><span class="gap"></span><button class="pill-btn" data-go="followup">See all ${need.length}</button></div>
       ${need.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th>Phone</th></tr></thead>
         <tbody>${rowsHtml(need.slice(0, 6))}</tbody></table></div>` : `<p class="empty">Nobody has missed ${YELLOW_AT} or more services in a row.</p>`}</div>
-      <div class="card" id="cal"></div></div>`;
+      <div class="card"><div class="card-head"><h2>Where everyone stands</h2></div>
+        <div class="stand"><div class="donut" id="donut"></div><div class="stand-rows">
+        ${stands.map(([f, t, n]) => `<div class="status-row">${badge(f)}<span class="txt"><small>${t}</small></span><b>${n}</b></div>`).join("")}</div></div></div></div>`;
   donut(el.querySelector("#donut"), stands);
   calendar(el.querySelector("#cal"), p);
   chart(el.querySelector("#chart"), series);
-  el.querySelector("#wa").onclick = () => waDialog("Summary for WhatsApp", o => summary(p, o), {names: true, link: true});
+  el.querySelector("#wa").onclick = () => waDialog("Summary for WhatsApp", o => summary(o.day && o.day !== p.last ? picture(o.day) : p, o), {names: true, link: true, days: [...p.dates].reverse().slice(0, 30)});
   el.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { S.view = b.dataset.go; render(); });
 }
 
