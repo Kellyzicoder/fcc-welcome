@@ -69,6 +69,13 @@ function emailProblem(raw) {
   if (SLIPS[host]) return `${x}: did you mean ${name}@${SLIPS[host]}?`;
   return "";
 }
+// What is wrong with a phone number, in plain words; "" when it looks right. needed: a first-timer must give one.
+function phoneProblem(raw, needed) {
+  const x = String(raw || "").trim(), digits = x.replace(/\D/g, "").length;
+  if (!x) return needed ? "A first-timer needs a phone number." : "";
+  if (!/^\+?[0-9 ]+$/.test(x) || digits < 7 || digits > 15) return "Check the phone number: it needs 7 to 15 digits.";
+  return "";
+}
 // Phone boxes take numbers only (plus + and spaces), whether typed or pasted.
 function digitsOnly(e) { const v = e.target.value.replace(/[^0-9+ ]/g, ""); if (v !== e.target.value) e.target.value = v; }
 function formDialog(title, fields, save, button = "Save", danger = null) {
@@ -361,7 +368,7 @@ function pages() {  // the menu, in groups; what each role can actually load is 
   const r = S.me.role;
   if (r === "bishop") return [["", [["overview", "All churches"], ["help", "Help"]]]];
   return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["followup", "Follow-up"], ["pastors", "Pastors"]]],
-          ["PEOPLE", [["people", "Register"], ["person", "One person"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ["archive", "Archive"]]],
+          ["PEOPLE", [["people", "Congregation"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ["archive", "Archive"]]],
           ...(r === "team" ? [] : [["RECORDS", [["activity", "Activity"], ["reports", "Reports"],
             ...(r === "admin" ? [["overview", "Churches"], ["admin", "Admin"]] : [])]]]),
           ["", [["help", "Help"]]]];
@@ -373,11 +380,16 @@ function setMode(mode, remember) {
 }
 function render() {
   clearInterval(S.poll);
-  const groups = pages(), who = S.me.name || S.me.email, allowed = [...groups.flatMap(g => g[1].map(x => x[0])), "account"];
+  if (S.shown && S.shown !== S.view && !S.goingBack) {  // moved to another page: remember where from
+    S.hist = [...(S.hist || []), S.shown].slice(-30);
+    try { history.pushState({fcc: S.hist.length}, ""); } catch {}
+  }
+  S.goingBack = false; S.shown = S.view;
+  const groups = pages(), who = S.me.name || S.me.email, allowed = [...groups.flatMap(g => g[1].map(x => x[0])), "account", ...(S.me.role === "bishop" ? [] : ["person"])];
   if (!allowed.includes(S.view)) S.view = allowed[0];
-  const short = {dashboard: "Home", overview: "Churches"};  // the bottom bar on phones: the four most-used pages, then More
+  const short = {dashboard: "Home", overview: "Churches", people: "Congregation"};  // the bottom bar on phones: the four most-used pages, then More
   const dock = groups.flatMap(g => g[1]).filter(x => ["dashboard", "checkin", "followup", "people", "overview"].includes(x[0])).slice(0, 4).map(([k, t]) => [k, short[k] || t]);
-  const go = to => { if (to !== S.view && (to === "account" || to === "person") && !["account", "person"].includes(S.view)) S.back = S.view; S.view = to; render(); };
+  const go = to => { S.view = to; render(); };
   const where = S.me.role === "bishop" ? "All churches" : S.church;
   root.innerHTML = `<div class="shell">
     <div class="scrim" data-close></div>
@@ -386,12 +398,12 @@ function render() {
         k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : ""}</button>`).join("")).join("")}
       ${S.me.role === "admin" ? `<h6>CHURCH</h6><button class="church on" data-view="overview" title="See every church and switch to another one"><i></i><span>${esc(S.church)}</span><em>Change</em></button>` : ""}
       <div class="side-foot"><button class="nav out" data-out>${svg("out")}Log out</button></div></aside>
-    <main class="main"><div class="top"><span class="gap"></span>
+    <main class="main"><div class="top">${S.hist?.length ? `<button class="back" data-back>${svg("back")}Back</button>` : ""}<span class="gap"></span>
         <div class="mode" role="group" aria-label="Colour mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button></div>
         <button class="acct" data-view="account" title="Your account" aria-label="Your account"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${ROLE[S.me.role]} · ${esc(where)}</small></span></button>
         <button class="icon-btn" data-out aria-label="Log out" title="Log out">${svg("out")}</button></div>
       <div class="body" id="view"></div></main>
-    <nav class="dock" aria-label="Main">${dock.map(([k, t]) => `<button class="${S.view === k ? "on" : ""}" data-view="${k}" aria-label="${t}">${svg(k)}<span>${t}</span></button>`).join("")}
+    <nav class="dock" aria-label="Main">${dock.map(([k, t]) => `<button class="${S.view === k ? "on" : ""} ${t.length > 9 ? "long" : ""}" data-view="${k}" aria-label="${t}">${svg(k)}<span>${t}</span></button>`).join("")}
       <button class="${dock.some(x => x[0] === S.view) ? "" : "on"}" data-menu aria-label="More" aria-controls="menu" aria-expanded="false">${svg("more")}<span>More</span></button></nav></div>`;
   const shell = root.querySelector(".shell"), menuBtn = root.querySelector("[data-menu]");
   const menu = open => { shell.classList.toggle("open", open); menuBtn.setAttribute("aria-expanded", open); };
@@ -403,15 +415,16 @@ function render() {
   root.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => setMode(b.dataset.mode, true));
   root.querySelectorAll("[data-out]").forEach(b => b.onclick = signOut);
   const view = document.getElementById("view");
-  view.onclick = e => {
-    const b = e.target.closest("[data-person]"), back = e.target.closest("[data-back]");
-    if (b) { S.person = b.dataset.person; go("person"); }
-    else if (back) { S.view = allowed.includes(S.back) ? S.back : allowed[0]; S.back = ""; render(); }
-  };
+  view.onclick = e => { const b = e.target.closest("[data-person]"); if (b) { S.person = b.dataset.person; go("person"); } };
+  root.querySelectorAll("[data-back]").forEach(b => b.onclick = () => history.back());  // same as the phone's back gesture
   ({dashboard, checkin, followup, pastors, people, person, signups, archive, activity, reports, overview, admin, account, help}[S.view] || dashboard)(view);
 }
-const backBtn = () => S.back ? `<button class="back" data-back>${svg("back")}Back to ${esc(TITLE[S.back] || "the last page")}</button>` : "";
-const TITLE = {dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", pastors: "Pastors", people: "Register", signups: "Sign-ups", archive: "Archive",
+// The phone's back gesture (and the Back button, which uses it) returns to the page you came from.
+addEventListener("popstate", () => {
+  if (!S.me || !S.hist?.length) return;
+  S.view = S.hist.pop(); S.goingBack = true; document.querySelectorAll(".modal").forEach(m => m.remove()); render();
+});
+const TITLE = {dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", pastors: "Pastors", people: "Congregation", person: "Person", account: "Your account", help: "Help", signups: "Sign-ups", archive: "Archive",
                activity: "Activity", reports: "Reports", overview: "All churches", admin: "Admin"};
 const head = (title, sub, buttons = "") => `<div class="head"><div><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ""}</div><span class="gap" style="flex:1"></span>${buttons}</div>`;
 const badge = f => `<span class="badge ${f}">${FLAG[f]}</span>`;
@@ -600,7 +613,7 @@ function checkin(el) {
       <div style="margin-top:12px;text-align:right" id="ci-clear-wrap" hidden><button type="button" class="pill-btn sm" id="ci-clear">Untick everyone</button></div></div>
     <form class="card" id="add"><div class="card-head"><h2>Add someone new</h2></div><div class="row">
       <div><label class="f" for="a-name">Full name</label><input class="in" id="a-name" required></div>
-      <div><label class="f" for="a-phone">Phone</label><input class="in" id="a-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="off"></div>
+      <div><label class="f" for="a-phone">Phone <span class="req" id="a-phone-req">*</span></label><input class="in" id="a-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="off"></div>
       <div><label class="f" for="a-type">Attendance Type</label><select class="in" id="a-type"><option value="first_timer">First-timer</option><option value="member">Member</option></select></div>
       <div><label class="f" for="a-age">Age group</label><select class="in" id="a-age"><option>Adult</option><option>Child</option></select></div>
       <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap"><button class="pill-btn primary">Add &amp; check in</button><button class="pill-btn" data-only>Add only</button></div></div>
@@ -748,10 +761,14 @@ function checkin(el) {
     }
   };
   el.querySelector("#a-phone").oninput = digitsOnly;
+  const reqMark = () => { el.querySelector("#a-phone-req").hidden = el.querySelector("#a-type").value !== "first_timer"; };
+  el.querySelector("#a-type").onchange = reqMark; reqMark();
   el.querySelector("#add").onsubmit = async e => {
     e.preventDefault();
     const name = el.querySelector("#a-name").value.trim().replace(/\s+/g, " "), type = el.querySelector("#a-type").value;
     if (!name) return;
+    const phone = el.querySelector("#a-phone").value.trim(), bad = phoneProblem(phone, type === "first_timer");
+    if (bad) { toast(bad); el.querySelector("#a-phone").focus(); return; }
     const known = S.members.find(m => churchOf(m) === S.church && norm(m.full_name) === norm(name));
     const id = known?.id || newId(), only = e.submitter?.hasAttribute("data-only");
     try {
@@ -800,7 +817,7 @@ function people(el) {
   S.sel = new Set([...(S.sel || [])].filter(id => ids.has(id)));  // ticks only count for people on show
   const picked = mine.filter(m => S.sel.has(m.id));
   const typeOf = m => m.type === "first_timer" ? "First-timer" : "Member", ageOf = m => isKid(m) ? "Child" : "Adult";
-  el.innerHTML = head("Register", `${esc(S.church)} · ${everyone.length} people`, `<button class="pill-btn" id="dl">Download</button>`) + `
+  el.innerHTML = head("Congregation", `${esc(S.church)} · ${everyone.length} people`, `<button class="pill-btn" id="dl">Download</button>`) + `
     <input class="in" id="find" type="search" placeholder="Search" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off" style="margin-bottom:12px">
     ${roleKeys.length ? `<div class="chips"><button class="chip ${S.roleF ? "" : "on"}" data-role="">Everyone · ${everyone.length}</button>${fewKeys(roleKeys, counts, S.roleF, S.roleMore).show.map(k =>
       `<button class="chip ${S.roleF === k ? "on" : ""}" data-role="${esc(k)}">${esc(counts[k].label)} · ${counts[k].n}</button>`).join("")}${moreChip(fewKeys(roleKeys, counts, S.roleF, S.roleMore).more, S.roleMore, roleKeys.length).replace("chip sm ghost", "chip ghost")}</div>` : ""}
@@ -889,6 +906,7 @@ function people(el) {
       ...(admin ? [{k: "church", label: "Church", value: churchOf(m), type: "select", options: S.churches.map(c => [c, c])}] : []),
     ], async v => {
       if (!v.full_name) throw new Error("Type their name.");
+      const badPhone = phoneProblem(v.phone, false); if (badPhone) throw new Error(badPhone);
       v.role = v.role.split(",").map(x => x.trim()).filter(Boolean).join(", ");
       const changed = Object.fromEntries(Object.entries(v).filter(([k, val]) => val !== String(k === "church" ? churchOf(m) : k === "age_group" ? ageOf(m) : k === "type" ? (m.type === "first_timer" ? "first_timer" : "member") : (m[k] ?? "")).trim()));
       if (!Object.keys(changed).length) return;
@@ -1063,7 +1081,7 @@ function pastors(el) {
 // ---------------------------------------------------------------- one person: every day they came
 async function person(el) {
   const p = picture(), mine = p.mine.slice().sort(byName), m = mine.find(x => x.id === S.person);
-  const top = backBtn() + head("One person", esc(S.church), m ? `<button class="pill-btn" id="dl">Download</button>` : "") + `
+  const top = head(m ? esc(m.full_name) : "Person", esc(S.church), m ? `<button class="pill-btn" id="dl">Download</button>` : "") + `
     <div class="card" style="margin-bottom:14px"><label class="f" for="who">Search for a person</label>
       <input class="in" id="who" type="search" autocomplete="off" placeholder="Type a name…" value="${esc(S.pq)}"><div class="found" id="found"></div></div>`;
   const bind = () => {
@@ -1265,7 +1283,7 @@ async function help(el) {
   const faq = [
     ["I can't see a person on the list", "Check the church name at the top is the right one, then use the search box. If they are new, add them at the bottom of Check-in."],
     ["I ticked the wrong person", "Tap their name again on Check-in to untick them. Nothing else is changed."],
-    ["A name, phone number or role is wrong", "A church admin can fix it: Register, then Edit beside the name."],
+    ["A name, phone number or role is wrong", "A church admin can fix it: Congregation, then Edit beside the name."],
     ["The numbers look out of date", "Pull the page down to refresh, or close the app and open it again."],
     ["The sign-in email didn't arrive", "Wait two minutes, check Spam or Junk, and check the email address is spelled correctly."],
     ["I need to see more than I can", "Ask the admin below to change your role."],
@@ -1289,8 +1307,7 @@ async function help(el) {
 
 // ---------------------------------------------------------------- your own account
 function account(el) {
-  if (!S.back) S.back = S.me.role === "bishop" ? "overview" : "dashboard";  // this page is not in the menu, so it always offers a way back
-  el.innerHTML = backBtn() + head("Your account", "") + `
+  el.innerHTML = head("Your account", "") + `
     <form class="card" id="me" style="max-width:560px;margin-bottom:14px"><label class="f" for="my-name">Your name</label>
       <input class="in" id="my-name" maxlength="80" autocomplete="name" value="${esc(S.me.name || "")}" placeholder="e.g. Grace Mensah">
       <p class="facts" style="margin-top:14px">Email: ${esc(S.me.email)}<br>Role: ${ROLE[S.me.role]}${S.me.church ? "<br>Church: " + esc(S.me.church) : ""}</p>
