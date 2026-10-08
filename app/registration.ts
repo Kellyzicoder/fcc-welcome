@@ -32,18 +32,33 @@ export function tidy(v: SignUp): SignUp {
   };
 }
 
+// Common slips in email addresses, and what was probably meant.
+const SLIPS: Record<string, string> = {"gmial.com": "gmail.com", "gmai.com": "gmail.com", "gmail.con": "gmail.com", "gmail.co": "gmail.com",
+  "gamil.com": "gmail.com", "gnail.com": "gmail.com", "hotmial.com": "hotmail.com", "hotmail.con": "hotmail.com",
+  "outlok.com": "outlook.com", "yaho.com": "yahoo.com", "icloud.con": "icloud.com"};
+
+/** What is wrong with an email address, in plain words; "" when it is empty or looks right. */
+export function emailProblem(raw: string): string {
+  const x = raw.trim().toLowerCase();
+  if (!x) return "";
+  if (/\s/.test(x)) return "Your email has a space in it.";
+  if ((x.match(/@/g) || []).length !== 1) return "Your email needs one @, like name@example.com.";
+  const [name, host] = x.split("@");
+  if (!/^[a-z0-9._%+'-]+$/.test(name) || /^\.|\.$|\.\./.test(name)) return "The part before the @ doesn't look right.";
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/.test(host)) return "The part after the @ doesn't look right, e.g. gmail.com.";
+  if (SLIPS[host]) return `Did you mean ${name}@${SLIPS[host]}?`;
+  return "";
+}
+
 export function validate(raw: SignUp): FieldErrors {
   const v = tidy(raw);
   const errors: FieldErrors = {};
   if (v.fullName.length < 2) errors.fullName = "Please tell us your name.";
-  if (v.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.email)) errors.email = "That email doesn't look quite right.";
-  if (v.phone) {
-    const digits = v.phone.replace(/\D/g, "").length;
-    if (!/^[0-9+()\-.\s]+$/.test(v.phone) || digits < 7 || digits > 15) errors.phone = "Please check the phone number.";
-  }
-  if (v.wantsContact && !v.phone && !v.email && !errors.phone && !errors.email) {
-    errors.phone = "Add a phone number or email so we can say hello — or untick the box below.";
-  }
+  const mail = emailProblem(v.email);
+  if (mail) errors.email = mail;
+  const digits = v.phone.replace(/\D/g, "").length;
+  if (!v.phone) errors.phone = "Please add your phone number.";
+  else if (!/^\+?[0-9\s]+$/.test(v.phone) || digits < 7 || digits > 15) errors.phone = "Please check the phone number: it needs 7 to 15 digits.";
   return errors;
 }
 

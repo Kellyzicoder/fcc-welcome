@@ -19,7 +19,8 @@ export default function WelcomeForm({ config }: Props) {
   const requestId = useRef<string>("");
 
   const set = (field: keyof SignUp) => (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const value = e.target.type === "checkbox" ? (e.target as HTMLInputElement).checked : e.target.value;
+    const raw = e.target.type === "checkbox" ? (e.target as HTMLInputElement).checked : e.target.value;
+    const value = field === "phone" && typeof raw === "string" ? raw.replace(/[^0-9+ ]/g, "") : raw;  // numbers only
     setValues((v) => ({ ...v, [field]: value }));
     if (errors[field]) setErrors((er) => ({ ...er, [field]: undefined }));
   };
@@ -79,7 +80,7 @@ export default function WelcomeForm({ config }: Props) {
       </Field>
 
       <div className="row">
-        <Field id="phone" label="Phone" error={errors.phone}>
+        <Field id="phone" label="Phone" error={errors.phone} required>
           <input id="f-phone" name="tel" type="tel" inputMode="tel" autoComplete="tel" maxLength={LIMITS.phone}
                  value={values.phone} onChange={set("phone")} aria-invalid={!!errors.phone}
                  aria-describedby={errors.phone ? "e-phone" : undefined} />
