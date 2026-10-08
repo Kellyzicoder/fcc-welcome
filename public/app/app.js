@@ -488,7 +488,7 @@ function chart(el, rows) {  // stacked bars: adults + kids per service
     g.onclick = g.onkeydown = e => { if (e.type === "keydown" && e.key !== "Enter") return; S.date = rows[g.dataset.i][0]; S.view = "checkin"; render(); };
   });
 }
-const whoBtn = m => `<button class="who" data-person="${esc(m.id)}" title="See every day they came"><span>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</button>`;
+const whoBtn = m => `<button class="who" data-person="${esc(m.id)}" title="See their attendance history"><span>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</button>`;
 function donut(el, parts) {  // parts: [flag, label, count]; a ring with a gap between segments and the total in the middle
   const total = parts.reduce((n, x) => n + x[2], 0), R = 54, C = 2 * Math.PI * R, gap = total && parts.filter(x => x[2]).length > 1 ? 3 : 0;
   let at = 0, s = `<svg viewBox="0 0 140 140" role="img" aria-label="Where everyone stands: ${parts.map(x => `${x[2]} ${x[1]}`).join(", ")}">
@@ -1109,14 +1109,14 @@ async function person(el) {
   el.innerHTML = top + `
     <div class="card" style="margin-bottom:14px"><div class="card-head"><div class="who big"><span>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</div><span class="gap"></span>${state}</div>
       <p class="facts">${[m.type === "first_timer" ? "First-timer" : "Member", isKid(m) ? "Child" : "Adult", m.pastor ? "Pastor: " + m.pastor : "", m.phone || ""].filter(Boolean).map(esc).join(" · ")}</p></div>
-    <div class="tiles"><div class="card tile"><div class="label">Times came</div><div class="num">${came.length}</div></div>
-      <div class="card tile"><div class="label">Last came</div><div class="num sm">${esc(full(came[0]))}</div></div>
-      <div class="card tile"><div class="label">First came</div><div class="num sm">${esc(full(came[came.length - 1]))}</div></div>
+    <div class="tiles"><div class="card tile"><div class="label">Attendance History</div><div class="num">${came.length}</div></div>
+      <div class="card tile"><div class="label">Last Attended</div><div class="num sm">${esc(full(came[0]))}</div></div>
+      <div class="card tile"><div class="label">First Attended</div><div class="num sm">${esc(full(came[came.length - 1]))}</div></div>
       <div class="card tile"><div class="label">Missed in a row</div><div class="num">${st ? st.missed : "–"}</div></div></div>
     ${recent.length ? `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>The last ${recent.length} services</h2><span class="gap"></span>
         <div class="legend"><span><i class="dot on"></i>Came</span><span><i class="dot"></i>Missed</span></div></div>
       <div class="dots">${recent.map(d => `<div><i class="dot ${set.has(d) ? "on" : ""}" title="${set.has(d) ? "Came" : "Missed"}"></i><small>${esc(nice(d))}</small></div>`).join("")}</div></div>` : ""}
-    <div class="card"><div class="card-head"><h2>Every day they came</h2></div>
+    <div class="card"><div class="card-head"><h2>History</h2></div>
       ${came.length ? Object.keys(years).sort().reverse().map(y => `<h3 class="year">${y} · ${years[y].length} ${years[y].length === 1 ? "service" : "services"}</h3>
         <div class="chips">${years[y].map(d => `<span class="chip">${esc(nice(d))}</span>`).join("")}</div>`).join("") : `<p class="empty">No services recorded for ${esc(m.full_name)} yet.</p>`}</div>`;
   bind();
