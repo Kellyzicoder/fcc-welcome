@@ -519,10 +519,13 @@ function fewKeys(keys, counts, picked, open) {
 const moreChip = (more, open, total) => more ? `<button type="button" class="chip sm ghost" data-more>+${more} more</button>` : open && total > FEW + 1 ? `<button type="button" class="chip sm ghost" data-more>Show less</button>` : "";
 // A service's title. Until someone types one, Sunday and Wednesday get the usual names.
 const svcName = d => S.names[d] || (S.titles?.[d]) || ({0: "Sunday Service", 3: "Midweek Service"})[new Date(d + "T12:00:00").getDay()] || "Service";
-async function setPresent(id, on, seen) {
+async function setPresent(id, on, seen, at = isoLocal()) {
   if (on) {
-    await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, name: svcName(S.date)}});
-    const at = isoLocal();
+    // the service row only needs saving once per date; doing it on every tick doubled the wait
+    if (!S.names[S.date] && !(S.svcSaved ??= {})[S.date]) {
+      await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, name: svcName(S.date)}});
+      S.svcSaved[S.date] = true;
+    }
     await api("attendance?on_conflict=service_date,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, member_id: id, checked_at: at}});
     log("tick", id); return "done";
   }
@@ -601,17 +604,23 @@ function checkin(el) {
     const rows = await api(`attendance?select=member_id,checked_at&service_date=eq.${S.date}`).catch(() => null);
     if (!rows || S.view !== "checkin") return;
     here = Object.fromEntries(rows.map(r => [r.member_id, r.checked_at]));
+    for (const [id, v] of pending) { if (v) here[id] ??= v; else delete here[id]; }  // taps still saving win over an older copy from the server
     S.ticks = S.ticks.filter(t => t.service_date !== S.date).concat(rows.map(r => ({...r, service_date: S.date})));
     if (document.activeElement?.type !== "checkbox") draw();
   };
+  const pending = new Map();  // ticks shown straight away while they save in the background
   box.onchange = async e => {
-    const id = e.target.dataset.id, on = e.target.checked, seen = here[id];
-    e.target.closest(".name").classList.toggle("on", on);
+    const id = e.target.dataset.id, on = e.target.checked, seen = here[id], at = isoLocal();
+    if (on) here[id] = at; else delete here[id];
+    pending.set(id, on ? at : null); e.target.blur(); draw();
     try {
-      const result = await setPresent(id, on, seen);
+      const result = await setPresent(id, on, seen, at);
       if (result === "changed") toast("That tick was changed on another phone, so it was left as it is.");
-    } catch (err) { toast("Not saved: " + err.message); }
-    e.target.blur(); pull();
+    } catch (err) {
+      if (seen) here[id] = seen; else delete here[id];
+      toast("Not saved: " + err.message);
+    }
+    pending.delete(id); draw(); pull();
   };
   el.querySelector("#q").oninput = e => { S.q = e.target.value; armed = false; draw(); };
   el.querySelector("#ci-all").onclick = async () => {
