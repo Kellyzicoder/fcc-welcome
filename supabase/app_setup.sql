@@ -197,6 +197,11 @@ $$ select left(coalesce(nullif(trim(u.name), ''), u.email) || ' (' ||
 drop policy if exists "app: see sign-ups" on registrations;
 create policy "app: see sign-ups" on registrations for select to authenticated using (app_can_approve());
 grant select on registrations to authenticated;
+-- The welcome form: a name and a phone number of 7 to 15 digits are required before a sign-up is accepted.
+drop policy if exists "form can submit" on registrations;
+create policy "form can submit" on registrations for insert to anon
+  with check (status = 'pending' and length(trim(full_name)) between 2 and 120
+              and length(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g')) between 7 and 15);
 
 -- Approve a sign-up: one all-or-nothing step. It starts by claiming the sign-up (pending -> approved), so if two
 -- people press Approve together only one succeeds and nobody is added twice. Returns the person's id.
