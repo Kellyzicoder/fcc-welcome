@@ -71,7 +71,7 @@ function emailProblem(raw) {
 }
 // Phone boxes take numbers only (plus + and spaces), whether typed or pasted.
 function digitsOnly(e) { const v = e.target.value.replace(/[^0-9+ ]/g, ""); if (v !== e.target.value) e.target.value = v; }
-function formDialog(title, fields, save, button = "Save") {
+function formDialog(title, fields, save, button = "Save", danger = null) {
   document.querySelectorAll(".modal").forEach(m => m.remove());
   const d = document.createElement("div");
   d.className = "modal";
@@ -83,11 +83,18 @@ function formDialog(title, fields, save, button = "Save") {
       ${f.suggest ? `<div class="suggest" id="fs-${f.k}" aria-label="Suggestions"></div>` : ""}
       ${f.hint ? `<p class="note" style="margin:6px 2px 0">${esc(f.hint)}</p>` : ""}</div>`).join("")}</div>
     <div class="msg bad" id="fd-err" hidden></div>
-    <div class="modal-foot"><button type="button" class="pill-btn" data-x>Cancel</button><button class="pill-btn primary" id="fd-go">${esc(button)}</button></div></form>`;
+    <div class="modal-foot"><button type="button" class="pill-btn" data-x>Cancel</button><button class="pill-btn primary" id="fd-go">${esc(button)}</button>
+      ${danger ? `<button type="button" class="pill-btn danger" id="fd-del">${esc(danger.label)}</button>` : ""}</div></form>`;
   document.body.append(d);
   const close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
   d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
   document.addEventListener("keydown", onKey);
+  const del = d.querySelector("#fd-del");
+  if (del) { let armed = false; del.onclick = async () => {  // a second tap is needed, and it is undone if left for a few seconds
+    if (!armed) { armed = true; del.textContent = danger.confirm; setTimeout(() => { armed = false; del.textContent = danger.label; }, 4000); return; }
+    del.disabled = true; const err = d.querySelector("#fd-err");
+    try { await danger.run(); close(); } catch (ex) { err.textContent = ex.message; err.hidden = false; del.disabled = false; }
+  }; }
   d.querySelector("form").onsubmit = async e => {
     e.preventDefault();
     const go = d.querySelector("#fd-go"), err = d.querySelector("#fd-err"), values = Object.fromEntries(fields.map(f => [f.k, d.querySelector("#fd-" + f.k).value.trim().replace(/\s+/g, " ")]));
@@ -120,15 +127,20 @@ function formDialog(title, fields, save, button = "Save") {
 // build({names, link}) returns the text; opts says which options this message offers.
 function waDialog(title, build, opts = {}) {
   document.querySelectorAll(".modal").forEach(m => m.remove());
-  const st = {names: false, link: "", day: opts.day || ""}, d = document.createElement("div");
+  const st = {names: false, link: "", follow: false, day: opts.day || ""}, d = document.createElement("div");
+  const memo = () => `fcc-wa:${S.church}:${st.day}`, recall = () => { try { return JSON.parse(localStorage.getItem(memo()) || "{}"); } catch { return {}; } };
+  if (opts.fields) Object.assign(st, recall());
   const toggle = (id, label, hint, on) => `<label class="switch"><span><b>${label}</b><small>${hint}</small></span><input type="checkbox" id="${id}" ${on ? "checked" : ""}><i></i></label>`;
   d.className = "modal";
   d.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}">
     <div class="card-head"><h2>${esc(title)}</h2><span class="gap"></span><button class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
     <div class="modal-grid"><div class="opts">
         ${opts.day ? `<div class="opt"><label class="f" for="m-day">Service date</label><input class="in" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}
-        ${toggle("m-emoji", "Emojis", "Turn off for a plain-text message", S.emoji)}
-        ${opts.names ? toggle("m-names", "Include names", "Leave off for big group chats", false) : ""}
+        ${opts.fields ? `<div class="opt fields-grid">${opts.fields.map(([k, label, kind]) => `<div class="${kind === "num" ? "" : "wide"}"><label class="f" for="m-${k}">${label}</label>
+          <input class="in" id="m-${k}" data-field="${k}" ${kind === "num" ? `type="number" inputmode="numeric" min="0" placeholder="0"` : `maxlength="80"`} value="${esc(st[k] ?? "")}"></div>`).join("")}</div>` : ""}
+        ${opts.noEmoji ? "" : toggle("m-emoji", "Emojis", "Turn off for a plain-text message", S.emoji)}
+        ${opts.names ? toggle("m-names", "Include names", opts.fields ? "First-timers' names" : "Leave off for big group chats", false) : ""}
+        ${opts.follow ? toggle("m-follow", "Include follow-up", "Who missed services, with numbers and names", false) : ""}
         ${opts.link ? `<div class="opt"><label class="f" for="m-link">Livestream link (optional)</label><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>` : ""}
       </div>
       <div class="opt"><span class="f">Preview</span><pre class="preview" id="m-text" tabindex="0"></pre></div></div>
@@ -147,9 +159,14 @@ function waDialog(title, build, opts = {}) {
   const close = () => { d.remove(); document.removeEventListener("keydown", esc2); }, esc2 = e => { if (e.key === "Escape") close(); };
   d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
   document.addEventListener("keydown", esc2);
-  d.querySelector("#m-emoji").onchange = e => { S.emoji = e.target.checked; try { localStorage.setItem("fcc-emoji", S.emoji ? "on" : "off"); } catch {} draw(); };
+  d.querySelectorAll("[data-field]").forEach(i => i.oninput = () => { st[i.dataset.field] = i.value.trim();
+    try { localStorage.setItem(memo(), JSON.stringify(Object.fromEntries((opts.fields || []).map(([k]) => [k, st[k] || ""])))); } catch {} draw(); });
+  const fol = d.querySelector("#m-follow"); if (fol) fol.onchange = e => { st.follow = e.target.checked; draw(); };
+  const emo = d.querySelector("#m-emoji"); if (emo) emo.onchange = e => { S.emoji = e.target.checked; try { localStorage.setItem("fcc-emoji", S.emoji ? "on" : "off"); } catch {} draw(); };
   const names = d.querySelector("#m-names"), link = d.querySelector("#m-link"), day = d.querySelector("#m-day");
-  if (day) day.onchange = e => { st.day = e.target.value || opts.day; if (!e.target.value) e.target.value = opts.day; draw(); };
+  if (day) day.onchange = e => { st.day = e.target.value || opts.day; if (!e.target.value) e.target.value = opts.day;
+    if (opts.fields) { const r = recall(); for (const [k] of opts.fields) { st[k] = r[k] || ""; const i = d.querySelector("#m-" + k); if (i) i.value = st[k]; } }  // each day keeps its own online numbers
+    draw(); };
   if (names) names.onchange = e => { st.names = e.target.checked; draw(); };
   if (link) link.oninput = e => { st.link = e.target.value.trim(); draw(); };
   // opens WhatsApp with exactly what the preview shows (emojis, names and link as chosen); the person picks the chat and sends
@@ -334,6 +351,8 @@ const ICON = {
   archive: '<rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9M10 13h4"/>',
   activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
   reports: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 8l9 6 9-6"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  unlock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7"/><path d="M12 17h.01"/>',
   out: '<path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
 };
@@ -342,7 +361,7 @@ function pages() {  // the menu, in groups; what each role can actually load is 
   const r = S.me.role;
   if (r === "bishop") return [["", [["overview", "All churches"], ["help", "Help"]]]];
   return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["followup", "Follow-up"], ["pastors", "Pastors"]]],
-          ["PEOPLE", [["people", "People"], ["person", "One person"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ["archive", "Archive"]]],
+          ["PEOPLE", [["people", "Register"], ["person", "One person"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ["archive", "Archive"]]],
           ...(r === "team" ? [] : [["RECORDS", [["activity", "Activity"], ["reports", "Reports"],
             ...(r === "admin" ? [["overview", "Churches"], ["admin", "Admin"]] : [])]]]),
           ["", [["help", "Help"]]]];
@@ -392,12 +411,33 @@ function render() {
   ({dashboard, checkin, followup, pastors, people, person, signups, archive, activity, reports, overview, admin, account, help}[S.view] || dashboard)(view);
 }
 const backBtn = () => S.back ? `<button class="back" data-back>${svg("back")}Back to ${esc(TITLE[S.back] || "the last page")}</button>` : "";
-const TITLE = {dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", pastors: "Pastors", people: "People", signups: "Sign-ups", archive: "Archive",
+const TITLE = {dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", pastors: "Pastors", people: "Register", signups: "Sign-ups", archive: "Archive",
                activity: "Activity", reports: "Reports", overview: "All churches", admin: "Admin"};
 const head = (title, sub, buttons = "") => `<div class="head"><div><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ""}</div><span class="gap" style="flex:1"></span>${buttons}</div>`;
 const badge = f => `<span class="badge ${f}">${FLAG[f]}</span>`;
 
 // ---------------------------------------------------------------- dashboard
+// The church's standard attendance message. No emojis. Online numbers, preacher and sermon are typed in the popup;
+// adults and children "Attending" come from the ticks. Follow-up is added only when asked for.
+const dmy = d => d.split("-").reverse().join("/");
+function report(p, o = {}) {
+  const day = p.last, kidsIn = p.kids, adultsIn = p.present.length - kidsIn, n = k => Math.max(0, parseInt(o[k], 10) || 0);
+  const adults = adultsIn + n("zoomA") + n("yt") + n("fb"), kids = kidsIn + n("zoomK");
+  const firsts = p.present.filter(m => m.type === "first_timer");
+  const out = [`${svcName(day).toUpperCase()} ATTENDANCE`, "", `DAY - ${new Date(day + "T12:00:00").toLocaleDateString("en-NZ", {weekday: "long"}).toUpperCase()}`, "",
+    `DATE - ${dmy(day)}`, "", `PREACHER NAME - ${o.preacher || ""}`, "", `SERMON TITLE: ${o.sermon || ""}`, "", `BRANCH/MISSION - ${S.church}`, "",
+    `*ADULTS - ${adults}`, `[Attending: Adults - ${adultsIn}]`, `[Zoom: Adults - ${n("zoomA")}]`, `[Youtube -  ${n("yt")}]`, `[Facebook -  ${n("fb")}]`, "",
+    `*CHILDREN - ${kids}`, `[Attending - ${kidsIn}]`, `[Zoom - ${n("zoomK")}]`, "",
+    `First timers - ${firsts.length}`, ...(o.names && firsts.length ? [firsts.map(m => m.full_name).join(", ")] : []), "",
+    `New Converts - ${n("converts")}`];
+  if (o.follow) {
+    const f = lv => p.people.filter(x => x.level === lv);
+    out.push("", "FOLLOW-UP", `Missed ${RED_AT}+ in a row - ${f("red").length}`, ...(f("red").length ? [f("red").map(x => x.full_name).join(", ")] : []),
+      `Missed ${YELLOW_AT}-${RED_AT - 1} in a row - ${f("yellow").length}`, ...(f("yellow").length ? [f("yellow").map(x => x.full_name).join(", ")] : []));
+  }
+  if (o.link) out.push("", `Livestream: ${o.link}`);
+  return out.join("\n").trim();
+}
 function summary(p, o = {}) {
   const who = list => o.names && list.length ? [list.map(x => x.full_name).join(", ")] : [];
   const flagged = f => p.people.filter(x => x.flag === f);
@@ -432,6 +472,7 @@ function chart(el, rows) {  // stacked bars: adults + kids per service
       tip.style.top = (g.querySelector(".total").getBoundingClientRect().top - c.top) + "px"; tip.style.opacity = 1;
     };
     g.onpointerenter = g.onfocus = show; g.onpointerleave = g.onblur = () => tip.style.opacity = 0;
+    g.onclick = g.onkeydown = e => { if (e.type === "keydown" && e.key !== "Enter") return; S.date = rows[g.dataset.i][0]; S.view = "checkin"; render(); };
   });
 }
 const whoBtn = m => `<button class="who" data-person="${esc(m.id)}" title="See every day they came"><span>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</button>`;
@@ -499,8 +540,11 @@ function dashboard(el) {
   donut(el.querySelector("#donut"), stands);
   calendar(el.querySelector("#cal"), p);
   chart(el.querySelector("#chart"), series);
-  el.querySelector("#wa").onclick = () => waDialog("Summary for WhatsApp", o => !p.dates.includes(o.day) ? null : summary(o.day !== p.last ? picture(o.day) : p, o), {names: true, link: true, day: p.last || today()});
+  el.querySelector("#wa").onclick = () => waDialog("Summary for WhatsApp", o => !p.dates.includes(o.day) ? null : report(o.day !== p.last ? picture(o.day) : p, o), {names: true, link: true, follow: true, noEmoji: true, day: p.last || today(),
+    fields: [["preacher", "Preacher name"], ["sermon", "Sermon title"], ["zoomA", "Zoom: adults", "num"], ["zoomK", "Zoom: children", "num"], ["yt", "YouTube", "num"], ["fb", "Facebook", "num"], ["converts", "New converts", "num"]]});
   el.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { S.view = b.dataset.go; render(); });
+  el.querySelectorAll(".tiles .tile").forEach(t => { t.classList.add("link"); t.tabIndex = 0; t.title = "Open Check-in for this service";
+    t.onclick = t.onkeydown = e => { if (e.type === "keydown" && e.key !== "Enter") return; S.date = p.last || today(); S.view = "checkin"; render(); }; });
 }
 
 // ---------------------------------------------------------------- check-in
@@ -519,10 +563,13 @@ function fewKeys(keys, counts, picked, open) {
 const moreChip = (more, open, total) => more ? `<button type="button" class="chip sm ghost" data-more>+${more} more</button>` : open && total > FEW + 1 ? `<button type="button" class="chip sm ghost" data-more>Show less</button>` : "";
 // A service's title. Until someone types one, Sunday and Wednesday get the usual names.
 const svcName = d => S.names[d] || (S.titles?.[d]) || ({0: "Sunday Service", 3: "Midweek Service"})[new Date(d + "T12:00:00").getDay()] || "Service";
-async function setPresent(id, on, seen) {
+async function setPresent(id, on, seen, at = isoLocal()) {
   if (on) {
-    await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, name: svcName(S.date)}});
-    const at = isoLocal();
+    // the service row only needs saving once per date; doing it on every tick doubled the wait
+    if (!S.names[S.date] && !(S.svcSaved ??= {})[S.date]) {
+      await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, name: svcName(S.date)}});
+      S.svcSaved[S.date] = true;
+    }
     await api("attendance?on_conflict=service_date,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, member_id: id, checked_at: at}});
     log("tick", id); return "done";
   }
@@ -546,15 +593,16 @@ function checkin(el) {
       <div class="card tile"><div class="label">Adults</div><div class="num" id="n-ad">0</div></div>
       <div class="card tile"><div class="label">Kids</div><div class="num" id="n-kid">0</div></div>
       <div class="card tile"><div class="label">Not yet</div><div class="num" id="n-not">0</div></div></div>
-    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span><span id="shown" style="color:var(--ink-3);font-size:13px"></span></div>
+    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span><span id="shown" style="color:var(--ink-3);font-size:13px"></span><button type="button" class="pill-btn sm" id="ci-lock">${svg("lock")}Save &amp; lock</button></div>
       <div class="bulk" id="ci-bulk" hidden style="position:static;box-shadow:none"><b id="ci-count"></b><span class="gap"></span><button type="button" class="pill-btn sm primary" id="ci-all">Tick all</button><button type="button" class="pill-btn sm" id="ci-none">Untick all</button></div>
+      <div class="msg locked" id="ci-locked" hidden></div>
       <div class="names" id="names"></div>
       <div style="margin-top:12px;text-align:right" id="ci-clear-wrap" hidden><button type="button" class="pill-btn sm" id="ci-clear">Untick everyone</button></div></div>
     <form class="card" id="add"><div class="card-head"><h2>Add someone new</h2></div><div class="row">
       <div><label class="f" for="a-name">Full name</label><input class="in" id="a-name" required></div>
       <div><label class="f" for="a-phone">Phone</label><input class="in" id="a-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="off"></div>
-      <div><label class="f" for="a-type">They are a</label><select class="in" id="a-type"><option value="first_timer">First-timer</option><option value="member">Member</option></select></div>
-      <div><label class="f" for="a-age">Adult or child</label><select class="in" id="a-age"><option>Adult</option><option>Child</option></select></div>
+      <div><label class="f" for="a-type">Attendance Type</label><select class="in" id="a-type"><option value="first_timer">First-timer</option><option value="member">Member</option></select></div>
+      <div><label class="f" for="a-age">Age group</label><select class="in" id="a-age"><option>Adult</option><option>Child</option></select></div>
       <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap"><button class="pill-btn primary">Add &amp; check in</button><button class="pill-btn" data-only>Add only</button></div></div>
       </form>`;
   const box = el.querySelector("#names");
@@ -579,7 +627,7 @@ function checkin(el) {
     return mine.filter(m => (!S.ciRole || rolesOf(m).some(r => norm(r) === S.ciRole)) && (!q || norm(m.full_name).includes(q) || rolesOf(m).some(r => norm(r).includes(q)))); };
   const draw = () => {
     const shown = showing(), narrowed = !!(S.ciRole || norm(S.q)), ticked = shown.filter(m => here[m.id]).length;
-    box.innerHTML = shown.map(m => `<label class="name ${here[m.id] ? "on" : ""}"><input type="checkbox" data-id="${esc(m.id)}" ${here[m.id] ? "checked" : ""}>
+    box.innerHTML = shown.map(m => `<label class="name ${here[m.id] ? "on" : ""}"><input type="checkbox" data-id="${esc(m.id)}" ${here[m.id] ? "checked" : ""} ${lock ? "disabled" : ""}>
       <span>${esc(m.full_name)}</span><small>${[narrowed ? rolesOf(m).join(", ") : "", m.type === "first_timer" ? "first-timer" : "", isKid(m) ? "child" : ""].filter(Boolean).map(esc).join(" · ")}</small></label>`).join("") || `<p class="empty">Nobody matches.</p>`;
     el.querySelector("#shown").textContent = `showing ${shown.length} of ${mine.length}`;
     el.querySelector("#ci-title").textContent = S.ciRole ? teams[S.ciRole].label : "Names A to Z";
@@ -588,30 +636,63 @@ function checkin(el) {
     el.querySelector("#ci-count").textContent = `${ticked} of ${shown.length} here`;
     const all = el.querySelector("#ci-all"), none = el.querySelector("#ci-none");
     all.textContent = `Tick all ${shown.length}`; all.disabled = busy || ticked === shown.length;
-    none.textContent = armed ? `Tap again to untick ${ticked}` : "Untick all"; none.disabled = busy || !ticked;
+    none.textContent = armed ? `Tap again to untick ${ticked}` : "Untick all"; none.disabled = busy || !ticked || !!lock; all.disabled = all.disabled || !!lock;
     // clearing the whole service is for admins and church admins, and only from the full list
     const total = mine.filter(m => here[m.id]).length, wrap = el.querySelector("#ci-clear-wrap"), clear = el.querySelector("#ci-clear");
     wrap.hidden = narrowed || !total || S.me.role === "team";
-    clear.textContent = armedAll ? `Tap again to untick all ${total}` : "Untick everyone"; clear.disabled = busy;
+    clear.textContent = armedAll ? `Tap again to untick all ${total}` : "Untick everyone"; clear.disabled = busy || !!lock;
     const ids = mine.filter(m => here[m.id]), kids = ids.filter(isKid).length;
     el.querySelector("#n-in").textContent = ids.length; el.querySelector("#n-ad").textContent = ids.length - kids;
     el.querySelector("#n-kid").textContent = kids; el.querySelector("#n-not").textContent = mine.length - ids.length;
   };
   const pull = async () => {
     const rows = await api(`attendance?select=member_id,checked_at&service_date=eq.${S.date}`).catch(() => null);
+    readLock();
     if (!rows || S.view !== "checkin") return;
     here = Object.fromEntries(rows.map(r => [r.member_id, r.checked_at]));
+    for (const [id, v] of pending) { if (v) here[id] ??= v; else delete here[id]; }  // taps still saving win over an older copy from the server
     S.ticks = S.ticks.filter(t => t.service_date !== S.date).concat(rows.map(r => ({...r, service_date: S.date})));
     if (document.activeElement?.type !== "checkbox") draw();
   };
-  box.onchange = async e => {
-    const id = e.target.dataset.id, on = e.target.checked, seen = here[id];
-    e.target.closest(".name").classList.toggle("on", on);
+  const pending = new Map();  // ticks shown straight away while they save in the background
+  // Save & lock: once a service is done, its ticks are frozen on every phone until someone unlocks it
+  let lock = null; const lockKey = () => `lock:${S.date}:${S.church}`;
+  const showLock = () => {
+    const b = el.querySelector("#ci-lock"), note = el.querySelector("#ci-locked");
+    b.innerHTML = lock ? `${svg("unlock")}Unlock` : `${svg("lock")}Save &amp; lock`; b.classList.toggle("primary", !lock);
+    note.hidden = !lock; if (lock) note.textContent = `Saved and locked${lock.by ? " by " + lock.by : ""}. Unlock to make changes.`;
+    for (const id of ["ci-all", "ci-none", "ci-clear"]) { const x = el.querySelector("#" + id); if (x && lock) x.disabled = true; }
+    const go = el.querySelector("#add button.primary"); if (go) go.disabled = !!lock;
+  };
+  const readLock = async () => {
+    const want = lockKey(), rows = await api(`settings?select=value&key=eq.${encodeURIComponent(want)}`).catch(() => null);
+    if (!rows || want !== lockKey() || S.view !== "checkin") return;
+    let v = null; try { v = rows[0]?.value ? JSON.parse(rows[0].value) : null; } catch {}
+    if (JSON.stringify(v) !== JSON.stringify(lock)) { lock = v; draw(); }
+    showLock();
+  };
+  el.querySelector("#ci-lock").onclick = async () => {
+    const next = lock ? "" : JSON.stringify({by: S.me.name || S.me.email, at: isoLocal()});
+    if (!lock && pending.size) return toast("Still saving the last ticks. Try again in a moment.");
     try {
-      const result = await setPresent(id, on, seen);
+      await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key: lockKey(), value: next}});
+      lock = next ? JSON.parse(next) : null; log(lock ? "lock" : "unlock", "", "done", `${S.church} · ${S.date}`);
+      toast(lock ? "Saved and locked." : "Unlocked. You can change ticks again."); draw(); showLock();
+    } catch (err) { toast(/row-level|policy/i.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
+  };
+  box.onchange = async e => {
+    if (lock) { e.target.checked = !e.target.checked; return toast("This service is locked. Unlock it to make changes."); }
+    const id = e.target.dataset.id, on = e.target.checked, seen = here[id], at = isoLocal();
+    if (on) here[id] = at; else delete here[id];
+    pending.set(id, on ? at : null); e.target.blur(); draw();
+    try {
+      const result = await setPresent(id, on, seen, at);
       if (result === "changed") toast("That tick was changed on another phone, so it was left as it is.");
-    } catch (err) { toast("Not saved: " + err.message); }
-    e.target.blur(); pull();
+    } catch (err) {
+      if (seen) here[id] = seen; else delete here[id];
+      toast("Not saved: " + err.message);
+    }
+    pending.delete(id); draw(); pull();
   };
   el.querySelector("#q").oninput = e => { S.q = e.target.value; armed = false; draw(); };
   el.querySelector("#ci-all").onclick = async () => {
@@ -652,7 +733,7 @@ function checkin(el) {
   };
   drawChips();
   const svc = el.querySelector("#svc");
-  el.querySelector("#d").onchange = e => { S.date = e.target.value || today(); svc.value = svcName(S.date); here = {}; draw(); pull(); };
+  el.querySelector("#d").onchange = e => { S.date = e.target.value || today(); svc.value = svcName(S.date); here = {}; lock = null; draw(); showLock(); pull(); };
   svc.onchange = async () => {
     const name = svc.value.trim().replace(/\s+/g, " "), was = svcName(S.date);
     if (!name) { svc.value = was; return; }
@@ -701,7 +782,7 @@ function followup(el) {
       <tbody>${rowsHtml(list, true)}</tbody></table></div>` : `<p class="empty">Nobody in this list.</p>`}</div>`;
   el.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { S.filter = b.dataset.f; render(); });
   el.querySelector("#dl").onclick = () => download(`${norm(tabs[S.filter]).replace(/ /g, "_")}_${S.church}_${today()}.csv`,
-    [["Church", "Name", "Status", "Missed in a row", "Last seen", "Phone", "Pastor", "Adult / Child"],
+    [["Church", "Name", "Status", "Missed in a row", "Last seen", "Phone", "Pastor", "Age group"],
      ...list.map(x => [S.church, x.full_name, FLAG[x.flag], x.missed, x.seen || "", x.phone || "", x.pastor || "", x.kid ? "Child" : "Adult"])]);
 }
 function people(el) {
@@ -719,12 +800,12 @@ function people(el) {
   S.sel = new Set([...(S.sel || [])].filter(id => ids.has(id)));  // ticks only count for people on show
   const picked = mine.filter(m => S.sel.has(m.id));
   const typeOf = m => m.type === "first_timer" ? "First-timer" : "Member", ageOf = m => isKid(m) ? "Child" : "Adult";
-  el.innerHTML = head("People", `${esc(S.church)} · ${everyone.length} people`, `<button class="pill-btn" id="dl">Download</button>`) + `
+  el.innerHTML = head("Register", `${esc(S.church)} · ${everyone.length} people`, `<button class="pill-btn" id="dl">Download</button>`) + `
     <input class="in" id="find" type="search" placeholder="Search" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off" style="margin-bottom:12px">
     ${roleKeys.length ? `<div class="chips"><button class="chip ${S.roleF ? "" : "on"}" data-role="">Everyone · ${everyone.length}</button>${fewKeys(roleKeys, counts, S.roleF, S.roleMore).show.map(k =>
       `<button class="chip ${S.roleF === k ? "on" : ""}" data-role="${esc(k)}">${esc(counts[k].label)} · ${counts[k].n}</button>`).join("")}${moreChip(fewKeys(roleKeys, counts, S.roleF, S.roleMore).more, S.roleMore, roleKeys.length).replace("chip sm ghost", "chip ghost")}</div>` : ""}
     ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
-    <div class="card"><div class="scroll"><table><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select everyone shown" ${mine.length && picked.length === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Roles</th><th>Type</th><th>Adult / Child</th><th>Status</th><th>Pastor</th><th>Phone</th></tr></thead><tbody>
+    <div class="card"><div class="scroll"><table><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select everyone shown" ${mine.length && picked.length === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Roles</th><th>Type</th><th>Age group</th><th>Status</th><th>Pastor</th><th>Phone</th></tr></thead><tbody>
     ${mine.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}<td>${whoBtn(m)}</td>${edit ? `<td><button class="pill-btn sm" data-edit="${esc(m.id)}" aria-label="Edit ${esc(m.full_name)}">${svg("edit")}Edit</button></td>` : ""}<td>${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("")}</td><td class="muted">${typeOf(m)}</td><td class="muted">${ageOf(m)}</td>
       <td>${m.status ? `<span class="badge">${esc(m.status)}</span>` : `<span class="muted">Active</span>`}</td>
       <td class="${m.pastor ? "" : "muted"}">${esc(m.pastor || "Not assigned")}</td><td class="muted">${esc(m.phone || "")}</td></tr>`).join("")}
@@ -799,8 +880,8 @@ function people(el) {
       {k: "full_name", label: "Full name", value: m.full_name, required: true},
       {k: "phone", label: "Phone", value: m.phone || "", type: "tel"},
       {k: "role", label: "Roles", value: rolesOf(m).join(", "), suggest: roleNames, many: true, hint: "Separate several with commas."},
-      {k: "type", label: "They are a", value: m.type === "first_timer" ? "first_timer" : "member", type: "select", options: [["member", "Member"], ["first_timer", "First-timer"]]},
-      {k: "age_group", label: "Adult or child", value: ageOf(m), type: "select", options: [["Adult", "Adult"], ["Child", "Child"]]},
+      {k: "type", label: "Attendance Type", value: m.type === "first_timer" ? "first_timer" : "member", type: "select", options: [["member", "Member"], ["first_timer", "First-timer"]]},
+      {k: "age_group", label: "Age group", value: ageOf(m), type: "select", options: [["Adult", "Adult"], ["Child", "Child"]]},
       {k: "status", label: "Status", value: statuses.find(x => norm(x) === norm(m.status)) ?? m.status, type: "select",
        options: [...statuses.map(x => [x, x || "Active"]), ...(m.status && !statuses.some(x => norm(x) === norm(m.status)) ? [[m.status, m.status]] : [])]},
       plist.length || !cur ? {k: "pastor", label: "Pastor", value: cur, type: "select", options: pastors, hint: plist.length ? "" : "Add pastors on the Pastors page to choose one here."}
@@ -818,9 +899,15 @@ function people(el) {
       Object.assign(m, changed, {version: ver + 1});
       log("edit", m.id, "done", Object.keys(changed).join(", "));
       toast("Saved."); render();
-    });
+    }, "Save", ["admin", "lead"].includes(S.me.role) ? {label: "Delete from register", confirm: `Tap again to delete ${m.full_name}`, run: async () => {
+      // removes the person and their ticks for good; the activity log keeps their name
+      const gone = await api(`members?id=eq.${encodeURIComponent(m.id)}`, {method: "DELETE", prefer: "return=representation"});
+      if (!gone?.length) throw new Error("Not deleted. Run the latest setup SQL in Supabase once, then try again.");
+      S.members = S.members.filter(x => x.id !== m.id); S.ticks = S.ticks.filter(t => t.member_id !== m.id); S.sel?.delete(m.id);
+      log("delete", "", "done", `${m.full_name} · ${churchOf(m)}`); toast(`${m.full_name} was deleted.`); render();
+    }} : null);
   });
-  el.querySelector("#dl").onclick = () => download(`people_${S.church}_${today()}.csv`, [["Church", "Name", "Roles", "Type", "Adult / Child", "Status", "Pastor", "Phone"],
+  el.querySelector("#dl").onclick = () => download(`people_${S.church}_${today()}.csv`, [["Church", "Name", "Roles", "Type", "Age group", "Status", "Pastor", "Phone"],
     ...mine.map(m => [S.church, m.full_name, rolesOf(m).join(", "), typeOf(m), ageOf(m), m.status || "Active", m.pastor || "", m.phone || ""])]);
 }
 
@@ -1066,17 +1153,17 @@ function archive(el) {
   const p = picture(), list = p.archived.slice().sort(byName);
   el.innerHTML = head("Archive", `${esc(S.church)} · not seen for two years`, list.length ? `<button class="pill-btn" id="dl">Download</button>` : "") + `
     ${S.seen ? "" : `<div class="msg" style="margin:0 0 14px">Run the latest setup SQL in Supabase once so this list can look back further than the last year.</div>`}
-    <div class="card">${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Last seen</th><th>Type</th><th>Adult / Child</th><th>Phone</th></tr></thead><tbody>
+    <div class="card">${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Last seen</th><th>Type</th><th>Age group</th><th>Phone</th></tr></thead><tbody>
       ${list.map(m => `<tr><td>${whoBtn(m)}</td><td class="muted">${esc(full(m.seen))}</td><td class="muted">${m.type === "first_timer" ? "First-timer" : "Member"}</td><td class="muted">${m.kid ? "Child" : "Adult"}</td><td class="muted">${esc(m.phone || "")}</td></tr>`).join("")}
       </tbody></table></div>` : `<p class="empty">Nobody is in the archive.</p>`}
       <p class="note">They come back when ticked in again.</p></div>`;
   const dl = el.querySelector("#dl");
-  if (dl) dl.onclick = () => download(`archive_${S.church}_${today()}.csv`, [["Church", "Name", "Last seen", "Type", "Adult / Child", "Phone"],
+  if (dl) dl.onclick = () => download(`archive_${S.church}_${today()}.csv`, [["Church", "Name", "Last seen", "Type", "Age group", "Phone"],
     ...list.map(m => [S.church, m.full_name, m.seen || "", m.type === "first_timer" ? "First-timer" : "Member", m.kid ? "Child" : "Adult", m.phone || ""])]);
 }
 
 // ---------------------------------------------------------------- activity: who did what, and when
-const KIND = {rename_church: "Renamed a church", role_change: "Changed a sign-in", tick: "Ticked in", untick: "Unticked", clear_service: "Unticked everyone", edit: "Edited", add_person: "Added",
+const KIND = {lock: "Locked a service", unlock: "Unlocked a service", delete: "Deleted from register", rename_church: "Renamed a church", role_change: "Changed a sign-in", tick: "Ticked in", untick: "Unticked", clear_service: "Unticked everyone", edit: "Edited", add_person: "Added",
               signup_approved: "Approved sign-up", signup_rejected: "Rejected sign-up"};
 const RESULT = {done: "Done", already: "No change (already done)", changed: "Blocked: someone else changed it first"};
 async function activity(el) {
@@ -1145,9 +1232,9 @@ async function reports(el) {
   };
   const type = m => m.type === "first_timer" ? "First-timer" : "Member", age = m => isKid(m) ? "Child" : "Adult";
   const files = {
-    in: () => [`checked_in_${S.church}_${p.last || today()}.csv`, [["Church", "Service", "Name", "Type", "Adult / Child", "Phone"], ...p.present.slice().sort(byName).map(m => [S.church, p.last, m.full_name, type(m), age(m), m.phone || ""])]],
+    in: () => [`checked_in_${S.church}_${p.last || today()}.csv`, [["Church", "Service", "Name", "Type", "Age group", "Phone"], ...p.present.slice().sort(byName).map(m => [S.church, p.last, m.full_name, type(m), age(m), m.phone || ""])]],
     call: () => [`follow_up_${S.church}_${today()}.csv`, [["Church", "Name", "Status", "Missed in a row", "Last seen", "Phone", "Pastor"], ...p.people.filter(x => x.level !== "ok").map(x => [S.church, x.full_name, FLAG[x.flag], x.missed, x.seen || "", x.phone || "", x.pastor || ""])]],
-    all: () => [`register_${S.church}_${today()}.csv`, [["Church", "Name", "Type", "Adult / Child", "Status", "Pastor", "Phone"], ...p.mine.slice().sort(byName).map(m => [S.church, m.full_name, type(m), age(m), m.status || "Active", m.pastor || "", m.phone || ""])]],
+    all: () => [`register_${S.church}_${today()}.csv`, [["Church", "Name", "Type", "Age group", "Status", "Pastor", "Phone"], ...p.mine.slice().sort(byName).map(m => [S.church, m.full_name, type(m), age(m), m.status || "Active", m.pastor || "", m.phone || ""])]],
   };
   el.querySelectorAll("[data-dl]").forEach(b => b.onclick = () => download(...files[b.dataset.dl]()));
   const csv = rows => rows.map(r => r.map(v => /[",\n]/.test(String(v ?? "")) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? "")).join(",")).join("\r\n");
@@ -1178,7 +1265,7 @@ async function help(el) {
   const faq = [
     ["I can't see a person on the list", "Check the church name at the top is the right one, then use the search box. If they are new, add them at the bottom of Check-in."],
     ["I ticked the wrong person", "Tap their name again on Check-in to untick them. Nothing else is changed."],
-    ["A name, phone number or role is wrong", "A church admin can fix it: People, then Edit beside the name."],
+    ["A name, phone number or role is wrong", "A church admin can fix it: Register, then Edit beside the name."],
     ["The numbers look out of date", "Pull the page down to refresh, or close the app and open it again."],
     ["The sign-in email didn't arrive", "Wait two minutes, check Spam or Junk, and check the email address is spelled correctly."],
     ["I need to see more than I can", "Ask the admin below to change your role."],
