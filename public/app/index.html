@@ -302,6 +302,10 @@ input.in[type="search"]::-webkit-search-decoration {-webkit-appearance: none;}
 input.in:focus, select.in:focus, textarea.in:focus {border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);}
 input.in::placeholder, textarea.in::placeholder {color: var(--ink-3); opacity: 1;}
 .preview.muted {color: var(--ink-3); font-family: inherit;}
+.fields-grid {display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px;} .fields-grid .wide {grid-column: 1 / -1;}
+.pill-btn.danger {grid-column: 1 / -1; color: var(--red); border-color: transparent; background: none;} .pill-btn.danger:hover {background: var(--red-soft, rgba(220,38,38,.08));}
+.msg.locked {margin: 0 0 12px; background: var(--accent-soft); color: var(--ink);} .names input:disabled {cursor: not-allowed;}
+.tile.link {cursor: pointer;} .tile.link:hover {border-color: var(--accent);} .chart g.col {cursor: pointer;}
 </style>
 </head>
 <body>

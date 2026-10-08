@@ -100,6 +100,11 @@ create policy "app: admin reads the activity log" on activity_log for select to 
 
 grant select, insert, update, delete on churches, app_users to authenticated;
 grant select, insert, update on members to authenticated;
+-- Deleting someone from the register (their ticks go with them): the admin, or that church's admin.
+drop policy if exists "app: church admins delete people" on members;
+create policy "app: church admins delete people" on members for delete to authenticated
+  using (app_role() in ('admin', 'lead') and app_can_see(church));
+grant delete on members to authenticated;
 grant select, insert on services to authenticated;
 -- A service's title can be changed ("Midweek Service", "Prayer Meeting") by anyone who does check-in.
 drop policy if exists "app: rename a service" on services;
@@ -308,6 +313,17 @@ create policy "app: leads change their pastor list" on settings for update to au
   using (key like 'pastors:%' and app_role() in ('admin', 'lead') and app_can_see(substr(key, 9)))
   with check (key like 'pastors:%' and app_role() in ('admin', 'lead') and app_can_see(substr(key, 9)));
 grant select, insert, update on settings to authenticated;
+-- Save & lock on Check-in (settings key 'lock:<date>:<church>'): anyone who does check-in for that church can lock or unlock.
+drop policy if exists "app: see check-in locks" on settings;
+create policy "app: see check-in locks" on settings for select to authenticated
+  using (key like 'lock:%' and app_role() in ('admin', 'lead', 'team') and app_can_see(substr(key, 17)));
+drop policy if exists "app: set check-in locks" on settings;
+create policy "app: set check-in locks" on settings for insert to authenticated
+  with check (key like 'lock:%' and app_role() in ('admin', 'lead', 'team') and app_can_see(substr(key, 17)));
+drop policy if exists "app: change check-in locks" on settings;
+create policy "app: change check-in locks" on settings for update to authenticated
+  using (key like 'lock:%' and app_role() in ('admin', 'lead', 'team') and app_can_see(substr(key, 17)))
+  with check (key like 'lock:%' and app_role() in ('admin', 'lead', 'team') and app_can_see(substr(key, 17)));
 grant select on email_log to authenticated;
 
 -- Rename a church everywhere it is recorded, in one all-or-nothing step: the church itself, its sign-ins, its
