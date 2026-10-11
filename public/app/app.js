@@ -880,7 +880,7 @@ function people(el) {
       <div><label class="f" for="sort">Sort by</label><select class="in" id="sort">${Object.entries(SORT).map(([k, [t]]) => `<option value="${k}" ${S.sortBy === k ? "selected" : ""}>${t}</option>`).join("")}</select></div></div>
     ${roleKeys.length ? `<div class="chips"><button class="chip ${S.roleF ? "" : "on"}" data-role="">Everyone · ${everyone.length}</button>${fewKeys(roleKeys, counts, S.roleF, S.roleMore).show.map(k =>
       `<button class="chip ${S.roleF === k ? "on" : ""}" data-role="${esc(k)}">${esc(counts[k].label)} · ${counts[k].n}</button>`).join("")}${moreChip(fewKeys(roleKeys, counts, S.roleF, S.roleMore).more, S.roleMore, roleKeys.length).replace("chip sm ghost", "chip ghost")}</div>` : ""}
-    ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><button class="pill-btn sm" id="bulk-see">${S.selOnly ? "Show all" : "View"}</button><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
+    ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><button class="pill-btn sm" id="bulk-see">${S.selOnly ? "Show all" : "View"}</button><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-set">Set details</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
     <div class="card"><div class="scroll"><table><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select everyone shown" ${mine.length && shownPicked === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Pastor</th><th>Type</th><th>Age group</th><th>Gender</th><th>Status</th><th>Phone</th><th>Roles</th></tr></thead><tbody>
     ${mine.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}<td>${whoBtn(m)}</td>${edit ? `<td><button class="pill-btn sm" data-edit="${esc(m.id)}" aria-label="Edit ${esc(m.full_name)}">${svg("edit")}Edit</button></td>` : ""}
       <td class="${pastorsOf(m).length ? "" : "muted"}">${pastorsOf(m).length ? pastorsOf(m).map(pastorBtn).join("<br>") : "Not assigned"}</td><td class="muted">${typeOf(m)}</td><td class="muted">${ageOf(m)}</td><td class="muted">${genderOf(m)}</td>
@@ -918,6 +918,34 @@ function people(el) {
         + (self ? ` ${v.pastor} was not made their own pastor.` : ""));
       render();
     }, "Set pastor");
+  };
+  // Set details: gender, age group, attendance type or status for everyone selected; "Leave as is" keeps what each person has
+  const bs = el.querySelector("#bulk-set");
+  if (bs) bs.onclick = () => {
+    const keep = [["", "Leave as is"]];
+    formDialog(`Details for ${picked.length} ${picked.length === 1 ? "person" : "people"}`, [
+      {k: "gender", label: "Gender", type: "select", value: "", options: [...keep, ["Female", "Female"], ["Male", "Male"], ["-", "Not given"]]},
+      {k: "age_group", label: "Age group", type: "select", value: "", options: [...keep, ["Adult", "Adult"], ["Child", "Child"]]},
+      {k: "type", label: "Attendance Type", type: "select", value: "", options: [...keep, ...typeOpts]},
+      {k: "status", label: "Status", type: "select", value: "", options: [...keep, ["-", "Active"], ...statuses.filter(Boolean).map(x => [x, x])]},
+    ], async v => {
+      const want = Object.fromEntries(Object.entries(v).filter(([, val]) => val).map(([k, val]) => [k, val === "-" ? "" : val]));
+      if (!Object.keys(want).length) throw new Error("Choose at least one thing to change.");
+      let done = 0, clash = 0;
+      for (const m of picked) {
+        const body = Object.fromEntries(Object.entries(want).filter(([k, val]) => (k === "gender" ? genderOf(m) : k === "age_group" ? ageOf(m) : k === "type" ? typeKey(m) : m.status || "") !== val));
+        if (!Object.keys(body).length) continue;
+        const ver = Number(m.version) || 1;
+        const rows = await api(`members?id=eq.${encodeURIComponent(m.id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {...body, version: ver + 1}});
+        if (!rows?.length) { clash++; continue; }
+        Object.assign(m, body, {version: ver + 1}); done++;
+        log("edit", m.id, "done", Object.keys(body).join(", "));
+      }
+      if (clash) await load();
+      S.sel = new Set();
+      toast(clash ? `Changed ${done}. ${clash} were edited by someone else just now and were left alone.` : done ? `Changed ${done} ${done === 1 ? "person" : "people"}.` : "Nothing needed changing.");
+      render();
+    }, "Save");
   };
   const bx = el.querySelector("#bulk-x"); if (bx) bx.onclick = () => { S.sel = new Set(); S.selOnly = false; render(); };
   const bg = el.querySelector("#bulk-go");
