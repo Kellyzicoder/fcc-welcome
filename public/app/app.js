@@ -89,6 +89,8 @@ function phoneProblem(raw, needed) {
 }
 // Phone boxes take numbers only (plus + and spaces), whether typed or pasted.
 function digitsOnly(e) { const v = e.target.value.replace(/[^0-9+ ]/g, ""); if (v !== e.target.value) e.target.value = v; }
+// Phones only: WhatsApp's web page does not open messages well on a computer, so there the message is copied instead.
+const onPhone = () => /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
 function formDialog(title, fields, save, button = "Save", danger = null) {
   document.querySelectorAll(".modal").forEach(m => m.remove());
   const d = document.createElement("div");
@@ -166,7 +168,7 @@ function waDialog(title, build, opts = {}) {
         ${opts.link ? `<div class="opt"><label class="f" for="m-link">Livestream link (optional)</label><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>` : ""}
       </div>
       <div class="opt"><span class="f">Preview</span><pre class="preview" id="m-text" tabindex="0"></pre></div></div>
-    <div class="modal-foot"><button class="pill-btn" data-x>Close</button><button class="pill-btn" id="m-copy">Copy</button><button class="pill-btn primary" id="m-send">Open in WhatsApp</button></div></div>`;
+    <div class="modal-foot"><button class="pill-btn" data-x>Close</button><button class="pill-btn ${onPhone() ? "" : "primary"}" id="m-copy">Copy</button>${onPhone() ? `<button class="pill-btn primary" id="m-send">Open in WhatsApp</button>` : ""}</div></div>`;
   document.body.append(d);
   const text = d.querySelector("#m-text");
   let turn = 0;
@@ -176,7 +178,7 @@ function waDialog(title, build, opts = {}) {
     if (mine !== turn) return;
     const none = out == null;
     text.textContent = none ? (text.dataset.why || `No summary for ${st.day ? nice(st.day, true) : "this day"}. No service was recorded.`) : out;
-    delete text.dataset.why; text.classList.toggle("muted", none); send.disabled = copy.disabled = none;
+    delete text.dataset.why; text.classList.toggle("muted", none); copy.disabled = none; if (send) send.disabled = none;
   };
   const close = () => { d.remove(); document.removeEventListener("keydown", esc2); }, esc2 = e => { if (e.key === "Escape") close(); };
   d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
@@ -192,7 +194,7 @@ function waDialog(title, build, opts = {}) {
   if (names) names.onchange = e => { st.names = e.target.checked; draw(); };
   if (link) link.oninput = e => { st.link = e.target.value.trim(); draw(); };
   // opens WhatsApp with exactly what the preview shows (emojis, names and link as chosen); the person picks the chat and sends
-  d.querySelector("#m-send").onclick = () => { window.open("https://wa.me/?text=" + encodeURIComponent(text.textContent), "_blank", "noopener"); };
+  const sendBtn = d.querySelector("#m-send"); if (sendBtn) sendBtn.onclick = () => { window.open("https://wa.me/?text=" + encodeURIComponent(text.textContent), "_blank", "noopener"); };
   d.querySelector("#m-copy").onclick = async e => {
     try { await navigator.clipboard.writeText(text.textContent); e.target.textContent = "Copied"; toast("Copied."); setTimeout(() => { e.target.textContent = "Copy"; }, 2500); }
     catch {  // no clipboard access here: select the text so it can be copied by hand
@@ -241,43 +243,88 @@ async function all(path) {  // PostgREST returns at most 1000 rows a time
   }
 }
 
+// Sign in two ways: an emailed code (or the link in the same email), or a password once one has been set.
 function loginView(message, bad) {
+  let mode = "code"; try { if (localStorage.getItem("fcc-pw")) mode = "pw"; } catch {}
   root.innerHTML = `<div class="center"><form class="login" id="login">
     <div class="brand" style="padding:0"><span class="brand-mark">✝</span>Favourite Child Church</div>
-    <h1>Sign in</h1><p>Enter your email and we'll send you a sign-in link.</p>
+    <h1>Sign in</h1>
+    <div class="seg2" role="tablist" aria-label="How to sign in"><button type="button" role="tab" data-m="code">Email code</button><button type="button" role="tab" data-m="pw">Password</button></div>
+    <p id="how"></p>
     <label class="f" for="email">Email</label><input class="in" id="email" type="email" inputmode="email" autocapitalize="none" autocomplete="email" required>
     <div id="pw" hidden><label class="f" for="password">Password</label><input class="in" id="password" type="password" autocomplete="current-password"></div>
     <div id="code" hidden><label class="f" for="token">Code from the email</label><input class="in" id="token" inputmode="numeric" autocomplete="one-time-code"></div>
-    <button class="pill-btn primary block" id="go">Email me a sign-in link</button>
-    <button type="button" class="link" id="use-pw">Use a password instead</button>
+    <button class="pill-btn primary block" id="go"></button>
+    <button type="button" class="link" id="forgot" hidden>Forgot it? Get an email code instead</button>
     ${message ? `<div class="msg ${bad ? "bad" : ""}">${esc(message)}</div>` : ""}
     <p class="note" style="margin-top:14px">No email? Check Spam. No access? Ask your church admin.</p>
   </form></div>`;
   const f = root.querySelector("#login"), pw = f.querySelector("#pw"), code = f.querySelector("#code"), go = f.querySelector("#go");
-  let had = ""; try { had = localStorage.getItem("fcc-pw") || ""; } catch {}
-  if (had) setTimeout(() => { f.querySelector("#email").value ||= had; if (pw.hidden) f.querySelector("#use-pw").click(); }, 0);
-  f.querySelector("#use-pw").onclick = e => {
-    pw.hidden = !pw.hidden; code.hidden = true;
-    go.textContent = pw.hidden ? "Email me a sign-in link" : "Sign in";
-    e.target.textContent = pw.hidden ? "Use a password instead" : "Email me a link instead";
+  let sent = false;
+  const show = m => {
+    mode = m; f.querySelectorAll("[data-m]").forEach(b => b.setAttribute("aria-selected", b.dataset.m === m));
+    pw.hidden = m !== "pw"; code.hidden = m !== "code" || !sent; f.querySelector("#forgot").hidden = m !== "pw";
+    f.querySelector("#how").textContent = m === "pw" ? "Use the password you set in the app." : "We'll email you a code. You can also tap the link in that email.";
+    go.textContent = m === "pw" ? "Sign in" : sent ? "Sign in with the code" : "Email me a code";
   };
+  let had = ""; try { had = localStorage.getItem("fcc-pw") || ""; } catch {}
+  if (had) f.querySelector("#email").value = had;
+  f.querySelectorAll("[data-m]").forEach(b => b.onclick = () => show(b.dataset.m));
+  f.querySelector("#forgot").onclick = () => show("code");
+  show(mode);
   f.onsubmit = async e => {
     e.preventDefault();
     const email = f.querySelector("#email").value.trim().toLowerCase(), wrong = emailProblem(email);
     if (wrong) { f.querySelectorAll(".msg").forEach(m => m.remove()); f.insertAdjacentHTML("beforeend", `<div class="msg bad">${esc(wrong)}</div>`); return; }
     go.disabled = true;
     try {
-      if (!pw.hidden) keep(await auth("token?grant_type=password", {email, password: f.querySelector("#password").value}));
-      else if (!code.hidden && f.querySelector("#token").value.trim()) keep(await auth("verify", {type: "email", email, token: f.querySelector("#token").value.trim()}));
+      if (mode === "pw") { keep(await auth("token?grant_type=password", {email, password: f.querySelector("#password").value})); S.via = "password"; try { localStorage.setItem("fcc-pw", email); } catch {} }
+      else if (sent && f.querySelector("#token").value.trim()) { keep(await auth("verify", {type: "email", email, token: f.querySelector("#token").value.trim()})); S.via = "email"; }
       else {
         await auth("otp?redirect_to=" + encodeURIComponent(location.origin + location.pathname), {email, create_user: true});
-        code.hidden = false; go.textContent = "Sign in with the code"; go.disabled = false;
+        sent = true; show("code"); go.disabled = false; f.querySelector("#token").focus();
         f.querySelectorAll(".msg").forEach(m => m.remove());
-        f.insertAdjacentHTML("beforeend", `<div class="msg">Check ${esc(email)} for an email from us and tap the link. If the email shows a code, type it above.</div>`);
+        f.insertAdjacentHTML("beforeend", `<div class="msg">Check ${esc(email)} for an email from us. Type the code above, or tap the link in the email.</div>`);
         return;
       }
       start();
-    } catch (err) { go.disabled = false; loginView(err.message, true); }
+    } catch (err) { go.disabled = false; loginView(/invalid login/i.test(err.message) ? "That email and password don't match. Try again, or get an email code instead." : err.message, true); }
+  };
+}
+
+// Save a new password for the signed-in person (Supabase keeps it; the app only remembers which email has one).
+async function savePassword(a, b) {
+  if (a.length < 8) throw new Error("Use at least 8 characters.");
+  if (a !== b) throw new Error("The two passwords don't match.");
+  if (S.session.expires_at - Date.now() < 60000) await refresh();
+  const r = await fetch(S.cfg.url + "/auth/v1/user", {method: "PUT", body: JSON.stringify({password: a}),
+    headers: {apikey: S.cfg.key, "Content-Type": "application/json", Authorization: "Bearer " + S.session.access_token}});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.msg || j.error_description || j.message || "The password was not accepted.");
+  try { localStorage.setItem("fcc-pw", S.me.email); } catch {}
+}
+// After signing in with an email code or link: offer a password for next time, unless they have one or said no for good.
+function offerPassword() {
+  const key = "fcc-pw-never:" + S.me.email;
+  try { if (localStorage.getItem("fcc-pw") === S.me.email || localStorage.getItem(key)) return; } catch { return; }
+  const d = document.createElement("div"); d.className = "modal";
+  d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="Sign in faster next time">
+    <div class="card-head"><h2>Sign in faster next time?</h2></div>
+    <p class="note" style="margin-top:0">Set a password and next time just type your email and password. No waiting for an email.</p>
+    <input type="email" autocomplete="username" value="${esc(S.me.email)}" readonly hidden>
+    <div class="fields"><div><label class="f" for="op1">New password</label><input class="in" id="op1" type="password" autocomplete="new-password" minlength="8" maxlength="72" required></div>
+      <div><label class="f" for="op2">Type it again</label><input class="in" id="op2" type="password" autocomplete="new-password" minlength="8" maxlength="72" required></div></div>
+    <div class="msg bad" id="op-err" hidden></div>
+    <div class="modal-foot"><button type="button" class="pill-btn" data-later>Remind me next time</button><button class="pill-btn primary" id="op-go">Save password</button></div>
+    <button type="button" class="link" data-never style="display:block;margin:14px auto 0">Don't show this again</button></form>`;
+  document.body.append(d);
+  const close = () => d.remove();
+  d.querySelector("[data-later]").onclick = close;
+  d.querySelector("[data-never]").onclick = () => { try { localStorage.setItem(key, "1"); } catch {} close(); toast("OK. You can set a password any time in Your account."); };
+  d.querySelector("form").onsubmit = async e => {
+    e.preventDefault(); const go = d.querySelector("#op-go"), err = d.querySelector("#op-err"); go.disabled = true; err.hidden = true;
+    try { await savePassword(d.querySelector("#op1").value, d.querySelector("#op2").value); close(); toast("Password saved. Next time choose Password and sign in straight away."); }
+    catch (ex) { err.textContent = ex.message; err.hidden = false; go.disabled = false; }
   };
 }
 
@@ -288,7 +335,7 @@ async function start() {
     if (!S.cfg?.url || !S.cfg?.key) { root.innerHTML = `<div class="center"><p class="empty">The app isn't connected to the database yet.</p></div>`; return; }
   }
   const hash = new URLSearchParams(location.hash.slice(1));  // arriving from the emailed link
-  if (hash.get("access_token")) { keep(Object.fromEntries(hash)); history.replaceState(null, "", location.pathname); }
+  if (hash.get("access_token")) { keep(Object.fromEntries(hash)); history.replaceState(null, "", location.pathname); S.via = "email"; }
   else if (hash.get("error_description")) { history.replaceState(null, "", location.pathname); return loginView(hash.get("error_description").replace(/\+/g, " "), true); }
   S.session = S.session || store.get();
   if (!S.session) return loginView();
@@ -307,6 +354,8 @@ async function start() {
     S.pending = canApprove() ? await api("registrations?select=id&status=eq.pending").then(r => r.length).catch(() => 0) : 0;
   }
   render();
+  if (S.via === "email") setTimeout(offerPassword, 600);  // just signed in with an email code or link
+  S.via = "";
 }
 function fatal(text) { root.innerHTML = `<div class="center"><div class="login"><h1>Something went wrong</h1><p>${esc(text)}</p><button class="pill-btn block" onclick="location.reload()">Try again</button></div></div>`; }
 async function signOut() { try { await auth("logout", {}, S.session?.access_token); } catch {} store.set(null); S.me = null; loginView(); }
@@ -1056,6 +1105,7 @@ async function overview(el) {
       ...all.flatMap(r => r.latest !== day ? ["", `*${r.church}*`, "No service this day"] : ["", `*${r.church}*`, `Present ${r.present} · Adults ${r.adults} · Kids ${r.kids}`,
         `First-timers ${r.first_timers} · ${S.emoji ? `🔴 ${r.red} · 🟡 ${r.yellow}` : `Red ${r.red} · Yellow ${r.yellow}`}`])]);
   };
+  if (S.me.role === "bishop") return bishop(el, rows, text, newest);
   el.innerHTML = head("All churches", sub, `<button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
     <div class="tiles"><div class="card tile"><div class="label">Churches</div><div class="num">${rows.length}</div></div>
       <div class="card tile"><div class="label">Present · latest services</div><div class="num">${sum("present")}</div></div>
@@ -1073,6 +1123,62 @@ async function overview(el) {
     ${rows.length ? "" : `<p class="empty">No churches yet.</p>`}
     ${admin ? `` : ""}`;
   el.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { S.church = b.dataset.open; S.view = "dashboard"; render(); });
+  el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text, {day: newest});
+  el.querySelector("#dl").onclick = () => download(`all_churches_${today()}.csv`, [["Church", "Latest service", "Present", "Adults", "Kids", "First-timers", "On the register", "Red", "Yellow", "Missed this service"],
+    ...rows.map(r => [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this])]);
+}
+// The Bishop's page: a short list of churches on one side and the chosen church's dashboard beside it (numbers only).
+// On a phone the list comes first; tapping a church opens its dashboard, and Back returns to the list.
+async function bishop(el, rows, text, newest) {
+  const trend = await api("rpc/church_trend", {method: "POST", body: {}}).catch(() => null);  // null until the newer setup SQL has been run
+  if (S.view !== "overview") return;
+  if (S.bChurch && !rows.some(r => r.church === S.bChurch)) S.bChurch = "";
+  const sum = (list, k) => list.reduce((n, r) => n + (r[k] || 0), 0);
+  const seriesOf = ch => {  // [date, adults, kids, first-timers, visitors] per service; every church added up for "All churches"
+    const by = {};
+    for (const t of trend || []) if (!ch || t.church === ch) {
+      const x = by[t.service_date] ??= [t.service_date, 0, 0, 0, 0];
+      x[1] += t.adults; x[2] += t.kids; x[3] += t.first_timers; x[4] += t.visitors;
+    }
+    return Object.values(by).sort((a, b) => a[0].localeCompare(b[0])).slice(-12);
+  };
+  const tops = Math.max(1, ...rows.flatMap(r => r.trend || []));
+  const item = (key, label, present, when, spark) => `<button class="b-item ${S.bChurch === key ? "on" : ""}" data-b="${esc(key)}">
+      <span class="b-name"><b>${esc(label)}</b><small>${esc(when)}</small></span>
+      <span class="spark" aria-hidden="true">${spark}</span><span class="b-num">${present}</span>${svg("next")}</button>`;
+  const sparkOf = t => (t || []).slice(-8).map(n => `<i style="height:${Math.max(2, Math.round(22 * n / tops))}px"></i>`).join("");
+  const allTrend = seriesOf("").map(x => x[1] + x[2]);
+  const list = item("", "All churches", sum(rows, "present"), `${rows.length} churches`, sparkOf(allTrend.map(n => n * tops / Math.max(1, ...allTrend)))) +
+    rows.map(r => item(r.church, r.church, r.present, r.latest ? nice(r.latest) : "No services yet", sparkOf(r.trend))).join("");
+  const pick = S.bChurch ? rows.filter(r => r.church === S.bChurch) : rows, one = pick.length === 1 ? pick[0] : null;
+  const series = seriesOf(S.bChurch), last = series[series.length - 1], prev = series[series.length - 2];
+  const nowN = one ? one.present : sum(pick, "present"), prevN = prev ? prev[1] + prev[2] : null;
+  const delta = last && prevN !== null && (one ? one.latest === last[0] : true) ? (last[1] + last[2]) - prevN : null;
+  const reg = sum(pick, "register"), rate = reg ? Math.round(nowN / reg * 100) : 0;
+  const latest = one ? one.latest : newest;
+  const fu = [["red", `Missed ${RED_AT}+ in a row`, sum(pick, "red")], ["yellow", `Missed ${YELLOW_AT}–${RED_AT - 1} in a row`, sum(pick, "yellow")],
+              ["blue", "Missed the latest service", sum(pick, "missed_this")]];
+  const fuMax = Math.max(1, ...fu.map(f => f[2]));
+  el.innerHTML = head("All churches", "Numbers only", `<button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
+    <div class="bish ${S.bOpen ? "open" : ""}">
+      <nav class="card b-list" aria-label="Churches">${list}</nav>
+      <section class="b-detail">
+        <button class="link b-back" id="b-back">${svg("back")}All churches</button>
+        <div class="b-title"><h2>${esc(S.bChurch || "All churches")}</h2><span class="muted">${latest ? esc(`${S.names?.[latest] || svcName(latest)} · ${nice(latest, true)}`) : "No services yet"}</span></div>
+        <div class="tiles">
+          <div class="card tile"><div class="label">Present</div><div class="num">${nowN}${delta !== null && delta !== 0 ? `<small class="${delta > 0 ? "up" : "down"}">${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)}</small>` : ""}</div></div>
+          <div class="card tile"><div class="label">Adults · Kids</div><div class="num">${sum(pick, "adults")}<small>· ${sum(pick, "kids")}</small></div></div>
+          <div class="card tile"><div class="label">First-timers</div><div class="num">${sum(pick, "first_timers")}</div></div>
+          <div class="card tile"><div class="label">Came, of ${reg} on the register</div><div class="num">${rate}%</div></div></div>
+        <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>People present</h2><span class="gap"></span>
+            <div class="legend"><span><i style="background:var(--adults)"></i>Adults</span><span><i style="background:var(--kids)"></i>Kids</span></div></div>
+          <div class="chart" id="b-chart">${trend ? "" : `<p class="empty">Run the latest setup SQL in Supabase once to see this chart.</p>`}</div></div>
+        <div class="card"><div class="card-head"><h2>Follow-up</h2><span class="gap"></span><span class="muted" style="font-size:13px">people, no names</span></div>
+          ${fu.map(([f, t, n]) => `<div class="b-bar"><span><i class="b-key ${f}"></i>${esc(t)}</span><span class="b-track"><i class="${f}" style="width:${n ? Math.max(4, n / fuMax * 100) : 0}%"></i></span><b>${n}</b></div>`).join("")}</div>
+      </section></div>`;
+  if (trend) chart(el.querySelector("#b-chart"), series.map(x => [x[0], x[1], x[2]]));
+  el.querySelectorAll("[data-b]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.b; S.bOpen = true; render(); scrollTo({top: 0}); });
+  el.querySelector("#b-back").onclick = () => { S.bOpen = false; render(); };
   el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text, {day: newest});
   el.querySelector("#dl").onclick = () => download(`all_churches_${today()}.csv`, [["Church", "Latest service", "Present", "Adults", "Kids", "First-timers", "On the register", "Red", "Yellow", "Missed this service"],
     ...rows.map(r => [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this])]);
@@ -1492,16 +1598,8 @@ function account(el) {
   };
   el.querySelector("#setpw").onsubmit = async e => {
     e.preventDefault();
-    const a = el.querySelector("#pw1").value, b = el.querySelector("#pw2").value;
-    if (a.length < 8) return toast("Not saved: use at least 8 characters.");
-    if (a !== b) return toast("Not saved: the two passwords don't match.");
     try {
-      if (S.session.expires_at - Date.now() < 60000) await refresh();
-      const r = await fetch(S.cfg.url + "/auth/v1/user", {method: "PUT", body: JSON.stringify({password: a}),
-        headers: {apikey: S.cfg.key, "Content-Type": "application/json", Authorization: "Bearer " + S.session.access_token}});
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.msg || j.error_description || j.message || "The password was not accepted.");
-      try { localStorage.setItem("fcc-pw", S.me.email); } catch {}
+      await savePassword(el.querySelector("#pw1").value, el.querySelector("#pw2").value);
       e.target.reset(); toast("Password saved. Next time, sign in with your email and this password.");
     } catch (err) { toast("Not saved: " + err.message); }
   };
