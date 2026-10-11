@@ -145,8 +145,10 @@ begin
   streak as (
     select p.id, p.ch,
            -- only Sunday services count as missed; midweek services still count as being seen
+           -- visitors are never chased, so they never count as missing
+           case when p.type = 'visitor' then 0 else
            (select count(*) from svc s where s.ch = p.ch and s.service_date > coalesce(sn.d, date '0001-01-01')
-              and s.service_date >= coalesce(p.started, date '0001-01-01') and extract(dow from s.service_date) = 0)::int as missed,
+              and s.service_date >= coalesce(p.started, date '0001-01-01') and extract(dow from s.service_date) = 0)::int end as missed,
            coalesce(sn.d::text, p.started::text, p.added) as last_sign
     from people p join seen sn on sn.id = p.id
   ),
