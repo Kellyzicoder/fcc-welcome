@@ -363,10 +363,17 @@ create policy "app: change check-in locks" on settings for update to authenticat
   using (key like 'lock:%' and app_role() in ('admin', 'lead', 'team') and app_can_see(substr(key, 17)))
   with check (key like 'lock:%' and app_role() in ('admin', 'lead', 'team') and app_can_see(substr(key, 17)));
 grant select on email_log to authenticated;
--- Pastors can see whether a service is locked (their ticks freeze too), but cannot lock or unlock.
+-- Pastors use Save & lock like ushers: they see, set and lift locks for their own church's services.
 drop policy if exists "app: pastors see check-in locks" on settings;
 create policy "app: pastors see check-in locks" on settings for select to authenticated
   using (key like 'lock:%' and app_role() = 'pastor' and substr(key, 17) = app_church());
+drop policy if exists "app: pastors set check-in locks" on settings;
+create policy "app: pastors set check-in locks" on settings for insert to authenticated
+  with check (key like 'lock:%' and app_role() = 'pastor' and substr(key, 17) = app_church());
+drop policy if exists "app: pastors change check-in locks" on settings;
+create policy "app: pastors change check-in locks" on settings for update to authenticated
+  using (key like 'lock:%' and app_role() = 'pastor' and substr(key, 17) = app_church())
+  with check (key like 'lock:%' and app_role() = 'pastor' and substr(key, 17) = app_church());
 
 -- Rename a church everywhere it is recorded, in one all-or-nothing step: the church itself, its sign-ins, its
 -- people, its pastor list, its report list and its email log. Only the admin may do this. The home church keeps its
