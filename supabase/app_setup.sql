@@ -198,6 +198,30 @@ begin
   order by (c.ch <> app_home_church()), c.ch;
 end $$;
 
+-- Each church's last 12 services, as counts only (adults, kids, first-timers, visitors): the Bishop's charts.
+-- Admin and Bishop only; anyone else gets no rows. No names or phone numbers are returned.
+create or replace function church_trend() returns table (
+  church text, service_date date, name text, adults int, kids int, first_timers int, visitors int
+) language sql stable security definer set search_path = public as $$
+  with people as (
+    select m.id, coalesce(nullif(trim(m.church), ''), app_home_church()) as ch, m.type,
+           lower(coalesce(m.age_group, '')) in ('child', 'kid', 'kids', 'children') as kid
+    from members m
+    where lower(coalesce(m.status, '')) not in ('inactive', 'moved', 'left', 'deceased', 'transferred', 'away')),
+  counts as (
+    select p.ch, a.service_date as d, count(*) filter (where not p.kid)::int as ad, count(*) filter (where p.kid)::int as ki,
+           count(*) filter (where p.type = 'first_timer')::int as ft, count(*) filter (where p.type = 'visitor')::int as vi
+    from attendance a join people p on p.id = a.member_id
+    where app_role() in ('admin', 'bishop') and a.service_date <= current_date + 1
+    group by 1, 2),
+  ranked as (select c.*, row_number() over (partition by c.ch order by c.d desc) as rn from counts c)
+  select r.ch, r.d, s.name, r.ad, r.ki, r.ft, r.vi
+  from ranked r left join services s on s.service_date = r.d
+  where r.rn <= 12 order by r.ch, r.d
+$$;
+revoke all on function church_trend() from public, anon;
+grant execute on function church_trend() to authenticated;
+
 revoke all on function church_numbers(date) from public, anon;
 grant execute on function church_numbers(date), app_me(), app_role(), app_church(), app_can_see(text), app_home_church() to authenticated;
 
