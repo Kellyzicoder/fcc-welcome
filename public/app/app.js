@@ -34,6 +34,8 @@ function when(iso) {  // a saved timestamp as a short date and time
   const d = new Date(iso);
   return isNaN(d) ? String(iso || "") : d.toLocaleString("en-NZ", {day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"});
 }
+const pastorsOf = m => String(m.pastor || "").split(",").map(x => x.trim()).filter(Boolean);  // someone can have more than one pastor
+const genderOf = m => ({f: "Female", female: "Female", m: "Male", male: "Male"})[norm(m.gender)] || "";
 const rolesOf = m => String(m.role || "").split(",").map(x => x.trim().replace(/\s+/g, " ")).filter(Boolean);  // "Tech Team, Worship Team" is two roles
 const byName = (a, b) => norm(a.full_name).localeCompare(norm(b.full_name));
 const canApprove = () => S.me.role === "admin" || (S.me.role === "lead" && S.me.church === S.me.home);
@@ -84,7 +86,9 @@ function formDialog(title, fields, save, button = "Save", danger = null) {
   d.className = "modal";
   d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="${esc(title)}">
     <div class="card-head"><h2>${esc(title)}</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
-    <div class="fields">${fields.map(f => `<div><label class="f" for="fd-${f.k}">${esc(f.label)}</label>${f.type === "select"
+    <div class="fields">${fields.map(f => `<div><label class="f" for="fd-${f.k}">${esc(f.label)}</label>${f.type === "multi"
+      ? `<div class="checks" id="fd-${f.k}">${f.options.map(([v, t]) => `<label class="chk"><input type="checkbox" value="${esc(v)}" ${f.value.includes(v) ? "checked" : ""}><span>${esc(t)}</span></label>`).join("")}</div>`
+      : f.type === "select"
       ? `<select class="in" id="fd-${f.k}">${f.options.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(f.value ?? "") ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`
       : `<input class="in" id="fd-${f.k}" type="${f.type || "text"}" value="${esc(f.value ?? "")}" maxlength="120" ${f.required ? "required" : ""} autocomplete="off">`}
       ${f.suggest ? `<div class="suggest" id="fs-${f.k}" aria-label="Suggestions"></div>` : ""}
@@ -104,7 +108,9 @@ function formDialog(title, fields, save, button = "Save", danger = null) {
   }; }
   d.querySelector("form").onsubmit = async e => {
     e.preventDefault();
-    const go = d.querySelector("#fd-go"), err = d.querySelector("#fd-err"), values = Object.fromEntries(fields.map(f => [f.k, d.querySelector("#fd-" + f.k).value.trim().replace(/\s+/g, " ")]));
+    const go = d.querySelector("#fd-go"), err = d.querySelector("#fd-err"), values = Object.fromEntries(fields.map(f => [f.k, f.type === "multi"
+      ? [...d.querySelectorAll(`#fd-${f.k} input:checked`)].map(i => i.value).join(", ")
+      : d.querySelector("#fd-" + f.k).value.trim().replace(/\s+/g, " ")]));
     go.disabled = true; err.hidden = true;
     try { await save(values); close(); } catch (ex) { err.textContent = ex.message; err.hidden = false; go.disabled = false; }
   };
@@ -300,7 +306,8 @@ async function signOut() { try { await auth("logout", {}, S.session?.access_toke
 async function load() {
   const since = new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10);
   const [members, ticks, services, seen, lists] = await Promise.all([
-    all("members?select=id,full_name,phone,type,status,age_group,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name"),
+    all("members?select=id,full_name,phone,type,status,age_group,gender,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name")
+      .catch(() => all("members?select=id,full_name,phone,type,status,age_group,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name")),
     all(`attendance?select=service_date,member_id,checked_at&service_date=gte.${since}&order=service_date`),
     all(`services?select=service_date,name&service_date=gte.${since}`),
     api("rpc/app_last_seen", {method: "POST", body: {}}).catch(() => null),  // null until the newer setup SQL has been run
@@ -616,6 +623,7 @@ function checkin(el) {
       <div><label class="f" for="a-phone">Phone <span class="req" id="a-phone-req">*</span></label><input class="in" id="a-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="off"></div>
       <div><label class="f" for="a-type">Attendance Type</label><select class="in" id="a-type"><option value="first_timer">First-timer</option><option value="member">Member</option></select></div>
       <div><label class="f" for="a-age">Age group</label><select class="in" id="a-age"><option>Adult</option><option>Child</option></select></div>
+      <div><label class="f" for="a-gender">Gender</label><select class="in" id="a-gender"><option value="">Not given</option><option>Female</option><option>Male</option></select></div>
       <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap"><button class="pill-btn primary">Add &amp; check in</button><button class="pill-btn" data-only>Add only</button></div></div>
       </form>`;
   const box = el.querySelector("#names");
@@ -773,7 +781,7 @@ function checkin(el) {
     const id = known?.id || newId(), only = e.submitter?.hasAttribute("data-only");
     try {
       if (!known) {
-        const m = {id, full_name: name, phone: el.querySelector("#a-phone").value.trim(), type, status: "", age_group: el.querySelector("#a-age").value,
+        const m = {id, full_name: name, phone: el.querySelector("#a-phone").value.trim(), type, status: "", age_group: el.querySelector("#a-age").value, ...(el.querySelector("#a-gender").value ? {gender: el.querySelector("#a-gender").value} : {}),
                    church: S.church, created_at: isoLocal(), [type === "first_timer" ? "first_visit" : "date_joined"]: S.date};
         await api("members", {method: "POST", prefer: "return=minimal", body: m});
         S.members.push(m); mine.push(m); mine.sort((a, b) => norm(a.full_name).localeCompare(norm(b.full_name)));
@@ -809,7 +817,19 @@ function people(el) {
   const roleKeys = Object.keys(counts).sort();
   if (S.roleF && !counts[S.roleF]) S.roleF = "";
   const q = norm(S.findQ), inRole = S.roleF ? everyone.filter(m => rolesOf(m).some(r => norm(r) === S.roleF)) : everyone;
-  const mine = q ? inRole.filter(m => [m.full_name, m.phone, m.role, m.pastor, m.status].some(x => norm(x).includes(q))) : inRole;
+  const SHOW = {all: ["Everyone", () => true], female: ["Females", m => genderOf(m) === "Female"], male: ["Males", m => genderOf(m) === "Male"],
+    adult: ["Adults", m => !isKid(m)], child: ["Children", m => isKid(m)], member: ["Members", m => m.type !== "first_timer"],
+    first: ["First-timers", m => m.type === "first_timer"], nopastor: ["No pastor yet", m => !pastorsOf(m).length]};
+  const last = {}; for (const t of S.ticks) if (!last[t.member_id] || t.service_date > last[t.member_id]) last[t.member_id] = t.service_date;
+  const lastOf = m => last[m.id] || S.seen?.[m.id] || "";
+  const SORT = {name: ["Name A to Z", (a, b) => byName(a, b)], namez: ["Name Z to A", (a, b) => byName(b, a)],
+    pastor: ["Pastor", (a, b) => (!pastorsOf(a).length - !pastorsOf(b).length) || (pastorsOf(a)[0] || "").localeCompare(pastorsOf(b)[0] || "")],
+    gender: ["Gender", (a, b) => ({Female: 0, Male: 1}[genderOf(a)] ?? 2) - ({Female: 0, Male: 1}[genderOf(b)] ?? 2)],
+    age: ["Age group", (a, b) => isKid(a) - isKid(b)], type: ["Attendance type", (a, b) => (a.type === "first_timer") - (b.type === "first_timer")],
+    status: ["Status", (a, b) => (a.status || "").localeCompare(b.status || "")], seen: ["Last attended", (a, b) => lastOf(b).localeCompare(lastOf(a))]};
+  if (!SHOW[S.showF]) S.showF = "all"; if (!SORT[S.sortBy]) S.sortBy = "name";
+  const mine = (q ? inRole.filter(m => [m.full_name, m.phone, m.role, m.pastor, m.status].some(x => norm(x).includes(q))) : inRole)
+    .filter(SHOW[S.showF][1]).sort((a, b) => SORT[S.sortBy][1](a, b) || byName(a, b));
   const plist = S.pastorList[S.church] || [], admin = S.me.role === "admin";
   const edit = S.me.role !== "team", statuses = ["", "Away", "Inactive", "Moved", "Left", "Transferred", "Deceased"];
   const roleNames = roleKeys.map(k => counts[k].label);
@@ -819,31 +839,39 @@ function people(el) {
   const typeOf = m => m.type === "first_timer" ? "First-timer" : "Member", ageOf = m => isKid(m) ? "Child" : "Adult";
   el.innerHTML = head("Congregation", `${esc(S.church)} · ${everyone.length} people`, `<button class="pill-btn" id="dl">Download</button>`) + `
     <input class="in" id="find" type="search" placeholder="Search" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off" style="margin-bottom:12px">
+    <div class="row sortbar"><div><label class="f" for="show">Show</label><select class="in" id="show">${Object.entries(SHOW).map(([k, [t, f]]) =>
+      `<option value="${k}" ${S.showF === k ? "selected" : ""}>${t} · ${inRole.filter(f).length}</option>`).join("")}</select></div>
+      <div><label class="f" for="sort">Sort by</label><select class="in" id="sort">${Object.entries(SORT).map(([k, [t]]) => `<option value="${k}" ${S.sortBy === k ? "selected" : ""}>${t}</option>`).join("")}</select></div></div>
     ${roleKeys.length ? `<div class="chips"><button class="chip ${S.roleF ? "" : "on"}" data-role="">Everyone · ${everyone.length}</button>${fewKeys(roleKeys, counts, S.roleF, S.roleMore).show.map(k =>
       `<button class="chip ${S.roleF === k ? "on" : ""}" data-role="${esc(k)}">${esc(counts[k].label)} · ${counts[k].n}</button>`).join("")}${moreChip(fewKeys(roleKeys, counts, S.roleF, S.roleMore).more, S.roleMore, roleKeys.length).replace("chip sm ghost", "chip ghost")}</div>` : ""}
     ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
-    <div class="card"><div class="scroll"><table><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select everyone shown" ${mine.length && picked.length === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Roles</th><th>Type</th><th>Age group</th><th>Status</th><th>Pastor</th><th>Phone</th></tr></thead><tbody>
-    ${mine.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}<td>${whoBtn(m)}</td>${edit ? `<td><button class="pill-btn sm" data-edit="${esc(m.id)}" aria-label="Edit ${esc(m.full_name)}">${svg("edit")}Edit</button></td>` : ""}<td>${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("")}</td><td class="muted">${typeOf(m)}</td><td class="muted">${ageOf(m)}</td>
+    <div class="card"><div class="scroll"><table><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select everyone shown" ${mine.length && picked.length === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Pastor</th><th>Type</th><th>Age group</th><th>Gender</th><th>Status</th><th>Phone</th><th>Roles</th></tr></thead><tbody>
+    ${mine.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}<td>${whoBtn(m)}</td>${edit ? `<td><button class="pill-btn sm" data-edit="${esc(m.id)}" aria-label="Edit ${esc(m.full_name)}">${svg("edit")}Edit</button></td>` : ""}
+      <td class="${pastorsOf(m).length ? "" : "muted"}">${pastorsOf(m).length ? pastorsOf(m).map(esc).join("<br>") : "Not assigned"}</td><td class="muted">${typeOf(m)}</td><td class="muted">${ageOf(m)}</td><td class="muted">${genderOf(m)}</td>
       <td>${m.status ? `<span class="badge">${esc(m.status)}</span>` : `<span class="muted">Active</span>`}</td>
-      <td class="${m.pastor ? "" : "muted"}">${esc(m.pastor || "Not assigned")}</td><td class="muted">${esc(m.phone || "")}</td></tr>`).join("")}
+      <td class="muted">${esc(m.phone || "")}</td><td>${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("")}</td></tr>`).join("")}
     </tbody></table></div>${mine.length ? "" : `<p class="empty">${q ? "Nobody matches that search." : "Nobody yet. Add people from Check-in."}</p>`}
     ${edit ? `` : ""}</div>`;
+  el.querySelector("#show").onchange = e => { S.showF = e.target.value; render(); };
+  el.querySelector("#sort").onchange = e => { S.sortBy = e.target.value; render(); };
   el.querySelectorAll("[data-pick]").forEach(c => c.onchange = () => { c.checked ? S.sel.add(c.dataset.pick) : S.sel.delete(c.dataset.pick); render(); });
   const all = el.querySelector("#pick-all");
   if (all) all.onchange = () => { S.sel = new Set(all.checked ? mine.map(m => m.id) : []); render(); };
   const bp = el.querySelector("#bulk-pastor");
   if (bp) bp.onclick = () => {
     if (!plist.length) return toast("Add your pastors on the Pastors page first, then come back.");
-    formDialog(`Set the pastor for ${picked.length} ${picked.length === 1 ? "person" : "people"}`, [
-      {k: "pastor", label: "Pastor", type: "select", value: plist[0], options: [...plist.map(n => [n, n]), ["", "Not assigned"]]},
+    formDialog(`Pastors for ${picked.length} ${picked.length === 1 ? "person" : "people"}`, [
+      {k: "how", label: "What to do", type: "select", value: "add", options: [["add", "Add this pastor (keep any others)"], ["only", "Make this their only pastor"], ["remove", "Take this pastor off"]]},
+      {k: "pastor", label: "Pastor", type: "select", value: plist[0], options: plist.map(n => [n, n])},
     ], async v => {
       let done = 0, clash = 0;
       for (const m of picked) {
-        if ((m.pastor || "").trim() === v.pastor) continue;
+        const now = pastorsOf(m), next = v.how === "only" ? [v.pastor] : v.how === "remove" ? now.filter(x => x !== v.pastor) : [...new Set([...now, v.pastor])];
+        const pastor = next.join(", "); if (pastor === now.join(", ")) continue;
         const ver = Number(m.version) || 1;
-        const rows = await api(`members?id=eq.${encodeURIComponent(m.id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {pastor: v.pastor, version: ver + 1}});
+        const rows = await api(`members?id=eq.${encodeURIComponent(m.id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {pastor, version: ver + 1}});
         if (!rows?.length) { clash++; continue; }
-        Object.assign(m, {pastor: v.pastor, version: ver + 1}); done++;
+        Object.assign(m, {pastor, version: ver + 1}); done++;
         log("edit", m.id, "done", "pastor");
       }
       if (clash) await load();
@@ -891,28 +919,30 @@ function people(el) {
   el.querySelectorAll("[data-role]").forEach(b => b.onclick = () => { S.roleF = b.dataset.role; render(); });
   const moreB = el.querySelector(".chips [data-more]"); if (moreB) moreB.onclick = () => { S.roleMore = !S.roleMore; render(); };
   el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
-    const m = S.members.find(x => x.id === b.dataset.edit), cur = (m.pastor || "").trim();
-    const pastors = [["", "Not assigned"], ...[...plist, ...(cur && !plist.includes(cur) ? [cur] : [])].map(n => [n, n])];
+    const m = S.members.find(x => x.id === b.dataset.edit), cur = pastorsOf(m);
+    const pastors = [...plist, ...cur.filter(c => !plist.includes(c))].map(n => [n, n]);
     formDialog(`Edit ${m.full_name}`, [
       {k: "full_name", label: "Full name", value: m.full_name, required: true},
       {k: "phone", label: "Phone", value: m.phone || "", type: "tel"},
       {k: "role", label: "Roles", value: rolesOf(m).join(", "), suggest: roleNames, many: true, hint: "Separate several with commas."},
       {k: "type", label: "Attendance Type", value: m.type === "first_timer" ? "first_timer" : "member", type: "select", options: [["member", "Member"], ["first_timer", "First-timer"]]},
       {k: "age_group", label: "Age group", value: ageOf(m), type: "select", options: [["Adult", "Adult"], ["Child", "Child"]]},
+      {k: "gender", label: "Gender", value: genderOf(m), type: "select", options: [["", "Not given"], ["Female", "Female"], ["Male", "Male"]]},
       {k: "status", label: "Status", value: statuses.find(x => norm(x) === norm(m.status)) ?? m.status, type: "select",
        options: [...statuses.map(x => [x, x || "Active"]), ...(m.status && !statuses.some(x => norm(x) === norm(m.status)) ? [[m.status, m.status]] : [])]},
-      plist.length || !cur ? {k: "pastor", label: "Pastor", value: cur, type: "select", options: pastors, hint: plist.length ? "" : "Add pastors on the Pastors page to choose one here."}
-                           : {k: "pastor", label: "Pastor", value: cur},
+      pastors.length ? {k: "pastor", label: "Pastors", value: cur, type: "multi", options: pastors, hint: "Tick one or more."}
+                     : {k: "pastor", label: "Pastors", value: "", hint: "Add pastors on the Pastors page to choose from a list."},
       ...(admin ? [{k: "church", label: "Church", value: churchOf(m), type: "select", options: S.churches.map(c => [c, c])}] : []),
     ], async v => {
       if (!v.full_name) throw new Error("Type their name.");
       const badPhone = phoneProblem(v.phone, false); if (badPhone) throw new Error(badPhone);
       v.role = v.role.split(",").map(x => x.trim()).filter(Boolean).join(", ");
-      const changed = Object.fromEntries(Object.entries(v).filter(([k, val]) => val !== String(k === "church" ? churchOf(m) : k === "age_group" ? ageOf(m) : k === "type" ? (m.type === "first_timer" ? "first_timer" : "member") : (m[k] ?? "")).trim()));
+      const changed = Object.fromEntries(Object.entries(v).filter(([k, val]) => val !== String(k === "church" ? churchOf(m) : k === "age_group" ? ageOf(m) : k === "type" ? (m.type === "first_timer" ? "first_timer" : "member") : k === "gender" ? genderOf(m) : k === "pastor" ? pastorsOf(m).join(", ") : (m[k] ?? "")).trim()));
       if (!Object.keys(changed).length) return;
       // only save over the version this screen loaded: if someone else edited the person meanwhile, nothing is overwritten
       const ver = Number(m.version) || 1;
-      const rows = await api(`members?id=eq.${encodeURIComponent(m.id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {...changed, version: ver + 1}});
+      const rows = await api(`members?id=eq.${encodeURIComponent(m.id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {...changed, version: ver + 1}})
+        .catch(err => { throw new Error(/gender/.test(err.message) ? "Run the latest setup SQL in Supabase once to save gender, then try again." : err.message); });
       if (!rows?.length) { await load(); render(); throw new Error("Someone else changed this person a moment ago, so nothing was saved. The list now shows the latest details: please make your change again."); }
       Object.assign(m, changed, {version: ver + 1});
       log("edit", m.id, "done", Object.keys(changed).join(", "));
@@ -925,8 +955,8 @@ function people(el) {
       log("delete", "", "done", `${m.full_name} · ${churchOf(m)}`); toast(`${m.full_name} was deleted.`); render();
     }} : null);
   });
-  el.querySelector("#dl").onclick = () => download(`people_${S.church}_${today()}.csv`, [["Church", "Name", "Roles", "Type", "Age group", "Status", "Pastor", "Phone"],
-    ...mine.map(m => [S.church, m.full_name, rolesOf(m).join(", "), typeOf(m), ageOf(m), m.status || "Active", m.pastor || "", m.phone || ""])]);
+  el.querySelector("#dl").onclick = () => download(`people_${S.church}_${today()}.csv`, [["Church", "Name", "Pastor", "Type", "Age group", "Gender", "Status", "Phone", "Roles"],
+    ...mine.map(m => [S.church, m.full_name, pastorsOf(m).join(", "), typeOf(m), ageOf(m), genderOf(m), m.status || "Active", m.phone || "", rolesOf(m).join(", ")])]);
 }
 
 // ---------------------------------------------------------------- all churches (numbers only) and admin
@@ -1031,7 +1061,7 @@ async function admin(el) {
 // ---------------------------------------------------------------- pastors: each pastor's people
 function pastors(el) {
   const NONE = "Not assigned yet", p = picture(), p0 = p, groups = {};
-  for (const x of p.people) (groups[(x.pastor || "").trim() || NONE] ??= []).push(x);
+  for (const x of p.people) for (const n of pastorsOf(x).length ? pastorsOf(x) : [NONE]) (groups[n] ??= []).push(x);
   const plist = S.pastorList[S.church] || [], canEdit = S.me.role !== "team";
   for (const n of plist) groups[n] ??= [];  // pastors on the list show even before anyone is assigned to them
   const names = Object.keys(groups).sort((a, b) => (a === NONE) - (b === NONE) || a.localeCompare(b));
@@ -1040,7 +1070,7 @@ function pastors(el) {
   const message = (o = {}) => {
     if (o.day && !p0.dates.includes(o.day)) return null;
     const p = o.day && o.day !== p0.last ? picture(o.day) : p0;
-    const list = p.people.filter(x => ((x.pastor || "").trim() || NONE) === S.pastor).sort(byName), came = list.filter(x => p.here[x.id]), need = list.filter(x => x.level !== "ok");
+    const list = p.people.filter(x => S.pastor === NONE ? !pastorsOf(x).length : pastorsOf(x).includes(S.pastor)).sort(byName), came = list.filter(x => p.here[x.id]), need = list.filter(x => x.level !== "ok");
     const out = [`*${S.pastor} · your people*${S.emoji ? " ⛪" : ""}`, p.last ? nice(p.last, true) : "", "", ["✅", `Came: *${came.length} of ${list.length}*`]];
     if (came.length) out.push(came.map(x => x.full_name).join(", "));
     const not = list.filter(x => !p.here[x.id]);
@@ -1068,7 +1098,7 @@ function pastors(el) {
   const form = el.querySelector("#plist");
   if (form) form.onsubmit = async e => {
     e.preventDefault();
-    const seen = new Set(), out = el.querySelector("#pnames").value.split("\n").map(x => x.trim().replace(/\s+/g, " ").slice(0, 80)).filter(x => x && !seen.has(norm(x)) && seen.add(norm(x)));
+    const seen = new Set(), out = el.querySelector("#pnames").value.split("\n").map(x => x.replace(/,/g, " ").trim().replace(/\s+/g, " ").slice(0, 80)).filter(x => x && !seen.has(norm(x)) && seen.add(norm(x)));
     try {
       await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key: "pastors:" + S.church, value: out.join("\n")}});
       S.pastorList[S.church] = out; toast("Pastor list saved."); render();
