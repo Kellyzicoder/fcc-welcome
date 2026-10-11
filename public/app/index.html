@@ -279,6 +279,10 @@ input.in:focus, select.in:focus {border-color: var(--accent); box-shadow: 0 0 0 
 .name span {white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
 .name small {color: var(--ink-3); margin-left: auto; flex: none; font-size: 12px;}
 .name.on {background: var(--accent-soft); border-color: transparent;}
+.to-top {position: fixed; right: 20px; bottom: calc(24px + env(safe-area-inset-bottom)); z-index: 19; width: 48px; height: 48px; border-radius: 50%;
+  border: 1px solid var(--line, transparent); background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; cursor: pointer;
+  box-shadow: 0 10px 24px rgba(8, 15, 30, .3);} .to-top[hidden] {display: none;} .to-top svg {width: 22px; height: 22px;}
+@media (max-width: 1080px) {.to-top {right: 16px; bottom: calc(92px + env(safe-area-inset-bottom));}}
 .toast {position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); z-index: 40; transform: translateX(-50%); background: var(--ink); color: var(--panel);
         border-radius: 14px; padding: 11px 16px; font-size: 14px; z-index: 9; max-width: 90vw;}
 .empty {color: var(--ink-3); padding: 18px 4px;}
