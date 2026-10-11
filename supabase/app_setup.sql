@@ -402,6 +402,19 @@ begin
   return n;
 end $$;
 
+-- Database space for the Admin page: total size, and the biggest of the app's tables. Admin only.
+create or replace function app_db_size() returns json language plpgsql stable security definer set search_path = public as $$
+begin
+  if app_role() is distinct from 'admin' then raise exception 'not allowed'; end if;
+  return json_build_object('total', pg_database_size(current_database()),
+    'tables', (select json_agg(t order by t.bytes desc) from (
+       select c.relname as name, pg_total_relation_size(c.oid) as bytes
+       from pg_class c join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public' and c.relkind = 'r') t));
+end $$;
+revoke all on function app_db_size() from public, anon;
+grant execute on function app_db_size() to authenticated;
+
 revoke all on function app_rename_church(text, text) from public, anon;
 grant execute on function app_rename_church(text, text) to authenticated;
 
