@@ -840,14 +840,14 @@ function people(el) {
     age: ["Age group", (a, b) => isKid(a) - isKid(b)], type: ["Attendance type", (a, b) => (a.type === "first_timer") - (b.type === "first_timer")],
     status: ["Status", (a, b) => (a.status || "").localeCompare(b.status || "")], seen: ["Last attended", (a, b) => lastOf(b).localeCompare(lastOf(a))]};
   if (!SHOW[S.showF]) S.showF = "all"; if (!SORT[S.sortBy]) S.sortBy = "name";
-  const mine = (q ? inRole.filter(m => [m.full_name, m.phone, m.role, m.pastor, m.status].some(x => norm(x).includes(q))) : inRole)
+  S.sel = new Set([...(S.sel || [])].filter(id => everyone.some(m => m.id === id)));  // ticks stay while you search; only this church's people
+  if (!S.sel.size) S.selOnly = false;
+  const mine = S.selOnly ? everyone.filter(m => S.sel.has(m.id)).sort((a, b) => SORT[S.sortBy][1](a, b) || byName(a, b)) : (q ? inRole.filter(m => [m.full_name, m.phone, m.role, m.pastor, m.status].some(x => norm(x).includes(q))) : inRole)
     .filter(SHOW[S.showF][1]).sort((a, b) => SORT[S.sortBy][1](a, b) || byName(a, b));
   const plist = S.pastorList[S.church] || [], admin = S.me.role === "admin";
   const edit = S.me.role !== "team", statuses = ["", "Away", "Inactive", "Moved", "Left", "Transferred", "Deceased"];
   const roleNames = roleKeys.map(k => counts[k].label);
-  const ids = new Set(mine.map(m => m.id));
-  S.sel = new Set([...(S.sel || [])].filter(id => ids.has(id)));  // ticks only count for people on show
-  const picked = mine.filter(m => S.sel.has(m.id));
+  const picked = everyone.filter(m => S.sel.has(m.id)), shownPicked = mine.filter(m => S.sel.has(m.id)).length;
   const typeOf = m => m.type === "first_timer" ? "First-timer" : "Member", ageOf = m => isKid(m) ? "Child" : "Adult";
   el.innerHTML = head("Congregation", `${esc(S.church)} · ${everyone.length} people`, `<button class="pill-btn" id="dl">Download</button>`) + `
     <input class="in" id="find" type="search" placeholder="Search" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off" style="margin-bottom:12px">
@@ -856,8 +856,8 @@ function people(el) {
       <div><label class="f" for="sort">Sort by</label><select class="in" id="sort">${Object.entries(SORT).map(([k, [t]]) => `<option value="${k}" ${S.sortBy === k ? "selected" : ""}>${t}</option>`).join("")}</select></div></div>
     ${roleKeys.length ? `<div class="chips"><button class="chip ${S.roleF ? "" : "on"}" data-role="">Everyone · ${everyone.length}</button>${fewKeys(roleKeys, counts, S.roleF, S.roleMore).show.map(k =>
       `<button class="chip ${S.roleF === k ? "on" : ""}" data-role="${esc(k)}">${esc(counts[k].label)} · ${counts[k].n}</button>`).join("")}${moreChip(fewKeys(roleKeys, counts, S.roleF, S.roleMore).more, S.roleMore, roleKeys.length).replace("chip sm ghost", "chip ghost")}</div>` : ""}
-    ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
-    <div class="card"><div class="scroll"><table><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select everyone shown" ${mine.length && picked.length === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Pastor</th><th>Type</th><th>Age group</th><th>Gender</th><th>Status</th><th>Phone</th><th>Roles</th></tr></thead><tbody>
+    ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><button class="pill-btn sm" id="bulk-see">${S.selOnly ? "Show all" : "View"}</button><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
+    <div class="card"><div class="scroll"><table><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select everyone shown" ${mine.length && shownPicked === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Pastor</th><th>Type</th><th>Age group</th><th>Gender</th><th>Status</th><th>Phone</th><th>Roles</th></tr></thead><tbody>
     ${mine.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}<td>${whoBtn(m)}</td>${edit ? `<td><button class="pill-btn sm" data-edit="${esc(m.id)}" aria-label="Edit ${esc(m.full_name)}">${svg("edit")}Edit</button></td>` : ""}
       <td class="${pastorsOf(m).length ? "" : "muted"}">${pastorsOf(m).length ? pastorsOf(m).map(esc).join("<br>") : "Not assigned"}</td><td class="muted">${typeOf(m)}</td><td class="muted">${ageOf(m)}</td><td class="muted">${genderOf(m)}</td>
       <td>${m.status ? `<span class="badge">${esc(m.status)}</span>` : `<span class="muted">Active</span>`}</td>
@@ -868,7 +868,8 @@ function people(el) {
   el.querySelector("#sort").onchange = e => { S.sortBy = e.target.value; render(); };
   el.querySelectorAll("[data-pick]").forEach(c => c.onchange = () => { c.checked ? S.sel.add(c.dataset.pick) : S.sel.delete(c.dataset.pick); render(); });
   const all = el.querySelector("#pick-all");
-  if (all) all.onchange = () => { S.sel = new Set(all.checked ? mine.map(m => m.id) : []); render(); };
+  if (all) all.onchange = () => { for (const m of mine) all.checked ? S.sel.add(m.id) : S.sel.delete(m.id); render(); };  // only those on show
+  const see = el.querySelector("#bulk-see"); if (see) see.onclick = () => { S.selOnly = !S.selOnly; render(); };
   const bp = el.querySelector("#bulk-pastor");
   if (bp) bp.onclick = () => {
     if (!plist.length) return toast("Add your pastors on the Pastors page first, then come back.");
@@ -894,7 +895,7 @@ function people(el) {
       render();
     }, "Set pastor");
   };
-  const bx = el.querySelector("#bulk-x"); if (bx) bx.onclick = () => { S.sel = new Set(); render(); };
+  const bx = el.querySelector("#bulk-x"); if (bx) bx.onclick = () => { S.sel = new Set(); S.selOnly = false; render(); };
   const bg = el.querySelector("#bulk-go");
   if (bg) bg.onclick = () => {
     const theirs = [...new Map(picked.flatMap(rolesOf).map(r => [norm(r), r])).values()].sort();
@@ -927,7 +928,7 @@ function people(el) {
     }, "Change roles");
   };
   el.querySelector("#find").oninput = e => {  // redraw, then put the cursor back where it was
-    S.findQ = e.target.value; const at = e.target.selectionStart; render();
+    S.findQ = e.target.value; S.selOnly = false; const at = e.target.selectionStart; render();
     const f = document.querySelector("#find"); if (f) { f.focus(); try { f.setSelectionRange(at, at); } catch {} }
   };
   el.querySelectorAll("[data-role]").forEach(b => b.onclick = () => { S.roleF = b.dataset.role; render(); });
