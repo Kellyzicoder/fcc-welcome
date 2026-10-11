@@ -716,6 +716,7 @@ function checkin(el) {
     const want = lockKey(), rows = await api(`settings?select=value&key=eq.${encodeURIComponent(want)}`).catch(() => null);
     if (!rows || want !== lockKey() || S.view !== "checkin") return;
     let v = null; try { v = rows[0]?.value ? JSON.parse(rows[0].value) : null; } catch {}
+    if (pastor) v = null;  // a lock is for ushers and admins; pastors can still tick their own people afterwards
     if (JSON.stringify(v) !== JSON.stringify(lock)) { lock = v; draw(); }
     showLock();
   };
