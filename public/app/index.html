@@ -85,6 +85,7 @@ button {font: inherit; color: inherit; cursor: pointer;}
 .head p {margin: 4px 0 0; color: var(--ink-2);}
 .pill-btn {border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 10px 16px; font-weight: 500;
            display: inline-flex; align-items: center; gap: 8px;}
+.plink {border: 0; background: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-align: left;} .plink:hover {text-decoration: underline;}
 .pill-btn.primary {background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600;
                    box-shadow: 0 6px 16px rgba(31,111,229,.28);}
 .pill-btn svg {width: 17px; height: 17px;}
@@ -308,6 +309,9 @@ input.in::placeholder, textarea.in::placeholder {color: var(--ink-3); opacity: 1
 .tile.link {cursor: pointer;} .tile.link:hover {border-color: var(--accent);} .chart g.col {cursor: pointer;}
 .top .back {margin-right: 8px; padding: 8px 4px;} .req {color: var(--red);}
 @media (max-width: 400px) {.dock button.on.long span {display: none;} .dock button.on.long {padding: 0 16px;}}
+.checks {display: flex; flex-wrap: wrap; gap: 8px;} .chk {display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; cursor: pointer; background: var(--card);}
+.chk input {width: 18px; height: 18px; accent-color: var(--accent); margin: 0;} .chk:has(input:checked) {border-color: var(--accent); background: var(--accent-soft);}
+.sortbar {margin-bottom: 12px;} .sortbar label.f {margin-top: 0;}
 </style>
 </head>
 <body>
