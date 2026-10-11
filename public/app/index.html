@@ -279,6 +279,32 @@ input.in:focus, select.in:focus {border-color: var(--accent); box-shadow: 0 0 0 
 .name span {white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
 .name small {color: var(--ink-3); margin-left: auto; flex: none; font-size: 12px;}
 .name.on {background: var(--accent-soft); border-color: transparent;}
+/* the Bishop's page: churches on the left, the chosen church's dashboard on the right */
+.bish {display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start;}
+.b-list {padding: 8px; display: grid; gap: 2px; position: sticky; top: 12px;}
+.b-item {display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; color: var(--ink); text-align: left;
+  padding: 12px; border-radius: 14px; cursor: pointer; font: inherit;}
+.b-item:hover {background: var(--soft);} .b-item.on {background: var(--accent-soft);} .b-item.on .b-num {color: var(--accent);}
+.b-item:first-child {border-bottom: 1px solid var(--line); border-radius: 14px 14px 6px 6px; margin-bottom: 4px;}
+.b-name {flex: 1; min-width: 0; display: grid;} .b-name b {font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.b-name small {color: var(--ink-3); font-size: 12px;} .b-num {font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 2.2em; text-align: right;}
+.b-item > svg {width: 16px; height: 16px; color: var(--ink-3); flex: none;}
+.seg2 {display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 14px; background: var(--soft); border: 1px solid var(--line); margin: 6px 0 4px;}
+.seg2 button {border: 0; background: none; color: var(--ink-2, var(--ink)); font: inherit; font-weight: 600; padding: 10px; border-radius: 10px; cursor: pointer;}
+.seg2 button[aria-selected="true"] {background: var(--card); color: var(--accent); box-shadow: 0 1px 4px rgba(8, 15, 30, .12);}
+.b-back {display: none; align-items: center; gap: 6px; margin: 0 0 10px; font-weight: 600;} .b-back svg {width: 18px; height: 18px;}
+.b-title {display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 2px 2px 14px;} .b-title h2 {margin: 0; font-size: 22px;}
+.num small.up {color: var(--ok);} .num small.down {color: var(--red);}
+.b-bar {display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 2.5em; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line);}
+.b-bar:first-of-type {border-top: 0;} .b-bar b {text-align: right; font-variant-numeric: tabular-nums; font-size: 17px;}
+.b-bar > span:first-child {display: flex; align-items: center; gap: 8px;}
+.b-key {width: 10px; height: 10px; border-radius: 50%; flex: none;} .b-key.red, .b-track i.red {background: var(--red);}
+.b-key.yellow, .b-track i.yellow {background: var(--yellow);} .b-key.blue, .b-track i.blue {background: var(--info);}
+.b-track {height: 10px; border-radius: 99px; background: var(--line); overflow: hidden;} .b-track i {display: block; height: 100%; border-radius: inherit;}
+@media (max-width: 900px) {
+  .bish {grid-template-columns: 1fr;} .b-list {position: static;}
+  .bish.open .b-list {display: none;} .bish:not(.open) .b-detail {display: none;} .b-back {display: inline-flex;}
+}
 .meter {height: 12px; border-radius: 99px; background: var(--line); overflow: hidden;} .meter i {display: block; height: 100%; border-radius: inherit; background: var(--accent);}
 .meter.warn i {background: #e0a100;} .meter.bad i {background: #d64545;}
 .to-top {position: fixed; right: 20px; bottom: calc(24px + env(safe-area-inset-bottom)); z-index: 19; width: 48px; height: 48px; border-radius: 50%;
