@@ -1081,8 +1081,19 @@ async function admin(el) {
   el.innerHTML = head("Admin", "") + `<p class="empty">Loading…</p>`;
   const users = await api("app_users?select=email,role,church,name,pastor&order=email").catch(() => api("app_users?select=email,role,church,name&order=email")).catch(() => []);
   const pnames = [...new Set(Object.values(S.pastorList).flat())].sort();  // names on every church's pastor list
+  const space = await api("rpc/app_db_size", {method: "POST", body: {}}).catch(() => null);  // null until the newer setup SQL has been run
   if (S.view !== "admin") return;
-  el.innerHTML = head("Admin", "") + `
+  const LIMIT = 500 * 1024 * 1024, mb = b => b >= 1024 * 1024 ? `${(b / 1048576).toFixed(b < 10 * 1048576 ? 1 : 0)} MB` : `${Math.max(1, Math.round(b / 1024))} kB`;
+  const LABEL = {activity_log: "Activity log", attendance: "Ticks", members: "People", registrations: "Sign-ups", email_log: "Emails sent", services: "Services", settings: "Settings", app_users: "Sign-ins", churches: "Churches"};
+  const pct = space ? Math.min(100, space.total / LIMIT * 100) : 0;
+  const spaceCard = `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Database space</h2><span class="gap"></span>
+      ${space ? `<span style="color:var(--ink-3);font-size:13px">${mb(LIMIT - space.total)} left</span>` : ""}</div>
+    ${space ? `<div class="meter ${pct >= 90 ? "bad" : pct >= 70 ? "warn" : ""}" role="meter" aria-valuemin="0" aria-valuemax="500" aria-valuenow="${(space.total / 1048576).toFixed(1)}" aria-label="Database space used"><i style="width:${Math.max(pct, 1).toFixed(1)}%"></i></div>
+      <p class="note" style="margin:8px 2px 0">${mb(space.total)} of 500 MB used (${pct < 1 ? pct.toFixed(1) : Math.round(pct)}%) on the free plan.
+        Biggest: ${(space.tables || []).slice(0, 3).map(t => `${esc(LABEL[t.name] || t.name)} ${mb(t.bytes)}`).join(" · ")}</p>`
+      : `<p class="note" style="margin:0">Run the latest setup SQL in Supabase once to see this.</p>`}</div>`;
+  if (S.view !== "admin") return;
+  el.innerHTML = head("Admin", "") + spaceCard + `
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Churches</h2></div>
       <div class="chips">${S.churches.map(c => c === S.me.home ? `<span class="chip">${esc(c)} · home church</span>`
         : `<button class="chip" data-rename="${esc(c)}" title="Rename ${esc(c)}">${esc(c)}${svg("edit")}</button>`).join("")}</div>
