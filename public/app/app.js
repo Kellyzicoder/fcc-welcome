@@ -543,7 +543,7 @@ function summary(p, o = {}) {
     ["🟡", `Missed ${YELLOW_AT}–${RED_AT - 1} in a row: *${p.count("yellow")}*`], ...who(flagged("yellow")),
     ...(o.link ? ["", ["📺", `Livestream: ${o.link}`]] : [])]);
 }
-function chart(el, rows) {  // stacked bars: adults + kids per service
+function chart(el, rows, pick) {  // stacked bars: adults + kids per service; tapping a bar opens that day's Check-in, or calls pick(day)
   const narrow = innerWidth < 640; rows = rows.slice(narrow ? -7 : -12);
   if (!rows.length) { el.innerHTML = `<p class="empty">No services recorded yet.</p>`; return; }
   const W = narrow ? 340 : 640, H = 230, L = 28, B = 26, T = 18, max = Math.max(20, Math.ceil(Math.max(...rows.map(r => r[1] + r[2])) / 20) * 20);
@@ -567,7 +567,7 @@ function chart(el, rows) {  // stacked bars: adults + kids per service
       tip.style.top = (g.querySelector(".total").getBoundingClientRect().top - c.top) + "px"; tip.style.opacity = 1;
     };
     g.onpointerenter = g.onfocus = show; g.onpointerleave = g.onblur = () => tip.style.opacity = 0;
-    g.onclick = g.onkeydown = e => { if (e.type === "keydown" && e.key !== "Enter") return; S.date = rows[g.dataset.i][0]; S.view = "checkin"; render(); };
+    g.onclick = g.onkeydown = e => { if (e.type === "keydown" && e.key !== "Enter") return; if (pick) return pick(rows[g.dataset.i][0]); S.date = rows[g.dataset.i][0]; S.view = "checkin"; render(); };
   });
 }
 const whoBtn = m => `<button class="who" data-person="${esc(m.id)}" title="See their attendance history"><span>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</button>`;
@@ -1108,8 +1108,12 @@ async function overview(el) {
 // The Bishop's page: a short list of churches on one side and the chosen church's dashboard beside it (numbers only).
 // On a phone the list comes first; tapping a church opens its dashboard, and Back returns to the list.
 async function bishop(el, rows, text, newest) {
-  const admin = S.me.role === "admin";
-  const trend = await api("rpc/church_trend", {method: "POST", body: {}}).catch(() => null);  // null until the newer setup SQL has been run
+  const admin = S.me.role === "admin", day = S.bDay && S.bDay < today() ? S.bDay : "";  // a chosen past day, or "" for the latest
+  if (day) {
+    try { rows = await api("rpc/church_numbers", {method: "POST", body: {upto: day}}); }
+    catch (err) { S.bDay = ""; toast(/church_numbers|upto|schema cache/i.test(err.message) ? "Run the latest setup SQL in Supabase once to look at an earlier day." : err.message); return render(); }
+  }
+  const trend = await api("rpc/church_trend", {method: "POST", body: day ? {upto: day} : {}}).catch(() => null);  // null until the newer setup SQL has been run
   if (S.view !== "overview") return;
   if (S.bChurch && !rows.some(r => r.church === S.bChurch)) S.bChurch = "";
   const sum = (list, k) => list.reduce((n, r) => n + (r[k] || 0), 0);
@@ -1134,11 +1138,14 @@ async function bishop(el, rows, text, newest) {
   const nowN = one ? one.present : sum(pick, "present"), prevN = prev ? prev[1] + prev[2] : null;
   const delta = last && prevN !== null && (one ? one.latest === last[0] : true) ? (last[1] + last[2]) - prevN : null;
   const reg = sum(pick, "register"), rate = reg ? Math.round(nowN / reg * 100) : 0;
-  const latest = one ? one.latest : newest;
+  const latest = one ? one.latest : day ? rows.map(r => r.latest).filter(Boolean).sort().pop() : newest;
   const fu = [["red", `Missed ${RED_AT}+ in a row`, sum(pick, "red")], ["yellow", `Missed ${YELLOW_AT}–${RED_AT - 1} in a row`, sum(pick, "yellow")],
-              ["blue", "Missed the latest service", sum(pick, "missed_this")]];
+              ["blue", day ? "Missed that service" : "Missed the latest service", sum(pick, "missed_this")]];
   const fuMax = Math.max(1, ...fu.map(f => f[2]));
   el.innerHTML = head("All churches", admin ? "Pick a church to see its numbers, or open it to work in it" : "Numbers only", `<button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
+    <div class="row b-day"><div style="flex:0 0 190px"><label class="f" for="b-day">Service date</label><input class="in" id="b-day" type="date" max="${today()}" value="${esc(day || newest)}"></div>
+      ${day ? `<div style="flex:0 0 auto;align-self:flex-end"><button class="pill-btn" id="b-latest">Back to latest</button></div>` : ""}
+      <p class="note" style="flex:1;align-self:flex-end;margin:0 0 12px">${day ? `As things stood after ${esc(nice(day, true))}.` : "Latest services. Pick a date, or tap a bar on the chart."}</p></div>
     <div class="bish ${S.bOpen ? "open" : ""}">
       <nav class="card b-list" aria-label="Churches">${list}</nav>
       <section class="b-detail">
@@ -1156,12 +1163,15 @@ async function bishop(el, rows, text, newest) {
         <div class="card"><div class="card-head"><h2>Follow-up</h2><span class="gap"></span><span class="muted" style="font-size:13px">people, no names</span></div>
           ${fu.map(([f, t, n]) => `<div class="b-bar"><span><i class="b-key ${f}"></i>${esc(t)}</span><span class="b-track"><i class="${f}" style="width:${n ? Math.max(4, n / fuMax * 100) : 0}%"></i></span><b>${n}</b></div>`).join("")}</div>
       </section></div>`;
-  if (trend) chart(el.querySelector("#b-chart"), series.map(x => [x[0], x[1], x[2]]));
+  const pickDay = d => { S.bDay = d >= newest && !day ? "" : d; render(); };
+  if (trend) chart(el.querySelector("#b-chart"), series.map(x => [x[0], x[1], x[2]]), pickDay);
+  el.querySelector("#b-day").onchange = e => { S.bDay = e.target.value || ""; render(); };
+  const lat = el.querySelector("#b-latest"); if (lat) lat.onclick = () => { S.bDay = ""; render(); };
   el.querySelectorAll("[data-b]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.b; S.bOpen = true; render(); scrollTo({top: 0}); });
   el.querySelector("#b-back").onclick = () => { S.bOpen = false; render(); };
   el.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { S.church = b.dataset.open; S.view = "dashboard"; render(); });  // admin: work in that church
-  el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text, {day: newest});
-  el.querySelector("#dl").onclick = () => download(`all_churches_${today()}.csv`, [["Church", "Latest service", "Present", "Adults", "Kids", "First-timers", "On the register", "Red", "Yellow", "Missed this service"],
+  el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text, {day: latest || newest});
+  el.querySelector("#dl").onclick = () => download(`all_churches_${day || today()}.csv`, [["Church", "Latest service", "Present", "Adults", "Kids", "First-timers", "On the register", "Red", "Yellow", "Missed this service"],
     ...rows.map(r => [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this])]);
 }
 async function admin(el) {
