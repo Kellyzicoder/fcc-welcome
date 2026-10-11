@@ -363,6 +363,7 @@ const ICON = {
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   back: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   prev: '<path d="M15 6l-6 6 6 6"/>',
   next: '<path d="M9 6l6 6-6 6"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
@@ -435,6 +436,15 @@ function render() {
   };
   root.querySelectorAll("[data-back]").forEach(b => b.onclick = () => history.back());  // same as the phone's back gesture
   ({dashboard, checkin, followup, pastors, people, person, signups, archive, activity, reports, overview, admin, account, help}[S.view] || dashboard)(view);
+}
+// An arrow that jumps back to the top of a long page; it shows once you have scrolled down a fair way.
+{
+  const up = Object.assign(document.createElement("button"), {className: "to-top", type: "button", title: "Back to top", innerHTML: svg("up")});
+  up.setAttribute("aria-label", "Back to top"); up.hidden = true;
+  up.onclick = () => scrollTo({top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
+  document.body.append(up);
+  const check = () => { up.hidden = scrollY < 400 || !S.me; };
+  addEventListener("scroll", check, {passive: true}); addEventListener("resize", check);
 }
 // The phone's back gesture (and the Back button, which uses it) returns to the page you came from.
 addEventListener("popstate", () => {
