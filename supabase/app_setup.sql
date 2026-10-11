@@ -99,6 +99,8 @@ drop policy if exists "app: admin reads the activity log" on activity_log;
 create policy "app: admin reads the activity log" on activity_log for select to authenticated using (app_role() = 'admin');
 
 grant select, insert, update, delete on churches, app_users to authenticated;
+-- Gender (Female / Male / blank) for the Congregation's Show and Sort. Someone's pastors are kept comma-separated in "pastor".
+alter table members add column if not exists gender text;
 grant select, insert, update on members to authenticated;
 -- Deleting someone from the register (their ticks go with them): the admin, or that church's admin.
 drop policy if exists "app: church admins delete people" on members;
