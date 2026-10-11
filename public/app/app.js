@@ -35,6 +35,10 @@ function when(iso) {  // a saved timestamp as a short date and time
   return isNaN(d) ? String(iso || "") : d.toLocaleString("en-NZ", {day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"});
 }
 const pastorsOf = m => String(m.pastor || "").split(",").map(x => x.trim()).filter(Boolean);  // someone can have more than one pastor
+// Is this pastor the person themselves? Titles are ignored, so "Lady Pastor Rita Kpodonu" matches Rita Kpodonu.
+const TITLES = /^((lady|senior|assistant|associate)\s+)?(pastor|rev(erend)?\.?|bishop|apostle|prophet(ess)?|evangelist|elder|deacon(ess)?|minister|dr\.?|mr\.?|mrs\.?|ms\.?)\s+/;
+const bare = n => { let x = norm(n).replace(/\s+/g, " "); for (let i = 0; i < 3 && TITLES.test(x); i++) x = x.replace(TITLES, ""); return x; };
+const isSelf = (pastor, m) => !!bare(pastor) && bare(pastor) === bare(m.full_name);
 const genderOf = m => ({f: "Female", female: "Female", m: "Male", male: "Male"})[norm(m.gender)] || "";
 const rolesOf = m => String(m.role || "").split(",").map(x => x.trim().replace(/\s+/g, " ")).filter(Boolean);  // "Tech Team, Worship Team" is two roles
 const byName = (a, b) => norm(a.full_name).localeCompare(norm(b.full_name));
@@ -796,17 +800,25 @@ function checkin(el) {
 
 // ---------------------------------------------------------------- follow-up and people
 function followup(el) {
-  const p = picture(), tabs = {need: "Needs follow-up", red: "Red only", yellow: "Yellow only", blue: "Missed this service", all: "Everyone"};
-  const pick = {need: x => x.level !== "ok", red: x => x.flag === "red", yellow: x => x.flag === "yellow", blue: x => x.missed >= 1, all: () => true};
-  const list = p.people.filter(pick[S.filter]);
+  // any service date can be looked at: the lists show how things stood after that service
+  const p0 = picture(), day = S.fuDay && S.fuDay !== p0.last ? S.fuDay : p0.last, had = !!day && p0.dates.includes(day);
+  const p = had && day !== p0.last ? picture(day) : p0;
+  const started = x => ([x.date_joined, x.first_visit].filter(Boolean).sort()[0] || (x.created_at || "").slice(0, 10) || "0000") <= day;
+  const tabs = {need: "Needs follow-up", red: "Red only", yellow: "Yellow only", blue: "Missed this service", all: "Everyone"};
+  const pick = {need: x => x.level !== "ok", red: x => x.flag === "red", yellow: x => x.flag === "yellow", blue: x => !p.here[x.id] && started(x), all: () => true};
+  const list = had ? p.people.filter(pick[S.filter]) : [];
   el.innerHTML = head("Follow-up", esc(S.church),
     `<button class="pill-btn" id="dl">Download this list</button>`) + `
+    <div class="row sortbar"><div style="flex:0 0 200px"><label class="f" for="fu-day">Service date</label><input class="in" id="fu-day" type="date" value="${day || today()}" max="${today()}"></div>
+      ${had ? `<p class="note" style="margin:0 0 4px;flex:1">${esc(S.names[day] || "Service")} · ${esc(nice(day, true))}${day !== p0.last ? ` · <button class="link" id="fu-latest" style="margin:0">Back to the latest service</button>` : ""}</p>` : ""}</div>
     <div class="chips">${Object.entries(tabs).map(([k, t]) => `<button class="chip ${S.filter === k ? "on" : ""}" data-f="${k}">${t}</button>`).join("")}</div>
     <div class="card"><div class="card-head"><h2>${tabs[S.filter]}</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${list.length} people</span></div>
       ${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th class="hide-sm">Pastor</th><th>Phone</th></tr></thead>
-      <tbody>${rowsHtml(list, true)}</tbody></table></div>` : `<p class="empty">Nobody in this list.</p>`}</div>`;
+      <tbody>${rowsHtml(list, true)}</tbody></table></div>` : `<p class="empty">${had ? "Nobody in this list." : `No service was recorded on ${esc(nice(day || today(), true))}.`}</p>`}</div>`;
   el.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { S.filter = b.dataset.f; render(); });
-  el.querySelector("#dl").onclick = () => download(`${norm(tabs[S.filter]).replace(/ /g, "_")}_${S.church}_${today()}.csv`,
+  el.querySelector("#fu-day").onchange = e => { S.fuDay = e.target.value; render(); };
+  const back = el.querySelector("#fu-latest"); if (back) back.onclick = () => { S.fuDay = ""; render(); };
+  el.querySelector("#dl").onclick = () => download(`${norm(tabs[S.filter]).replace(/ /g, "_")}_${S.church}_${day || today()}.csv`,
     [["Church", "Name", "Status", "Missed in a row", "Last seen", "Phone", "Pastor", "Age group"],
      ...list.map(x => [S.church, x.full_name, FLAG[x.flag], x.missed, x.seen || "", x.phone || "", x.pastor || "", x.kid ? "Child" : "Adult"])]);
 }
@@ -864,8 +876,9 @@ function people(el) {
       {k: "how", label: "What to do", type: "select", value: "add", options: [["add", "Add this pastor (keep any others)"], ["only", "Make this their only pastor"], ["remove", "Take this pastor off"]]},
       {k: "pastor", label: "Pastor", type: "select", value: plist[0], options: plist.map(n => [n, n])},
     ], async v => {
-      let done = 0, clash = 0;
+      let done = 0, clash = 0, self = 0;
       for (const m of picked) {
+        if (v.how !== "remove" && isSelf(v.pastor, m)) { self++; continue; }  // a pastor is never put under themselves
         const now = pastorsOf(m), next = v.how === "only" ? [v.pastor] : v.how === "remove" ? now.filter(x => x !== v.pastor) : [...new Set([...now, v.pastor])];
         const pastor = next.join(", "); if (pastor === now.join(", ")) continue;
         const ver = Number(m.version) || 1;
@@ -876,7 +889,8 @@ function people(el) {
       }
       if (clash) await load();
       S.sel = new Set();
-      toast(clash ? `Changed ${done}. ${clash} were edited by someone else just now and were left alone.` : done ? `Changed ${done} ${done === 1 ? "person" : "people"}.` : "Nothing needed changing.");
+      toast((clash ? `Changed ${done}. ${clash} were edited by someone else just now and were left alone.` : done ? `Changed ${done} ${done === 1 ? "person" : "people"}.` : "Nothing needed changing.")
+        + (self ? ` ${v.pastor} was not made their own pastor.` : ""));
       render();
     }, "Set pastor");
   };
@@ -920,7 +934,7 @@ function people(el) {
   const moreB = el.querySelector(".chips [data-more]"); if (moreB) moreB.onclick = () => { S.roleMore = !S.roleMore; render(); };
   el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
     const m = S.members.find(x => x.id === b.dataset.edit), cur = pastorsOf(m);
-    const pastors = [...plist, ...cur.filter(c => !plist.includes(c))].map(n => [n, n]);
+    const pastors = [...plist, ...cur.filter(c => !plist.includes(c))].filter(n => !isSelf(n, m)).map(n => [n, n]);
     formDialog(`Edit ${m.full_name}`, [
       {k: "full_name", label: "Full name", value: m.full_name, required: true},
       {k: "phone", label: "Phone", value: m.phone || "", type: "tel"},
@@ -936,6 +950,7 @@ function people(el) {
     ], async v => {
       if (!v.full_name) throw new Error("Type their name.");
       const badPhone = phoneProblem(v.phone, false); if (badPhone) throw new Error(badPhone);
+      if (v.pastor.split(",").some(n => isSelf(n.trim(), m))) throw new Error("Someone can't be their own pastor. Choose a different pastor.");
       v.role = v.role.split(",").map(x => x.trim()).filter(Boolean).join(", ");
       const changed = Object.fromEntries(Object.entries(v).filter(([k, val]) => val !== String(k === "church" ? churchOf(m) : k === "age_group" ? ageOf(m) : k === "type" ? (m.type === "first_timer" ? "first_timer" : "member") : k === "gender" ? genderOf(m) : k === "pastor" ? pastorsOf(m).join(", ") : (m[k] ?? "")).trim()));
       if (!Object.keys(changed).length) return;
