@@ -38,6 +38,7 @@ const pastorsOf = m => String(m.pastor || "").split(",").map(x => x.trim()).filt
 // Is this pastor the person themselves? Titles are ignored, so "Lady Pastor Rita Kpodonu" matches Rita Kpodonu.
 const TITLES = /^((lady|senior|assistant|associate)\s+)?(pastor|rev(erend)?\.?|bishop|apostle|prophet(ess)?|evangelist|elder|deacon(ess)?|minister|dr\.?|mr\.?|mrs\.?|ms\.?)\s+/;
 const bare = n => { let x = norm(n).replace(/\s+/g, " "); for (let i = 0; i < 3 && TITLES.test(x); i++) x = x.replace(TITLES, ""); return x; };
+const pastorBtn = n => `<button class="plink" data-to-pastor="${esc(n)}">${esc(n)}</button>`;  // a pastor's name: tap to see their people
 const isSelf = (pastor, m) => !!bare(pastor) && bare(pastor) === bare(m.full_name);
 const genderOf = m => ({f: "Female", female: "Female", m: "Male", male: "Male"})[norm(m.gender)] || "";
 const rolesOf = m => String(m.role || "").split(",").map(x => x.trim().replace(/\s+/g, " ")).filter(Boolean);  // "Tech Team, Worship Team" is two roles
@@ -426,7 +427,10 @@ function render() {
   root.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => setMode(b.dataset.mode, true));
   root.querySelectorAll("[data-out]").forEach(b => b.onclick = signOut);
   const view = document.getElementById("view");
-  view.onclick = e => { const b = e.target.closest("[data-person]"); if (b) { S.person = b.dataset.person; go("person"); } };
+  view.onclick = e => {
+    const b = e.target.closest("[data-person]"); if (b) { S.person = b.dataset.person; go("person"); return; }
+    const t = e.target.closest("[data-to-pastor]"); if (t) { S.pastor = t.dataset.toPastor; S.pastorJump = true; go("pastors"); }
+  };
   root.querySelectorAll("[data-back]").forEach(b => b.onclick = () => history.back());  // same as the phone's back gesture
   ({dashboard, checkin, followup, pastors, people, person, signups, archive, activity, reports, overview, admin, account, help}[S.view] || dashboard)(view);
 }
@@ -859,7 +863,7 @@ function people(el) {
     ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><button class="pill-btn sm" id="bulk-see">${S.selOnly ? "Show all" : "View"}</button><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
     <div class="card"><div class="scroll"><table><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select everyone shown" ${mine.length && shownPicked === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Pastor</th><th>Type</th><th>Age group</th><th>Gender</th><th>Status</th><th>Phone</th><th>Roles</th></tr></thead><tbody>
     ${mine.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}<td>${whoBtn(m)}</td>${edit ? `<td><button class="pill-btn sm" data-edit="${esc(m.id)}" aria-label="Edit ${esc(m.full_name)}">${svg("edit")}Edit</button></td>` : ""}
-      <td class="${pastorsOf(m).length ? "" : "muted"}">${pastorsOf(m).length ? pastorsOf(m).map(esc).join("<br>") : "Not assigned"}</td><td class="muted">${typeOf(m)}</td><td class="muted">${ageOf(m)}</td><td class="muted">${genderOf(m)}</td>
+      <td class="${pastorsOf(m).length ? "" : "muted"}">${pastorsOf(m).length ? pastorsOf(m).map(pastorBtn).join("<br>") : "Not assigned"}</td><td class="muted">${typeOf(m)}</td><td class="muted">${ageOf(m)}</td><td class="muted">${genderOf(m)}</td>
       <td>${m.status ? `<span class="badge">${esc(m.status)}</span>` : `<span class="muted">Active</span>`}</td>
       <td class="muted">${esc(m.phone || "")}</td><td>${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("")}</td></tr>`).join("")}
     </tbody></table></div>${mine.length ? "" : `<p class="empty">${q ? "Nobody matches that search." : "Nobody yet. Add people from Check-in."}</p>`}
@@ -1106,7 +1110,7 @@ function pastors(el) {
     ${names.length ? `<div class="card" style="margin-bottom:14px"><div class="scroll"><table><thead><tr><th>Pastor</th><th>People</th><th>Came${p.last ? " · " + esc(nice(p.last)) : ""}</th><th>Need a call</th></tr></thead><tbody>
       ${names.map(n => { const g = groups[n]; return `<tr><td><button class="who ${n === S.pastor ? "sel" : ""}" data-pastor="${esc(n)}"><span>${esc(initials(n))}</span>${esc(n)}</button></td>
         <td>${g.length}</td><td>${g.filter(x => p.here[x.id]).length}</td><td>${g.filter(x => x.level !== "ok").length}</td></tr>`; }).join("")}</tbody></table></div></div>
-    <div class="card"><div class="card-head"><h2>${esc(S.pastor)}</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${list.length} ${list.length === 1 ? "person" : "people"}</span></div>
+    <div class="card" id="pastor-people" style="scroll-margin-top:12px"><div class="card-head"><h2>${esc(S.pastor)}</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${list.length} ${list.length === 1 ? "person" : "people"}</span></div>
       <div class="scroll"><table><thead><tr><th>Name</th>${canEdit ? "<th></th>" : ""}<th>Came</th><th>Status</th><th>Missed in a row</th><th>Phone</th></tr></thead><tbody>
       ${list.map(x => `<tr><td>${whoBtn(x)}</td>${canEdit ? `<td><button class="pill-btn sm" data-edit="${esc(x.id)}" aria-label="Edit ${esc(x.full_name)}">${svg("edit")}Edit</button></td>` : ""}<td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${badge(x.flag)}</td><td>${x.missed}</td><td class="muted">${esc(x.phone || "")}</td></tr>`).join("")}
       </tbody></table></div>
@@ -1128,7 +1132,8 @@ function pastors(el) {
     } catch (err) { toast(/settings|policy|permission/i.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
   };
   el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => editPerson(S.members.find(m => m.id === b.dataset.edit)));
-  el.querySelectorAll("[data-pastor]").forEach(b => b.onclick = () => { S.pastor = b.dataset.pastor; render(); });
+  el.querySelectorAll("[data-pastor]").forEach(b => b.onclick = () => { S.pastor = b.dataset.pastor; S.pastorJump = true; render(); });
+  if (S.pastorJump) { S.pastorJump = false; requestAnimationFrame(() => el.querySelector("#pastor-people")?.scrollIntoView({behavior: "smooth", block: "start"})); }  // straight to their people
   const btn = el.querySelector("#wa"); if (btn) btn.onclick = () => waDialog(`Message for ${S.pastor}`, message, {day: p.last || today()});
 }
 
@@ -1160,9 +1165,16 @@ async function person(el) {
   for (const d of came) (years[d.slice(0, 4)] ??= []).push(d);
   const state = st ? badge(st.flag) : p.archived.some(x => x.id === m.id) ? `<span class="badge">Archived</span>` : `<span class="badge">${esc(m.status || "Not active")}</span>`;
   const recent = p.dates.slice(-12);
+  const pnames = [...new Set([...(S.pastorList[S.church] || []), ...p.people.flatMap(pastorsOf)])], asPastor = pnames.find(n => isSelf(n, m)) || "";
+  const flock = asPastor ? p.people.filter(x => x.id !== m.id && pastorsOf(x).some(n => isSelf(n, m))).sort(byName) : [];  // if they are a pastor: who is under them
   el.innerHTML = top + `
     <div class="card" style="margin-bottom:14px"><div class="card-head"><div class="who big"><span>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</div><span class="gap"></span>${state}</div>
-      <p class="facts">${[m.type === "first_timer" ? "First-timer" : "Member", isKid(m) ? "Child" : "Adult", m.pastor ? "Pastor: " + m.pastor : "", m.phone || ""].filter(Boolean).map(esc).join(" · ")}</p></div>
+      <p class="facts">${[m.type === "first_timer" ? "First-timer" : "Member", isKid(m) ? "Child" : "Adult", m.phone || ""].filter(Boolean).map(esc).join(" · ")}${pastorsOf(m).length ? `<br>Pastor: ${pastorsOf(m).map(pastorBtn).join(", ")}` : ""}</p></div>
+    ${flock.length || asPastor ? `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Their people</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${flock.length} ${flock.length === 1 ? "person" : "people"}</span>
+        ${asPastor ? `<button class="pill-btn sm" data-to-pastor="${esc(asPastor)}">Open in Pastors</button>` : ""}</div>
+      ${flock.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Came${p.last ? " · " + esc(nice(p.last)) : ""}</th><th>Status</th><th>Missed in a row</th><th>Phone</th></tr></thead><tbody>
+        ${flock.map(x => `<tr><td>${whoBtn(x)}</td><td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${badge(x.flag)}</td><td>${x.missed}</td><td class="muted">${esc(x.phone || "")}</td></tr>`).join("")}</tbody></table></div>`
+        : `<p class="empty">Nobody is assigned to them yet.</p>`}</div>` : ""}
     <div class="tiles"><div class="card tile"><div class="label">Attendance History</div><div class="num">${came.length}</div></div>
       <div class="card tile"><div class="label">Last Attended</div><div class="num sm">${esc(full(came[0]))}</div></div>
       <div class="card tile"><div class="label">First Attended</div><div class="num sm">${esc(full(came[came.length - 1]))}</div></div>
