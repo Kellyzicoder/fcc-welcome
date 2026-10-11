@@ -1113,10 +1113,12 @@ async function bishop(el, rows, text, newest) {
     try { rows = await api("rpc/church_numbers", {method: "POST", body: {upto: day}}); }
     catch (err) { S.bDay = ""; toast(/church_numbers|upto|schema cache/i.test(err.message) ? "Run the latest setup SQL in Supabase once to look at an earlier day." : err.message); return render(); }
   }
-  const trend = await api("rpc/church_trend", {method: "POST", body: day ? {upto: day} : {}}).catch(() => null);  // null until the newer setup SQL has been run
+  const [trend, days] = await Promise.all([api("rpc/church_trend", {method: "POST", body: day ? {upto: day} : {}}).catch(() => null),  // null until the newer setup SQL has been run
+    api("rpc/church_days", {method: "POST", body: {}}).catch(() => null)]);
   if (S.view !== "overview") return;
   if (S.bChurch && !rows.some(r => r.church === S.bChurch)) S.bChurch = "";
   const sum = (list, k) => list.reduce((n, r) => n + (r[k] || 0), 0);
+  const served = r => !day || r.latest === day;  // on a chosen day, only churches that had a service that very day count
   const seriesOf = ch => {  // [date, adults, kids, first-timers, visitors] per service; every church added up for "All churches"
     const by = {};
     for (const t of trend || []) if (!ch || t.church === ch) {
@@ -1130,49 +1132,72 @@ async function bishop(el, rows, text, newest) {
       <span class="b-name"><b>${esc(label)}</b><small>${esc(when)}</small></span>
       <span class="spark" aria-hidden="true">${spark}</span><span class="b-num">${present}</span>${svg("next")}</button>`;
   const sparkOf = t => (t || []).slice(-8).map(n => `<i style="height:${Math.max(2, Math.round(22 * n / tops))}px"></i>`).join("");
-  const allTrend = seriesOf("").map(x => x[1] + x[2]);
-  const list = item("", "All churches", sum(rows, "present"), `${rows.length} churches`, sparkOf(allTrend.map(n => n * tops / Math.max(1, ...allTrend)))) +
-    rows.map(r => item(r.church, r.church, r.present, r.latest ? nice(r.latest) : "No services yet", sparkOf(r.trend))).join("");
-  const pick = S.bChurch ? rows.filter(r => r.church === S.bChurch) : rows, one = pick.length === 1 ? pick[0] : null;
+  const allTrend = seriesOf("").map(x => x[1] + x[2]), on = rows.filter(served);
+  const list = item("", "All churches", sum(on, "present"), day ? `${on.length} of ${rows.length} had a service` : `${rows.length} churches`,
+      sparkOf(allTrend.map(n => n * tops / Math.max(1, ...allTrend)))) +
+    rows.map(r => served(r) ? item(r.church, r.church, r.present, r.latest ? nice(r.latest) : "No services yet", sparkOf(r.trend))
+      : item(r.church, r.church, "–", "No service this day", sparkOf(r.trend))).join("");
+  const pick = (S.bChurch ? rows.filter(r => r.church === S.bChurch) : rows).filter(served), one = S.bChurch ? pick[0] : null, had = pick.length > 0;
   const series = seriesOf(S.bChurch), last = series[series.length - 1], prev = series[series.length - 2];
-  const nowN = one ? one.present : sum(pick, "present"), prevN = prev ? prev[1] + prev[2] : null;
-  const delta = last && prevN !== null && (one ? one.latest === last[0] : true) ? (last[1] + last[2]) - prevN : null;
+  const nowN = sum(pick, "present"), prevN = prev ? prev[1] + prev[2] : null;
+  const delta = had && last && prevN !== null && (!day || last[0] === day) && (!one || one.latest === last[0]) ? (last[1] + last[2]) - prevN : null;
   const reg = sum(pick, "register"), rate = reg ? Math.round(nowN / reg * 100) : 0;
-  const latest = one ? one.latest : day ? rows.map(r => r.latest).filter(Boolean).sort().pop() : newest;
+  const latest = day || (one ? one.latest : newest);
   const fu = [["red", `Missed ${RED_AT}+ in a row`, sum(pick, "red")], ["yellow", `Missed ${YELLOW_AT}–${RED_AT - 1} in a row`, sum(pick, "yellow")],
               ["blue", day ? "Missed that service" : "Missed the latest service", sum(pick, "missed_this")]];
   const fuMax = Math.max(1, ...fu.map(f => f[2]));
-  el.innerHTML = head("All churches", admin ? "Pick a church to see its numbers, or open it to work in it" : "Numbers only", `<button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
-    <div class="row b-day"><div style="flex:0 0 190px"><label class="f" for="b-day">Service date</label><input class="in" id="b-day" type="date" max="${today()}" value="${esc(day || newest)}"></div>
-      ${day ? `<div style="flex:0 0 auto;align-self:flex-end"><button class="pill-btn" id="b-latest">Back to latest</button></div>` : ""}
-      <p class="note" style="flex:1;align-self:flex-end;margin:0 0 12px">${day ? `As things stood after ${esc(nice(day, true))}.` : "Latest services. Pick a date, or tap a bar on the chart."}</p></div>
+  const when = !latest ? "No services yet" : day && !had ? nice(day, true) : `${S.names?.[latest] || svcName(latest)} · ${nice(latest, true)}`;
+  el.innerHTML = head("All churches", admin ? "Pick a day and a church, or open a church to work in it" : "Numbers only", `<button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
     <div class="bish ${S.bOpen ? "open" : ""}">
+      <div class="card b-cal" id="b-cal"></div>
       <nav class="card b-list" aria-label="Churches">${list}</nav>
       <section class="b-detail">
         <button class="link b-back" id="b-back">${svg("back")}All churches</button>
-        <div class="b-title"><h2>${esc(S.bChurch || "All churches")}</h2><span class="muted">${latest ? esc(`${S.names?.[latest] || svcName(latest)} · ${nice(latest, true)}`) : "No services yet"}</span>
+        <div class="b-title"><h2>${esc(S.bChurch || "All churches")}</h2><span class="muted">${esc(when)}</span>
           ${admin && S.bChurch ? `<span class="gap" style="flex:1"></span><button class="pill-btn primary sm" data-open="${esc(S.bChurch)}">Open ${esc(S.bChurch)}</button>` : ""}</div>
-        <div class="tiles">
+        ${had || !day ? `<div class="tiles">
           <div class="card tile"><div class="label">Present</div><div class="num">${nowN}${delta !== null && delta !== 0 ? `<small class="${delta > 0 ? "up" : "down"}">${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)}</small>` : ""}</div></div>
           <div class="card tile"><div class="label">Adults · Kids</div><div class="num">${sum(pick, "adults")}<small>· ${sum(pick, "kids")}</small></div></div>
           <div class="card tile"><div class="label">First-timers</div><div class="num">${sum(pick, "first_timers")}</div></div>
-          <div class="card tile"><div class="label">Came, of ${reg} on the register</div><div class="num">${rate}%</div></div></div>
+          <div class="card tile"><div class="label">Came, of ${reg} on the register</div><div class="num">${rate}%</div></div></div>`
+        : `<div class="card" style="margin-bottom:14px"><p class="empty">No service was recorded ${S.bChurch ? "at " + esc(S.bChurch) : "at any church"} on ${esc(nice(day, true))}.</p></div>`}
         <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>People present</h2><span class="gap"></span>
             <div class="legend"><span><i style="background:var(--adults)"></i>Adults</span><span><i style="background:var(--kids)"></i>Kids</span></div></div>
           <div class="chart" id="b-chart">${trend ? "" : `<p class="empty">Run the latest setup SQL in Supabase once to see this chart.</p>`}</div></div>
-        <div class="card"><div class="card-head"><h2>Follow-up</h2><span class="gap"></span><span class="muted" style="font-size:13px">people, no names</span></div>
-          ${fu.map(([f, t, n]) => `<div class="b-bar"><span><i class="b-key ${f}"></i>${esc(t)}</span><span class="b-track"><i class="${f}" style="width:${n ? Math.max(4, n / fuMax * 100) : 0}%"></i></span><b>${n}</b></div>`).join("")}</div>
+        ${had || !day ? `<div class="card"><div class="card-head"><h2>Follow-up</h2><span class="gap"></span><span class="muted" style="font-size:13px">people, no names</span></div>
+          ${fu.map(([f, t, n]) => `<div class="b-bar"><span><i class="b-key ${f}"></i>${esc(t)}</span><span class="b-track"><i class="${f}" style="width:${n ? Math.max(4, n / fuMax * 100) : 0}%"></i></span><b>${n}</b></div>`).join("")}</div>` : ""}
       </section></div>`;
-  const pickDay = d => { S.bDay = d >= newest && !day ? "" : d; render(); };
+  // the month calendar: days with a service show how many came (for the chosen church, or all churches added up)
+  const counts = {}; for (const d of days || []) if (!S.bChurch || d.church === S.bChurch) counts[d.service_date] = (counts[d.service_date] || 0) + d.present;
+  const chosen = day || newest; S.bCal ||= chosen.slice(0, 7);
+  const drawCal = () => {
+    const [y, m] = S.bCal.split("-").map(Number), first = new Date(y, m - 1, 1), n = new Date(y, m, 0).getDate(), now = today();
+    let cells = "<span></span>".repeat(first.getDay());
+    for (let d = 1; d <= n; d++) {
+      const iso = `${S.bCal}-${pad(d)}`, c = counts[iso] || 0, future = iso > now;
+      cells += `<button class="day ${c ? "has" : ""} ${iso === chosen ? "sel" : ""} ${iso === now ? "today" : ""}" data-bd="${iso}" ${future ? "disabled" : ""}
+        aria-label="${esc(nice(iso, true))}${c ? `, ${c} present` : ", no service recorded"}">${d}${c ? `<small>${c}</small>` : ""}</button>`;
+    }
+    const cal = el.querySelector("#b-cal");
+    cal.innerHTML = `<div class="card-head"><h2>${first.toLocaleDateString("en-NZ", {month: "long", year: "numeric"})}</h2><span class="gap"></span>
+        <button class="icon-btn sm" data-m="-1" aria-label="Previous month">${svg("prev")}</button><button class="icon-btn sm" data-m="1" aria-label="Next month">${svg("next")}</button></div>
+      <div class="cal"><b>Sun</b><b>Mon</b><b>Tue</b><b>Wed</b><b>Thu</b><b>Fri</b><b>Sat</b>${cells}</div>
+      <div class="b-cal-foot"><span class="note">${day ? `Showing ${esc(nice(day, true))}` : "Showing the latest services"}${days ? "" : " · run the latest setup SQL to mark service days"}</span>
+        ${day ? `<button class="pill-btn sm" id="b-latest">Back to latest</button>` : ""}</div>`;
+    cal.querySelectorAll("[data-m]").forEach(b => b.onclick = () => { const d = new Date(y, m - 1 + Number(b.dataset.m), 1); S.bCal = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; drawCal(); });
+    cal.querySelectorAll("[data-bd]").forEach(b => b.onclick = () => pickDay(b.dataset.bd));
+    const lat = cal.querySelector("#b-latest"); if (lat) lat.onclick = () => { S.bDay = ""; S.bCal = newest.slice(0, 7); render(); };
+  };
+  const pickDay = d => { S.bDay = d >= newest ? "" : d; S.bCal = d.slice(0, 7); render(); };
+  drawCal();
   if (trend) chart(el.querySelector("#b-chart"), series.map(x => [x[0], x[1], x[2]]), pickDay);
-  el.querySelector("#b-day").onchange = e => { S.bDay = e.target.value || ""; render(); };
-  const lat = el.querySelector("#b-latest"); if (lat) lat.onclick = () => { S.bDay = ""; render(); };
   el.querySelectorAll("[data-b]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.b; S.bOpen = true; render(); scrollTo({top: 0}); });
   el.querySelector("#b-back").onclick = () => { S.bOpen = false; render(); };
   el.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { S.church = b.dataset.open; S.view = "dashboard"; render(); });  // admin: work in that church
   el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text, {day: latest || newest});
-  el.querySelector("#dl").onclick = () => download(`all_churches_${day || today()}.csv`, [["Church", "Latest service", "Present", "Adults", "Kids", "First-timers", "On the register", "Red", "Yellow", "Missed this service"],
-    ...rows.map(r => [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this])]);
+  el.querySelector("#dl").onclick = () => download(`all_churches_${day || today()}.csv`, [["Church", "Service", "Present", "Adults", "Kids", "First-timers", "On the register", "Red", "Yellow", "Missed this service"],
+    ...rows.map(r => served(r) ? [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this]
+      : [r.church, `No service on ${day}`, "", "", "", "", r.register, "", "", ""])]);
 }
 async function admin(el) {
   el.innerHTML = head("Admin", "") + `<p class="empty">Loading…</p>`;
