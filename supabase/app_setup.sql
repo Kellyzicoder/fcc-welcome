@@ -220,6 +220,17 @@ create or replace function church_trend(upto date default null) returns table (
   from ranked r left join services s on s.service_date = r.d
   where r.rn <= 12 order by r.ch, r.d
 $$;
+-- Every day each church had a service, with how many came: the calendar on the Bishop's page. Counts only.
+create or replace function church_days() returns table (church text, service_date date, present int)
+language sql stable security definer set search_path = public as $$
+  select coalesce(nullif(trim(m.church), ''), app_home_church()), a.service_date, count(*)::int
+  from attendance a join members m on m.id = a.member_id
+  where app_role() in ('admin', 'bishop')
+    and lower(coalesce(m.status, '')) not in ('inactive', 'moved', 'left', 'deceased', 'transferred', 'away')
+  group by 1, 2 order by 2
+$$;
+revoke all on function church_days() from public, anon;
+grant execute on function church_days() to authenticated;
 revoke all on function church_trend(date) from public, anon;
 grant execute on function church_trend(date) to authenticated;
 
