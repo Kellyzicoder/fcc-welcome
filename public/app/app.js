@@ -932,8 +932,18 @@ function people(el) {
   };
   el.querySelectorAll("[data-role]").forEach(b => b.onclick = () => { S.roleF = b.dataset.role; render(); });
   const moreB = el.querySelector(".chips [data-more]"); if (moreB) moreB.onclick = () => { S.roleMore = !S.roleMore; render(); };
-  el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
-    const m = S.members.find(x => x.id === b.dataset.edit), cur = pastorsOf(m);
+  el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => editPerson(S.members.find(x => x.id === b.dataset.edit)));
+  el.querySelector("#dl").onclick = () => download(`people_${S.church}_${today()}.csv`, [["Church", "Name", "Pastor", "Type", "Age group", "Gender", "Status", "Phone", "Roles"],
+    ...mine.map(m => [S.church, m.full_name, pastorsOf(m).join(", "), typeOf(m), ageOf(m), genderOf(m), m.status || "Active", m.phone || "", rolesOf(m).join(", ")])]);
+}
+
+// The Edit popup for one person; used on Congregation and on the Pastors page.
+function editPerson(m) {
+    if (!m) return;
+    const plist = S.pastorList[churchOf(m)] || [], admin = S.me.role === "admin", statuses = ["", "Away", "Inactive", "Moved", "Left", "Transferred", "Deceased"];
+    const ageOf = m => isKid(m) ? "Child" : "Adult";
+    const roleNames = [...new Map(S.members.filter(x => churchOf(x) === churchOf(m)).flatMap(rolesOf).map(r => [norm(r), r])).values()].sort();
+    const cur = pastorsOf(m);
     const pastors = [...plist, ...cur.filter(c => !plist.includes(c))].filter(n => !isSelf(n, m)).map(n => [n, n]);
     formDialog(`Edit ${m.full_name}`, [
       {k: "full_name", label: "Full name", value: m.full_name, required: true},
@@ -969,9 +979,6 @@ function people(el) {
       S.members = S.members.filter(x => x.id !== m.id); S.ticks = S.ticks.filter(t => t.member_id !== m.id); S.sel?.delete(m.id);
       log("delete", "", "done", `${m.full_name} · ${churchOf(m)}`); toast(`${m.full_name} was deleted.`); render();
     }} : null);
-  });
-  el.querySelector("#dl").onclick = () => download(`people_${S.church}_${today()}.csv`, [["Church", "Name", "Pastor", "Type", "Age group", "Gender", "Status", "Phone", "Roles"],
-    ...mine.map(m => [S.church, m.full_name, pastorsOf(m).join(", "), typeOf(m), ageOf(m), genderOf(m), m.status || "Active", m.phone || "", rolesOf(m).join(", ")])]);
 }
 
 // ---------------------------------------------------------------- all churches (numbers only) and admin
@@ -1099,8 +1106,8 @@ function pastors(el) {
       ${names.map(n => { const g = groups[n]; return `<tr><td><button class="who ${n === S.pastor ? "sel" : ""}" data-pastor="${esc(n)}"><span>${esc(initials(n))}</span>${esc(n)}</button></td>
         <td>${g.length}</td><td>${g.filter(x => p.here[x.id]).length}</td><td>${g.filter(x => x.level !== "ok").length}</td></tr>`; }).join("")}</tbody></table></div></div>
     <div class="card"><div class="card-head"><h2>${esc(S.pastor)}</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${list.length} ${list.length === 1 ? "person" : "people"}</span></div>
-      <div class="scroll"><table><thead><tr><th>Name</th><th>Came</th><th>Status</th><th>Missed in a row</th><th>Phone</th></tr></thead><tbody>
-      ${list.map(x => `<tr><td>${whoBtn(x)}</td><td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${badge(x.flag)}</td><td>${x.missed}</td><td class="muted">${esc(x.phone || "")}</td></tr>`).join("")}
+      <div class="scroll"><table><thead><tr><th>Name</th>${canEdit ? "<th></th>" : ""}<th>Came</th><th>Status</th><th>Missed in a row</th><th>Phone</th></tr></thead><tbody>
+      ${list.map(x => `<tr><td>${whoBtn(x)}</td>${canEdit ? `<td><button class="pill-btn sm" data-edit="${esc(x.id)}" aria-label="Edit ${esc(x.full_name)}">${svg("edit")}Edit</button></td>` : ""}<td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${badge(x.flag)}</td><td>${x.missed}</td><td class="muted">${esc(x.phone || "")}</td></tr>`).join("")}
       </tbody></table></div>
       ${list.length ? "" : `<p class="empty">Nobody is assigned to ${esc(S.pastor)} yet.</p>`}
       </div>`
@@ -1119,6 +1126,7 @@ function pastors(el) {
       S.pastorList[S.church] = out; toast("Pastor list saved."); render();
     } catch (err) { toast(/settings|policy|permission/i.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
   };
+  el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => editPerson(S.members.find(m => m.id === b.dataset.edit)));
   el.querySelectorAll("[data-pastor]").forEach(b => b.onclick = () => { S.pastor = b.dataset.pastor; render(); });
   const btn = el.querySelector("#wa"); if (btn) btn.onclick = () => waDialog(`Message for ${S.pastor}`, message, {day: p.last || today()});
 }
