@@ -99,6 +99,8 @@ drop policy if exists "app: admin reads the activity log" on activity_log;
 create policy "app: admin reads the activity log" on activity_log for select to authenticated using (app_role() = 'admin');
 
 grant select, insert, update, delete on churches, app_users to authenticated;
+-- Gender (Female / Male / blank) for the Congregation's Show and Sort. Someone's pastors are kept comma-separated in "pastor".
+alter table members add column if not exists gender text;
 grant select, insert, update on members to authenticated;
 -- Deleting someone from the register (their ticks go with them): the admin, or that church's admin.
 drop policy if exists "app: church admins delete people" on members;
@@ -143,8 +145,10 @@ begin
   streak as (
     select p.id, p.ch,
            -- only Sunday services count as missed; midweek services still count as being seen
+           -- visitors are never chased, so they never count as missing
+           case when p.type = 'visitor' then 0 else
            (select count(*) from svc s where s.ch = p.ch and s.service_date > coalesce(sn.d, date '0001-01-01')
-              and s.service_date >= coalesce(p.started, date '0001-01-01') and extract(dow from s.service_date) = 0)::int as missed,
+              and s.service_date >= coalesce(p.started, date '0001-01-01') and extract(dow from s.service_date) = 0)::int end as missed,
            coalesce(sn.d::text, p.started::text, p.added) as last_sign
     from people p join seen sn on sn.id = p.id
   ),
