@@ -1103,31 +1103,12 @@ async function overview(el) {
       ...all.flatMap(r => r.latest !== day ? ["", `*${r.church}*`, "No service this day"] : ["", `*${r.church}*`, `Present ${r.present} · Adults ${r.adults} · Kids ${r.kids}`,
         `First-timers ${r.first_timers} · ${S.emoji ? `🔴 ${r.red} · 🟡 ${r.yellow}` : `Red ${r.red} · Yellow ${r.yellow}`}`])]);
   };
-  if (S.me.role === "bishop") return bishop(el, rows, text, newest);
-  el.innerHTML = head("All churches", sub, `<button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
-    <div class="tiles"><div class="card tile"><div class="label">Churches</div><div class="num">${rows.length}</div></div>
-      <div class="card tile"><div class="label">Present · latest services</div><div class="num">${sum("present")}</div></div>
-      <div class="card tile"><div class="label">Adults and kids</div><div class="num">${sum("adults")}<small>+ ${sum("kids")} kids</small></div></div>
-      <div class="card tile"><div class="label">Need a follow-up call</div><div class="num">${sum("red") + sum("yellow")}</div></div></div>
-    <div class="branches">${rows.map(r => {
-      const pastors = S.pastorList[r.church] || [], here = admin && r.church === S.church;
-      return `<div class="card branch ${here ? "here" : ""}"><div class="card-head"><h2>${esc(r.church)}</h2>${here ? `<span class="badge blue">Viewing</span>` : ""}<span class="gap"></span>
-          <span class="spark" title="Recent services: ${(r.trend || []).join(", ")}">${(r.trend || []).map(n => `<i style="height:${Math.max(2, Math.round(22 * n / top))}px"></i>`).join("")}</span></div>
-        <p class="facts">${pastors.length ? `${pastors.length === 1 ? "Pastor" : "Pastors"}: ${esc(pastors.slice(0, 3).join(", "))}${pastors.length > 3 ? ` +${pastors.length - 3} more` : ""}` : (admin ? "No pastor list yet" : "")}</p>
-        <div class="branch-main"><div class="num">${r.present}<small>present</small></div><span class="muted">${r.latest ? esc(nice(r.latest, true)) : "No services yet"}</span></div>
-        <dl class="stats"><div><dt>Adults</dt><dd>${r.adults}</dd></div><div><dt>Kids</dt><dd>${r.kids}</dd></div><div><dt>First-timers</dt><dd>${r.first_timers}</dd></div>
-          <div><dt>Register</dt><dd>${r.register}</dd></div><div><dt>Red</dt><dd>${r.red}</dd></div><div><dt>Yellow</dt><dd>${r.yellow}</dd></div></dl>
-        ${admin ? `<button class="pill-btn ${here ? "" : "primary"} block" data-open="${esc(r.church)}">${here ? "Open dashboard" : `Open ${esc(r.church)}`}</button>` : ""}</div>`; }).join("")}</div>
-    ${rows.length ? "" : `<p class="empty">No churches yet.</p>`}
-    ${admin ? `` : ""}`;
-  el.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { S.church = b.dataset.open; S.view = "dashboard"; render(); });
-  el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text, {day: newest});
-  el.querySelector("#dl").onclick = () => download(`all_churches_${today()}.csv`, [["Church", "Latest service", "Present", "Adults", "Kids", "First-timers", "On the register", "Red", "Yellow", "Missed this service"],
-    ...rows.map(r => [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this])]);
+  return bishop(el, rows, text, newest);  // the Bishop and the admin share the list-and-dashboard view
 }
 // The Bishop's page: a short list of churches on one side and the chosen church's dashboard beside it (numbers only).
 // On a phone the list comes first; tapping a church opens its dashboard, and Back returns to the list.
 async function bishop(el, rows, text, newest) {
+  const admin = S.me.role === "admin";
   const trend = await api("rpc/church_trend", {method: "POST", body: {}}).catch(() => null);  // null until the newer setup SQL has been run
   if (S.view !== "overview") return;
   if (S.bChurch && !rows.some(r => r.church === S.bChurch)) S.bChurch = "";
@@ -1157,12 +1138,13 @@ async function bishop(el, rows, text, newest) {
   const fu = [["red", `Missed ${RED_AT}+ in a row`, sum(pick, "red")], ["yellow", `Missed ${YELLOW_AT}–${RED_AT - 1} in a row`, sum(pick, "yellow")],
               ["blue", "Missed the latest service", sum(pick, "missed_this")]];
   const fuMax = Math.max(1, ...fu.map(f => f[2]));
-  el.innerHTML = head("All churches", "Numbers only", `<button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
+  el.innerHTML = head("All churches", admin ? "Pick a church to see its numbers, or open it to work in it" : "Numbers only", `<button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
     <div class="bish ${S.bOpen ? "open" : ""}">
       <nav class="card b-list" aria-label="Churches">${list}</nav>
       <section class="b-detail">
         <button class="link b-back" id="b-back">${svg("back")}All churches</button>
-        <div class="b-title"><h2>${esc(S.bChurch || "All churches")}</h2><span class="muted">${latest ? esc(`${S.names?.[latest] || svcName(latest)} · ${nice(latest, true)}`) : "No services yet"}</span></div>
+        <div class="b-title"><h2>${esc(S.bChurch || "All churches")}</h2><span class="muted">${latest ? esc(`${S.names?.[latest] || svcName(latest)} · ${nice(latest, true)}`) : "No services yet"}</span>
+          ${admin && S.bChurch ? `<span class="gap" style="flex:1"></span><button class="pill-btn primary sm" data-open="${esc(S.bChurch)}">Open ${esc(S.bChurch)}</button>` : ""}</div>
         <div class="tiles">
           <div class="card tile"><div class="label">Present</div><div class="num">${nowN}${delta !== null && delta !== 0 ? `<small class="${delta > 0 ? "up" : "down"}">${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)}</small>` : ""}</div></div>
           <div class="card tile"><div class="label">Adults · Kids</div><div class="num">${sum(pick, "adults")}<small>· ${sum(pick, "kids")}</small></div></div>
@@ -1177,6 +1159,7 @@ async function bishop(el, rows, text, newest) {
   if (trend) chart(el.querySelector("#b-chart"), series.map(x => [x[0], x[1], x[2]]));
   el.querySelectorAll("[data-b]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.b; S.bOpen = true; render(); scrollTo({top: 0}); });
   el.querySelector("#b-back").onclick = () => { S.bOpen = false; render(); };
+  el.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { S.church = b.dataset.open; S.view = "dashboard"; render(); });  // admin: work in that church
   el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text, {day: newest});
   el.querySelector("#dl").onclick = () => download(`all_churches_${today()}.csv`, [["Church", "Latest service", "Present", "Adults", "Kids", "First-timers", "On the register", "Red", "Yellow", "Missed this service"],
     ...rows.map(r => [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this])]);
