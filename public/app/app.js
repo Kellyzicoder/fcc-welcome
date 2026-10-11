@@ -627,7 +627,7 @@ async function setPresent(id, on, seen, at = isoLocal()) {
 function checkin(el) {
   const mine = S.members.filter(m => churchOf(m) === S.church && !AWAY.has(norm(m.status))).sort((a, b) => norm(a.full_name).localeCompare(norm(b.full_name)));
   let here = {};
-  const pastor = S.me.role === "pastor";  // a pastor ticks their own people only: no adding, locking or renaming
+  const pastor = S.me.role === "pastor";  // a pastor ticks their own people only (locks work as for ushers): no adding or renaming
   el.innerHTML = head("Check-in", pastor ? "Your people" : esc(S.church)) + `
     <div class="card" style="margin-bottom:14px"><div class="row">
       <div style="flex:0 0 170px"><label class="f" for="d">Service date</label><input class="in" id="d" type="date" value="${S.date}"></div>
@@ -640,7 +640,7 @@ function checkin(el) {
       <div class="card tile"><div class="label">Adults</div><div class="num" id="n-ad">0</div></div>
       <div class="card tile"><div class="label">Kids</div><div class="num" id="n-kid">0</div></div>
       <div class="card tile"><div class="label">Not yet</div><div class="num" id="n-not">0</div></div></div>
-    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span><span id="shown" style="color:var(--ink-3);font-size:13px"></span><button type="button" class="pill-btn sm" id="ci-lock" ${pastor ? "hidden" : ""}>${svg("lock")}Save &amp; lock</button></div>
+    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span><span id="shown" style="color:var(--ink-3);font-size:13px"></span><button type="button" class="pill-btn sm" id="ci-lock">${svg("lock")}Save &amp; lock</button></div>
       <div class="bulk" id="ci-bulk" hidden style="position:static;box-shadow:none"><b id="ci-count"></b><span class="gap"></span><button type="button" class="pill-btn sm primary" id="ci-all">Tick all</button><button type="button" class="pill-btn sm" id="ci-none">Untick all</button></div>
       <div class="msg locked" id="ci-locked" hidden></div>
       <div class="names" id="names"></div>
@@ -708,7 +708,7 @@ function checkin(el) {
   const showLock = () => {
     const b = el.querySelector("#ci-lock"), note = el.querySelector("#ci-locked");
     b.innerHTML = lock ? `${svg("unlock")}Unlock` : `${svg("lock")}Save &amp; lock`; b.classList.toggle("primary", !lock);
-    note.hidden = !lock; if (lock) note.textContent = `Saved and locked${lock.by ? " by " + lock.by : ""}. ${pastor ? "Ask your church admin to unlock it" : "Unlock"} to make changes.`;
+    note.hidden = !lock; if (lock) note.textContent = `Saved and locked${lock.by ? " by " + lock.by : ""}. Unlock to make changes.`;
     for (const id of ["ci-all", "ci-none", "ci-clear"]) { const x = el.querySelector("#" + id); if (x && lock) x.disabled = true; }
     const go = el.querySelector("#add button.primary"); if (go) go.disabled = !!lock;
   };
@@ -716,7 +716,6 @@ function checkin(el) {
     const want = lockKey(), rows = await api(`settings?select=value&key=eq.${encodeURIComponent(want)}`).catch(() => null);
     if (!rows || want !== lockKey() || S.view !== "checkin") return;
     let v = null; try { v = rows[0]?.value ? JSON.parse(rows[0].value) : null; } catch {}
-    if (pastor) v = null;  // a lock is for ushers and admins; pastors can still tick their own people afterwards
     if (JSON.stringify(v) !== JSON.stringify(lock)) { lock = v; draw(); }
     showLock();
   };
@@ -730,7 +729,7 @@ function checkin(el) {
     } catch (err) { toast(/row-level|policy/i.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
   };
   box.onchange = async e => {
-    if (lock) { e.target.checked = !e.target.checked; return toast(pastor ? "This service is locked. Ask your church admin to unlock it." : "This service is locked. Unlock it to make changes."); }
+    if (lock) { e.target.checked = !e.target.checked; return toast("This service is locked. Unlock it to make changes."); }
     const id = e.target.dataset.id, on = e.target.checked, seen = here[id], at = isoLocal();
     if (on) here[id] = at; else delete here[id];
     pending.set(id, on ? at : null); e.target.blur(); draw();
