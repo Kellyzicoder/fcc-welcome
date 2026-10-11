@@ -6,6 +6,7 @@
 --   bishop  numbers for every church through church_numbers(); no access to names at all
 --   lead    their own church (pastor and follow-up team)
 --   team    their own church (ushers)
+--   pastor  only the people assigned to them (by the name in app_users.pastor): see and tick, nothing else
 -- The existing Streamlit site connects as the database owner, so these rules do not affect it.
 
 create table if not exists churches (
@@ -16,11 +17,16 @@ create table if not exists churches (
 
 create table if not exists app_users (
   email text primary key check (email = lower(email)),
-  role text not null check (role in ('admin', 'bishop', 'lead', 'team')),
+  role text not null check (role in ('admin', 'bishop', 'lead', 'team', 'pastor')),
   church text references churches(name) on update cascade,
   name text,
   created_at timestamptz not null default now()
 );
+
+-- Pastor sign-ins: the role is allowed, and each one is linked to their name on the church's pastor list.
+alter table app_users drop constraint if exists app_users_role_check;
+alter table app_users add constraint app_users_role_check check (role in ('admin', 'bishop', 'lead', 'team', 'pastor'));
+alter table app_users add column if not exists pastor text;
 
 alter table members add column if not exists church text;
 alter table members add column if not exists age_group text;
@@ -45,9 +51,19 @@ $$ select case app_role()
      when 'team' then coalesce(nullif(trim(ch), ''), app_home_church()) = app_church()
      else false end $$;
 
+-- A pastor's own people: in the pastor's church, with the pastor's name among the person's pastors (comma-separated,
+-- any capitals or spacing). Everyone else gets false here.
+create or replace function app_pastor_name() returns text language sql stable security definer set search_path = public as
+$$ select lower(regexp_replace(trim(pastor), '\s+', ' ', 'g')) from app_users
+   where email = lower(auth.jwt() ->> 'email') and role = 'pastor' and nullif(trim(pastor), '') is not null $$;
+create or replace function app_is_mine(ch text, pastors text) returns boolean language sql stable security definer set search_path = public as
+$$ select coalesce(app_role() = 'pastor' and coalesce(nullif(trim(ch), ''), app_home_church()) = app_church()
+     and exists (select 1 from unnest(string_to_array(coalesce(pastors, ''), ',')) x
+                 where lower(regexp_replace(trim(x), '\s+', ' ', 'g')) = app_pastor_name()), false) $$;
+
 create or replace function app_me() returns json language sql stable security definer set search_path = public as
 $$ select json_build_object('email', lower(auth.jwt() ->> 'email'), 'role', u.role, 'church', u.church, 'name', u.name,
-                            'home', app_home_church())
+                            'home', app_home_church(), 'pastor', u.pastor)
    from (select 1) one left join app_users u on u.email = lower(auth.jwt() ->> 'email') $$;
 
 -- ---------------------------------------------------------------- rules (Row Level Security)
@@ -78,9 +94,9 @@ create policy "app: edit own church's people" on members for update to authentic
   with check (app_can_see(church));
 
 drop policy if exists "app: see services" on services;
-create policy "app: see services" on services for select to authenticated using (app_role() in ('admin', 'lead', 'team'));
+create policy "app: see services" on services for select to authenticated using (app_role() in ('admin', 'lead', 'team', 'pastor'));
 drop policy if exists "app: record a service" on services;
-create policy "app: record a service" on services for insert to authenticated with check (app_role() in ('admin', 'lead', 'team'));
+create policy "app: record a service" on services for insert to authenticated with check (app_role() in ('admin', 'lead', 'team', 'pastor'));
 
 drop policy if exists "app: see own church's ticks" on attendance;
 create policy "app: see own church's ticks" on attendance for select to authenticated
@@ -94,9 +110,22 @@ create policy "app: untick own church's people" on attendance for delete to auth
 
 drop policy if exists "app: write the activity log" on activity_log;
 create policy "app: write the activity log" on activity_log for insert to authenticated
-  with check (app_role() in ('admin', 'lead', 'team'));
+  with check (app_role() in ('admin', 'lead', 'team', 'pastor'));
 drop policy if exists "app: admin reads the activity log" on activity_log;
 create policy "app: admin reads the activity log" on activity_log for select to authenticated using (app_role() = 'admin');
+
+-- Pastors: see and tick only their own people. They cannot add, edit or delete anyone (no rules for that).
+drop policy if exists "app: pastors see their own people" on members;
+create policy "app: pastors see their own people" on members for select to authenticated using (app_is_mine(church, pastor));
+drop policy if exists "app: pastors see their people's ticks" on attendance;
+create policy "app: pastors see their people's ticks" on attendance for select to authenticated
+  using (exists (select 1 from members m where m.id = member_id and app_is_mine(m.church, m.pastor)));
+drop policy if exists "app: pastors tick their people" on attendance;
+create policy "app: pastors tick their people" on attendance for insert to authenticated
+  with check (exists (select 1 from members m where m.id = member_id and app_is_mine(m.church, m.pastor)));
+drop policy if exists "app: pastors untick their people" on attendance;
+create policy "app: pastors untick their people" on attendance for delete to authenticated
+  using (exists (select 1 from members m where m.id = member_id and app_is_mine(m.church, m.pastor)));
 
 grant select, insert, update, delete on churches, app_users to authenticated;
 -- Gender (Female / Male / blank) for the Congregation's Show and Sort. Someone's pastors are kept comma-separated in "pastor".
@@ -195,7 +224,7 @@ $$ select coalesce(app_role() = 'admin' or (app_role() = 'lead' and app_church()
 
 create or replace function app_who() returns text language sql stable security definer set search_path = public as
 $$ select left(coalesce(nullif(trim(u.name), ''), u.email) || ' (' ||
-          case u.role when 'admin' then 'Admin' when 'lead' then 'Church admin' when 'bishop' then 'Bishop' else 'Team' end || ')', 80)
+          case u.role when 'admin' then 'Admin' when 'lead' then 'Church admin' when 'bishop' then 'Bishop' when 'pastor' then 'Pastor' else 'Team' end || ')', 80)
    from app_users u where u.email = lower(auth.jwt() ->> 'email') $$;
 
 drop policy if exists "app: see sign-ups" on registrations;
@@ -334,6 +363,17 @@ create policy "app: change check-in locks" on settings for update to authenticat
   using (key like 'lock:%' and app_role() in ('admin', 'lead', 'team') and app_can_see(substr(key, 17)))
   with check (key like 'lock:%' and app_role() in ('admin', 'lead', 'team') and app_can_see(substr(key, 17)));
 grant select on email_log to authenticated;
+-- Pastors use Save & lock like ushers: they see, set and lift locks for their own church's services.
+drop policy if exists "app: pastors see check-in locks" on settings;
+create policy "app: pastors see check-in locks" on settings for select to authenticated
+  using (key like 'lock:%' and app_role() = 'pastor' and substr(key, 17) = app_church());
+drop policy if exists "app: pastors set check-in locks" on settings;
+create policy "app: pastors set check-in locks" on settings for insert to authenticated
+  with check (key like 'lock:%' and app_role() = 'pastor' and substr(key, 17) = app_church());
+drop policy if exists "app: pastors change check-in locks" on settings;
+create policy "app: pastors change check-in locks" on settings for update to authenticated
+  using (key like 'lock:%' and app_role() = 'pastor' and substr(key, 17) = app_church())
+  with check (key like 'lock:%' and app_role() = 'pastor' and substr(key, 17) = app_church());
 
 -- Rename a church everywhere it is recorded, in one all-or-nothing step: the church itself, its sign-ins, its
 -- people, its pastor list, its report list and its email log. Only the admin may do this. The home church keeps its
@@ -366,6 +406,7 @@ revoke all on function app_rename_church(text, text) from public, anon;
 grant execute on function app_rename_church(text, text) to authenticated;
 
 revoke all on function app_approve_signup(uuid, text, boolean, text), app_reject_signup(uuid, text), app_set_my_name(text) from public, anon;
+grant execute on function app_pastor_name(), app_is_mine(text, text) to authenticated;
 grant execute on function app_last_seen(), app_set_my_name(text), app_can_approve(), app_who(),
   app_approve_signup(uuid, text, boolean, text), app_reject_signup(uuid, text) to authenticated;
 
