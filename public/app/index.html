@@ -280,8 +280,12 @@ input.in:focus, select.in:focus {border-color: var(--accent); box-shadow: 0 0 0 
 .name small {color: var(--ink-3); margin-left: auto; flex: none; font-size: 12px;}
 .name.on {background: var(--accent-soft); border-color: transparent;}
 /* the Bishop's page: churches on the left, the chosen church's dashboard on the right */
-.bish {display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start;}
-.b-list {padding: 8px; display: grid; gap: 2px; position: sticky; top: 12px;}
+.bish {display: grid; grid-template-columns: 320px minmax(0, 1fr); grid-template-areas: "cal detail" "list detail"; grid-template-rows: auto 1fr;
+  gap: 16px; align-items: start;}
+.b-cal {grid-area: cal; padding: 16px;} .b-list {grid-area: list; padding: 8px; display: grid; gap: 2px;} .b-detail {grid-area: detail;}
+.b-cal .day {min-height: 40px;} .b-cal .day:disabled {opacity: .35; cursor: default;} .b-cal .day:disabled:hover {background: none;}
+.day.sel {background: var(--accent); color: var(--accent-ink);} .day.sel small {color: var(--accent-ink);}
+.b-cal-foot {display: flex; align-items: center; gap: 10px; justify-content: space-between; margin-top: 10px; flex-wrap: wrap;} .b-cal-foot .note {margin: 0;}
 .b-item {display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; color: var(--ink); text-align: left;
   padding: 12px; border-radius: 14px; cursor: pointer; font: inherit;}
 .b-item:hover {background: var(--soft);} .b-item.on {background: var(--accent-soft);} .b-item.on .b-num {color: var(--accent);}
@@ -302,8 +306,9 @@ input.in:focus, select.in:focus {border-color: var(--accent); box-shadow: 0 0 0 
 .b-key.yellow, .b-track i.yellow {background: var(--yellow);} .b-key.blue, .b-track i.blue {background: var(--info);}
 .b-track {height: 10px; border-radius: 99px; background: var(--line); overflow: hidden;} .b-track i {display: block; height: 100%; border-radius: inherit;}
 @media (max-width: 900px) {
-  .bish {grid-template-columns: 1fr;} .b-list {position: static;}
+  .bish {grid-template-columns: 1fr; grid-template-areas: "cal" "list" "detail";}
   .bish.open .b-list {display: none;} .bish:not(.open) .b-detail {display: none;} .b-back {display: inline-flex;}
+  .bish.open {grid-template-areas: "detail" "cal";}
 }
 .meter {height: 12px; border-radius: 99px; background: var(--line); overflow: hidden;} .meter i {display: block; height: 100%; border-radius: inherit; background: var(--accent);}
 .meter.warn i {background: #e0a100;} .meter.bad i {background: #d64545;}
