@@ -696,7 +696,7 @@ function checkin(el) {
       <div style="margin-top:12px;text-align:right" id="ci-clear-wrap" hidden><button type="button" class="pill-btn sm" id="ci-clear">Untick everyone</button></div></div>
     ${pastor ? "" : `<form class="card" id="add"><div class="card-head"><h2>Add someone new</h2></div><div class="row">
       <div><label class="f" for="a-name">Full name</label><input class="in" id="a-name" required></div>
-      <div><label class="f" for="a-phone">Phone <span class="req" id="a-phone-req">*</span></label><input class="in" id="a-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="off"></div>
+      <div><label class="f" for="a-phone">Phone <span class="muted">(optional)</span></label><input class="in" id="a-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="off"></div>
       <div><label class="f" for="a-type">Attendance Type</label><select class="in" id="a-type"><option value="first_timer">First-timer</option><option value="visitor">Visitor</option><option value="member">Member</option></select></div>
       <div><label class="f" for="a-age">Age group</label><select class="in" id="a-age"><option>Adult</option><option>Child</option></select></div>
       <div><label class="f" for="a-gender">Gender</label><select class="in" id="a-gender"><option value="">Not given</option><option>Female</option><option>Male</option></select></div>
@@ -846,13 +846,11 @@ function checkin(el) {
   };
   if (pastor) { draw(); pull(); S.poll = setInterval(pull, 5000); return; }  // no Add form for pastors
   el.querySelector("#a-phone").oninput = digitsOnly;
-  const reqMark = () => { el.querySelector("#a-phone-req").hidden = el.querySelector("#a-type").value !== "first_timer"; };
-  el.querySelector("#a-type").onchange = reqMark; reqMark();
   el.querySelector("#add").onsubmit = async e => {
     e.preventDefault();
     const name = el.querySelector("#a-name").value.trim().replace(/\s+/g, " "), type = el.querySelector("#a-type").value;
     if (!name) return;
-    const phone = el.querySelector("#a-phone").value.trim(), bad = phoneProblem(phone, type === "first_timer");
+    const phone = el.querySelector("#a-phone").value.trim(), bad = phoneProblem(phone, false);  // optional here (numbers are often not at hand yet); checked only if typed
     if (bad) { toast(bad); el.querySelector("#a-phone").focus(); return; }
     const known = S.members.find(m => churchOf(m) === S.church && norm(m.full_name) === norm(name));
     const id = known?.id || newId(), only = e.submitter?.hasAttribute("data-only");
@@ -1245,15 +1243,16 @@ async function admin(el) {
   el.querySelectorAll("[data-chg]").forEach(b => b.onclick = () => {
     const u = users.find(x => x.email === b.dataset.chg);
     formDialog(`Change ${u.name || u.email}`, [
+      {k: "name", label: "Name", value: u.name || "", hint: "The name shown in the app for this sign-in."},
       {k: "role", label: "Role", value: u.role, type: "select", options: ROLE_OPTS},
       {k: "church", label: "Church", value: u.church || S.churches[0], type: "select", options: S.churches.map(c => [c, c]), hint: "Not used for Admin or Bishop."},
       {k: "pastor", label: "Their name on the Pastors list", value: u.pastor || "", suggest: pnames, hint: "Only for Pastor sign-ins: they see the people assigned to this name."},
     ], async v => {
       const church = ["admin", "bishop"].includes(v.role) ? null : v.church;
       if (v.role === "pastor" && !v.pastor) throw new Error("Type their name as it is on the Pastors list.");
-      const rows = await api(`app_users?email=eq.${encodeURIComponent(u.email)}`, {method: "PATCH", prefer: "return=representation", body: {role: v.role, church, ...(v.role === "pastor" || u.pastor ? {pastor: v.role === "pastor" ? v.pastor : null} : {})}});
+      const rows = await api(`app_users?email=eq.${encodeURIComponent(u.email)}`, {method: "PATCH", prefer: "return=representation", body: {name: v.name.slice(0, 80) || null, role: v.role, church, ...(v.role === "pastor" || u.pastor ? {pastor: v.role === "pastor" ? v.pastor : null} : {})}});
       if (!rows?.length) throw new Error("Not saved. Check you are still signed in as an admin.");
-      log("role_change", "", "done", `${u.email}: ${v.role}${church ? " · " + church : ""}`);
+      log("role_change", "", "done", `${u.email}: ${v.name ? v.name + " · " : ""}${v.role}${church ? " · " + church : ""}`);
       toast("Saved. They will see the change next time they open the app."); render();
     });
   });
