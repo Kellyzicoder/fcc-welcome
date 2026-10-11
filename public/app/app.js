@@ -38,6 +38,8 @@ const pastorsOf = m => String(m.pastor || "").split(",").map(x => x.trim()).filt
 // Is this pastor the person themselves? Titles are ignored, so "Lady Pastor Rita Kpodonu" matches Rita Kpodonu.
 const TITLES = /^((lady|senior|assistant|associate)\s+)?(pastor|rev(erend)?\.?|bishop|apostle|prophet(ess)?|evangelist|elder|deacon(ess)?|minister|dr\.?|mr\.?|mrs\.?|ms\.?)\s+/;
 const bare = n => { let x = norm(n).replace(/\s+/g, " "); for (let i = 0; i < 3 && TITLES.test(x); i++) x = x.replace(TITLES, ""); return x; };
+const TYPE = {member: "Member", first_timer: "First-timer", visitor: "Visitor"};  // attendance type; visitors are never chased on Follow-up
+const typeKey = m => TYPE[m.type] ? m.type : "member", typeName = m => TYPE[typeKey(m)], typeOpts = Object.entries(TYPE);
 const pastorBtn = n => `<button class="plink" data-to-pastor="${esc(n)}">${esc(n)}</button>`;  // a pastor's name: tap to see their people
 const isSelf = (pastor, m) => !!bare(pastor) && bare(pastor) === bare(m.full_name);
 const genderOf = m => ({f: "Female", female: "Female", m: "Male", male: "Male"})[norm(m.gender)] || "";
@@ -337,15 +339,15 @@ function picture(upTo = today()) {  // everything the pages show, as things stoo
     if (!seen) seen = [...dates].reverse().find(d => byDate[d][m.id]) || S.seen?.[m.id] || null;
     const sign = seen || (start !== "0000" ? start : (m.created_at || "").slice(0, 10));
     if (sign && sign < cutoff) { archived.push({...m, seen, kid: isKid(m)}); continue; }  // not seen for two years
-    const level = missed >= RED_AT ? "red" : missed >= YELLOW_AT ? "yellow" : "ok";
-    people.push({...m, missed, seen, level, flag: level !== "ok" ? level : missed ? "blue" : "ok", kid: isKid(m)});
+    const level = m.type === "visitor" ? "ok" : missed >= RED_AT ? "red" : missed >= YELLOW_AT ? "yellow" : "ok";
+    people.push({...m, missed, seen, level, flag: level !== "ok" ? level : missed && m.type !== "visitor" ? "blue" : "ok", kid: isKid(m)});
   }
   const last = dates[dates.length - 1], here = last ? byDate[last] : {};
   const present = mine.filter(m => here[m.id]);
   const order = {red: 0, yellow: 1, blue: 2, ok: 3};
   people.sort((a, b) => order[a.flag] - order[b.flag] || b.missed - a.missed || norm(a.full_name).localeCompare(norm(b.full_name)));
   return {mine, people, archived, dates, byDate, last, here, present, kids: present.filter(isKid).length,
-          first: present.filter(m => m.type === "first_timer").length,
+          first: present.filter(m => m.type === "first_timer").length, visitors: present.filter(m => m.type === "visitor").length,
           count: f => people.filter(p => p.flag === f).length};
 }
 
@@ -457,6 +459,7 @@ function report(p, o = {}) {
     `*ADULTS - ${adults}`, `[Attending: Adults - ${adultsIn}]`, `[Zoom: Adults - ${n("zoomA")}]`, `[Youtube -  ${n("yt")}]`, `[Facebook -  ${n("fb")}]`, "",
     `*CHILDREN - ${kids}`, `[Attending - ${kidsIn}]`, `[Zoom - ${n("zoomK")}]`, "",
     `First timers - ${firsts.length}`, ...(o.names && firsts.length ? [firsts.map(m => m.full_name).join(", ")] : []), "",
+    `Visitors - ${p.visitors}`, ...(o.names && p.visitors ? [p.present.filter(m => m.type === "visitor").map(m => m.full_name).join(", ")] : []), "",
     `New Converts - ${n("converts")}`];
   if (o.follow) {
     const f = lv => p.people.filter(x => x.level === lv);
@@ -471,7 +474,8 @@ function summary(p, o = {}) {
   const flagged = f => p.people.filter(x => x.flag === f);
   return wa([`*FCC ${S.church}*${S.emoji ? " ⛪" : ""}`, p.last ? `${S.names[p.last] || "Service"} · ${nice(p.last, true)}` : "No services recorded yet", "",
     ["✅", `Present: *${p.present.length}*`], ["🧑", `Adults: *${p.present.length - p.kids}*`], ["🧒", `Kids: *${p.kids}*`],
-    ["👋", `First-timers: *${p.first}*`], ...who(p.present.filter(m => m.type === "first_timer")), "", "*Follow-up*",
+    ["👋", `First-timers: *${p.first}*`], ...who(p.present.filter(m => m.type === "first_timer")),
+    ...(p.visitors ? [["🤝", `Visitors: *${p.visitors}*`], ...who(p.present.filter(m => m.type === "visitor"))] : []), "", "*Follow-up*",
     ["🔴", `Missed ${RED_AT}+ in a row: *${p.count("red")}*`], ...who(flagged("red")),
     ["🟡", `Missed ${YELLOW_AT}–${RED_AT - 1} in a row: *${p.count("yellow")}*`], ...who(flagged("yellow")),
     ...(o.link ? ["", ["📺", `Livestream: ${o.link}`]] : [])]);
@@ -554,7 +558,7 @@ function dashboard(el) {
       <div class="card tile"><div class="label">This service</div><div class="num">${p.present.length}<small>present</small></div></div>
       <div class="card tile"><div class="label">Adults</div><div class="num">${p.present.length - p.kids}</div></div>
       <div class="card tile"><div class="label">Kids</div><div class="num">${p.kids}</div></div>
-      <div class="card tile"><div class="label">First-timers</div><div class="num">${p.first}</div></div></div>
+      <div class="card tile"><div class="label">First-timers</div><div class="num">${p.first}${p.visitors ? `<small>+ ${p.visitors} ${p.visitors === 1 ? "visitor" : "visitors"}</small>` : ""}</div></div></div>
     <div class="grid-2"><div class="card"><div class="card-head"><h2>People present</h2><span class="gap"></span>
         <div class="legend"><span><i style="background:var(--adults)"></i>Adults</span><span><i style="background:var(--kids)"></i>Kids</span></div></div>
         <div class="chart" id="chart"></div></div>
@@ -629,7 +633,7 @@ function checkin(el) {
     <form class="card" id="add"><div class="card-head"><h2>Add someone new</h2></div><div class="row">
       <div><label class="f" for="a-name">Full name</label><input class="in" id="a-name" required></div>
       <div><label class="f" for="a-phone">Phone <span class="req" id="a-phone-req">*</span></label><input class="in" id="a-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="off"></div>
-      <div><label class="f" for="a-type">Attendance Type</label><select class="in" id="a-type"><option value="first_timer">First-timer</option><option value="member">Member</option></select></div>
+      <div><label class="f" for="a-type">Attendance Type</label><select class="in" id="a-type"><option value="first_timer">First-timer</option><option value="visitor">Visitor</option><option value="member">Member</option></select></div>
       <div><label class="f" for="a-age">Age group</label><select class="in" id="a-age"><option>Adult</option><option>Child</option></select></div>
       <div><label class="f" for="a-gender">Gender</label><select class="in" id="a-gender"><option value="">Not given</option><option>Female</option><option>Male</option></select></div>
       <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap"><button class="pill-btn primary">Add &amp; check in</button><button class="pill-btn" data-only>Add only</button></div></div>
@@ -657,7 +661,7 @@ function checkin(el) {
   const draw = () => {
     const shown = showing(), narrowed = !!(S.ciRole || norm(S.q)), ticked = shown.filter(m => here[m.id]).length;
     box.innerHTML = shown.map(m => `<label class="name ${here[m.id] ? "on" : ""}"><input type="checkbox" data-id="${esc(m.id)}" ${here[m.id] ? "checked" : ""} ${lock ? "disabled" : ""}>
-      <span>${esc(m.full_name)}</span><small>${[narrowed ? rolesOf(m).join(", ") : "", m.type === "first_timer" ? "first-timer" : "", isKid(m) ? "child" : ""].filter(Boolean).map(esc).join(" · ")}</small></label>`).join("") || `<p class="empty">Nobody matches.</p>`;
+      <span>${esc(m.full_name)}</span><small>${[narrowed ? rolesOf(m).join(", ") : "", m.type === "first_timer" ? "first-timer" : m.type === "visitor" ? "visitor" : "", isKid(m) ? "child" : ""].filter(Boolean).map(esc).join(" · ")}</small></label>`).join("") || `<p class="empty">Nobody matches.</p>`;
     el.querySelector("#shown").textContent = `showing ${shown.length} of ${mine.length}`;
     el.querySelector("#ci-title").textContent = S.ciRole ? teams[S.ciRole].label : "Names A to Z";
     // ticking a whole group is only offered once the list is narrowed to a team or a search, never for the whole church
@@ -790,7 +794,7 @@ function checkin(el) {
     try {
       if (!known) {
         const m = {id, full_name: name, phone: el.querySelector("#a-phone").value.trim(), type, status: "", age_group: el.querySelector("#a-age").value, ...(el.querySelector("#a-gender").value ? {gender: el.querySelector("#a-gender").value} : {}),
-                   church: S.church, created_at: isoLocal(), [type === "first_timer" ? "first_visit" : "date_joined"]: S.date};
+                   church: S.church, created_at: isoLocal(), [type === "member" ? "date_joined" : "first_visit"]: S.date};
         await api("members", {method: "POST", prefer: "return=minimal", body: m});
         S.members.push(m); mine.push(m); mine.sort((a, b) => norm(a.full_name).localeCompare(norm(b.full_name)));
       }
@@ -834,14 +838,14 @@ function people(el) {
   if (S.roleF && !counts[S.roleF]) S.roleF = "";
   const q = norm(S.findQ), inRole = S.roleF ? everyone.filter(m => rolesOf(m).some(r => norm(r) === S.roleF)) : everyone;
   const SHOW = {all: ["Everyone", () => true], female: ["Females", m => genderOf(m) === "Female"], male: ["Males", m => genderOf(m) === "Male"],
-    adult: ["Adults", m => !isKid(m)], child: ["Children", m => isKid(m)], member: ["Members", m => m.type !== "first_timer"],
-    first: ["First-timers", m => m.type === "first_timer"], nopastor: ["No pastor yet", m => !pastorsOf(m).length]};
+    adult: ["Adults", m => !isKid(m)], child: ["Children", m => isKid(m)], member: ["Members", m => typeKey(m) === "member"],
+    first: ["First-timers", m => m.type === "first_timer"], visitor: ["Visitors", m => m.type === "visitor"], nopastor: ["No pastor yet", m => !pastorsOf(m).length]};
   const last = {}; for (const t of S.ticks) if (!last[t.member_id] || t.service_date > last[t.member_id]) last[t.member_id] = t.service_date;
   const lastOf = m => last[m.id] || S.seen?.[m.id] || "";
   const SORT = {name: ["Name A to Z", (a, b) => byName(a, b)], namez: ["Name Z to A", (a, b) => byName(b, a)],
     pastor: ["Pastor", (a, b) => (!pastorsOf(a).length - !pastorsOf(b).length) || (pastorsOf(a)[0] || "").localeCompare(pastorsOf(b)[0] || "")],
     gender: ["Gender", (a, b) => ({Female: 0, Male: 1}[genderOf(a)] ?? 2) - ({Female: 0, Male: 1}[genderOf(b)] ?? 2)],
-    age: ["Age group", (a, b) => isKid(a) - isKid(b)], type: ["Attendance type", (a, b) => (a.type === "first_timer") - (b.type === "first_timer")],
+    age: ["Age group", (a, b) => isKid(a) - isKid(b)], type: ["Attendance type", (a, b) => typeOpts.findIndex(t => t[0] === typeKey(a)) - typeOpts.findIndex(t => t[0] === typeKey(b))],
     status: ["Status", (a, b) => (a.status || "").localeCompare(b.status || "")], seen: ["Last attended", (a, b) => lastOf(b).localeCompare(lastOf(a))]};
   if (!SHOW[S.showF]) S.showF = "all"; if (!SORT[S.sortBy]) S.sortBy = "name";
   S.sel = new Set([...(S.sel || [])].filter(id => everyone.some(m => m.id === id)));  // ticks stay while you search; only this church's people
@@ -852,7 +856,7 @@ function people(el) {
   const edit = S.me.role !== "team", statuses = ["", "Away", "Inactive", "Moved", "Left", "Transferred", "Deceased"];
   const roleNames = roleKeys.map(k => counts[k].label);
   const picked = everyone.filter(m => S.sel.has(m.id)), shownPicked = mine.filter(m => S.sel.has(m.id)).length;
-  const typeOf = m => m.type === "first_timer" ? "First-timer" : "Member", ageOf = m => isKid(m) ? "Child" : "Adult";
+  const typeOf = typeName, ageOf = m => isKid(m) ? "Child" : "Adult";
   el.innerHTML = head("Congregation", `${esc(S.church)} · ${everyone.length} people`, `<button class="pill-btn" id="dl">Download</button>`) + `
     <input class="in" id="find" type="search" placeholder="Search" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off" style="margin-bottom:12px">
     <div class="row sortbar"><div><label class="f" for="show">Show</label><select class="in" id="show">${Object.entries(SHOW).map(([k, [t, f]]) =>
@@ -954,7 +958,7 @@ function editPerson(m) {
       {k: "full_name", label: "Full name", value: m.full_name, required: true},
       {k: "phone", label: "Phone", value: m.phone || "", type: "tel"},
       {k: "role", label: "Roles", value: rolesOf(m).join(", "), suggest: roleNames, many: true, hint: "Separate several with commas."},
-      {k: "type", label: "Attendance Type", value: m.type === "first_timer" ? "first_timer" : "member", type: "select", options: [["member", "Member"], ["first_timer", "First-timer"]]},
+      {k: "type", label: "Attendance Type", value: typeKey(m), type: "select", options: typeOpts},
       {k: "age_group", label: "Age group", value: ageOf(m), type: "select", options: [["Adult", "Adult"], ["Child", "Child"]]},
       {k: "gender", label: "Gender", value: genderOf(m), type: "select", options: [["", "Not given"], ["Female", "Female"], ["Male", "Male"]]},
       {k: "status", label: "Status", value: statuses.find(x => norm(x) === norm(m.status)) ?? m.status, type: "select",
@@ -967,7 +971,7 @@ function editPerson(m) {
       const badPhone = phoneProblem(v.phone, false); if (badPhone) throw new Error(badPhone);
       if (v.pastor.split(",").some(n => isSelf(n.trim(), m))) throw new Error("Someone can't be their own pastor. Choose a different pastor.");
       v.role = v.role.split(",").map(x => x.trim()).filter(Boolean).join(", ");
-      const changed = Object.fromEntries(Object.entries(v).filter(([k, val]) => val !== String(k === "church" ? churchOf(m) : k === "age_group" ? ageOf(m) : k === "type" ? (m.type === "first_timer" ? "first_timer" : "member") : k === "gender" ? genderOf(m) : k === "pastor" ? pastorsOf(m).join(", ") : (m[k] ?? "")).trim()));
+      const changed = Object.fromEntries(Object.entries(v).filter(([k, val]) => val !== String(k === "church" ? churchOf(m) : k === "age_group" ? ageOf(m) : k === "type" ? typeKey(m) : k === "gender" ? genderOf(m) : k === "pastor" ? pastorsOf(m).join(", ") : (m[k] ?? "")).trim()));
       if (!Object.keys(changed).length) return;
       // only save over the version this screen loaded: if someone else edited the person meanwhile, nothing is overwritten
       const ver = Number(m.version) || 1;
@@ -1169,7 +1173,7 @@ async function person(el) {
   const flock = asPastor ? p.people.filter(x => x.id !== m.id && pastorsOf(x).some(n => isSelf(n, m))).sort(byName) : [];  // if they are a pastor: who is under them
   el.innerHTML = top + `
     <div class="card" style="margin-bottom:14px"><div class="card-head"><div class="who big"><span>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</div><span class="gap"></span>${state}</div>
-      <p class="facts">${[m.type === "first_timer" ? "First-timer" : "Member", isKid(m) ? "Child" : "Adult", m.phone || ""].filter(Boolean).map(esc).join(" · ")}${pastorsOf(m).length ? `<br>Pastor: ${pastorsOf(m).map(pastorBtn).join(", ")}` : ""}</p></div>
+      <p class="facts">${[typeName(m), isKid(m) ? "Child" : "Adult", m.phone || ""].filter(Boolean).map(esc).join(" · ")}${pastorsOf(m).length ? `<br>Pastor: ${pastorsOf(m).map(pastorBtn).join(", ")}` : ""}</p></div>
     ${flock.length || asPastor ? `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Their people</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${flock.length} ${flock.length === 1 ? "person" : "people"}</span>
         ${asPastor ? `<button class="pill-btn sm" data-to-pastor="${esc(asPastor)}">Open in Pastors</button>` : ""}</div>
       ${flock.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Came${p.last ? " · " + esc(nice(p.last)) : ""}</th><th>Status</th><th>Missed in a row</th><th>Phone</th></tr></thead><tbody>
@@ -1207,7 +1211,7 @@ async function signups(el) {
         <span style="color:var(--ink-3);font-size:13px">Sent ${esc(when(r.created_at))}</span></div>
       <p class="facts">${info.length ? info.map(([k, v]) => `${k}: ${esc(v)}`).join("<br>") : "No contact details given."}</p>
       ${r.notes ? `<div class="msg" style="margin-top:10px">${esc(r.notes)}</div>` : ""}
-      ${match ? `<p class="note">Already on the register as <b>${esc(match.full_name)}</b> (${match.type === "first_timer" ? "first-timer" : "member"}). Approving updates that person and adds nobody new.</p>` : ""}
+      ${match ? `<p class="note">Already on the register as <b>${esc(match.full_name)}</b> (${typeName(match).toLowerCase()}). Approving updates that person and adds nobody new.</p>` : ""}
       <div class="row" style="margin-top:14px"><label class="check"><input type="checkbox" data-tick checked> Mark present on ${esc(r.first_visit ? full(r.first_visit) : "today")}</label>
         <div style="flex:0 0 auto;display:flex;gap:8px"><button class="pill-btn primary" data-ok>Approve</button><button class="pill-btn" data-no>Reject</button></div></div></div>`;
   }).join("") : `<div class="card"><p class="empty">No sign-ups waiting.</p></div>`) + ``;
@@ -1238,12 +1242,12 @@ function archive(el) {
   el.innerHTML = head("Archive", `${esc(S.church)} · not seen for two years`, list.length ? `<button class="pill-btn" id="dl">Download</button>` : "") + `
     ${S.seen ? "" : `<div class="msg" style="margin:0 0 14px">Run the latest setup SQL in Supabase once so this list can look back further than the last year.</div>`}
     <div class="card">${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Last seen</th><th>Type</th><th>Age group</th><th>Phone</th></tr></thead><tbody>
-      ${list.map(m => `<tr><td>${whoBtn(m)}</td><td class="muted">${esc(full(m.seen))}</td><td class="muted">${m.type === "first_timer" ? "First-timer" : "Member"}</td><td class="muted">${m.kid ? "Child" : "Adult"}</td><td class="muted">${esc(m.phone || "")}</td></tr>`).join("")}
+      ${list.map(m => `<tr><td>${whoBtn(m)}</td><td class="muted">${esc(full(m.seen))}</td><td class="muted">${typeName(m)}</td><td class="muted">${m.kid ? "Child" : "Adult"}</td><td class="muted">${esc(m.phone || "")}</td></tr>`).join("")}
       </tbody></table></div>` : `<p class="empty">Nobody is in the archive.</p>`}
       <p class="note">They come back when ticked in again.</p></div>`;
   const dl = el.querySelector("#dl");
   if (dl) dl.onclick = () => download(`archive_${S.church}_${today()}.csv`, [["Church", "Name", "Last seen", "Type", "Age group", "Phone"],
-    ...list.map(m => [S.church, m.full_name, m.seen || "", m.type === "first_timer" ? "First-timer" : "Member", m.kid ? "Child" : "Adult", m.phone || ""])]);
+    ...list.map(m => [S.church, m.full_name, m.seen || "", typeName(m), m.kid ? "Child" : "Adult", m.phone || ""])]);
 }
 
 // ---------------------------------------------------------------- activity: who did what, and when
@@ -1314,7 +1318,7 @@ async function reports(el) {
     try { await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key, value}}); toast("Saved."); render(); }
     catch (err) { toast("Not saved: " + err.message); }
   };
-  const type = m => m.type === "first_timer" ? "First-timer" : "Member", age = m => isKid(m) ? "Child" : "Adult";
+  const type = typeName, age = m => isKid(m) ? "Child" : "Adult";
   const files = {
     in: () => [`checked_in_${S.church}_${p.last || today()}.csv`, [["Church", "Service", "Name", "Type", "Age group", "Phone"], ...p.present.slice().sort(byName).map(m => [S.church, p.last, m.full_name, type(m), age(m), m.phone || ""])]],
     call: () => [`follow_up_${S.church}_${today()}.csv`, [["Church", "Name", "Status", "Missed in a row", "Last seen", "Phone", "Pastor"], ...p.people.filter(x => x.level !== "ok").map(x => [S.church, x.full_name, FLAG[x.flag], x.missed, x.seen || "", x.phone || "", x.pastor || ""])]],
