@@ -1148,11 +1148,10 @@ async function bishop(el, rows, text, newest) {
   const fuMax = Math.max(1, ...fu.map(f => f[2]));
   const when = !latest ? "No services yet" : day && !had ? nice(day, true) : `${S.names?.[latest] || svcName(latest)} · ${nice(latest, true)}`;
   el.innerHTML = head("All churches", admin ? "Pick a day and a church, or open a church to work in it" : "Numbers only", `<button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
-    <div class="bish ${S.bOpen ? "open" : ""}">
+    <div class="bish">
       <div class="card b-cal" id="b-cal"></div>
       <nav class="card b-list" aria-label="Churches">${list}</nav>
       <section class="b-detail">
-        <button class="link b-back" id="b-back">${svg("back")}All churches</button>
         <div class="b-title"><h2>${esc(S.bChurch || "All churches")}</h2><span class="muted">${esc(when)}</span>
           ${admin && S.bChurch ? `<span class="gap" style="flex:1"></span><button class="pill-btn primary sm" data-open="${esc(S.bChurch)}">Open ${esc(S.bChurch)}</button>` : ""}</div>
         ${had || !day ? `<div class="tiles">
@@ -1188,11 +1187,13 @@ async function bishop(el, rows, text, newest) {
     cal.querySelectorAll("[data-bd]").forEach(b => b.onclick = () => pickDay(b.dataset.bd));
     const lat = cal.querySelector("#b-latest"); if (lat) lat.onclick = () => { S.bDay = ""; S.bCal = newest.slice(0, 7); render(); };
   };
-  const pickDay = d => { S.bDay = d >= newest ? "" : d; S.bCal = d.slice(0, 7); render(); };
+  const narrow = () => matchMedia("(max-width: 900px)").matches;  // on phones the dashboard sits above the calendar
+  const pickDay = d => { S.bDay = d >= newest ? "" : d; S.bCal = d.slice(0, 7); S.bJump = narrow(); render(); };
   drawCal();
   if (trend) chart(el.querySelector("#b-chart"), series.map(x => [x[0], x[1], x[2]]), pickDay);
-  el.querySelectorAll("[data-b]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.b; S.bOpen = true; render(); scrollTo({top: 0}); });
-  el.querySelector("#b-back").onclick = () => { S.bOpen = false; render(); };
+  el.querySelectorAll("[data-b]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.b; S.bJump = narrow(); render(); });
+  if (narrow()) { const on = el.querySelector(".b-item.on"), row = el.querySelector(".b-list"); if (on && row) row.scrollLeft = on.offsetLeft - (row.clientWidth - on.offsetWidth) / 2; }  // keep the chosen church in view in the row
+  if (S.bJump) { S.bJump = false; el.querySelector(".b-list")?.scrollIntoView({behavior: "smooth", block: "start"}); }  // church row and dashboard in view
   el.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { S.church = b.dataset.open; S.view = "dashboard"; render(); });  // admin: work in that church
   el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text, {day: latest || newest});
   el.querySelector("#dl").onclick = () => download(`all_churches_${day || today()}.csv`, [["Church", "Service", "Present", "Adults", "Kids", "First-timers", "On the register", "Red", "Yellow", "Missed this service"],
