@@ -354,6 +354,15 @@ td .x {border: 0; background: none; color: var(--red); font-weight: 600;}
 .acc-a {padding: 0 36px 18px 2px; color: var(--ink-2); line-height: 1.6;}
 .still {padding: 24px;} .still h2 {margin: 0 0 6px; font-size: 18px;} .still p {margin: 0 0 18px; color: var(--ink-2); line-height: 1.5;}
 .still .pill-btn svg {width: 18px; height: 18px;} a.pill-btn {text-decoration: none; color: var(--ink); display: inline-flex; align-items: center; gap: 6px;} .inbox-item .pill-btn svg {width: 15px; height: 15px;}
+/* Password checklist and box borders */
+.pw-rules {list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; font-size: 14px; color: var(--ink-3);}
+.pw-rules li {display: flex; align-items: center; gap: 8px;}
+.pw-rules i {width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid currentColor; display: grid; place-items: center; flex: none;}
+.pw-rules i svg {width: 12px; height: 12px; stroke-width: 3; opacity: 0;}
+.pw-rules li.ok {color: var(--ok);} .pw-rules li.ok i {background: var(--ok); border-color: var(--ok); color: #fff;} .pw-rules li.ok i svg {opacity: 1;}
+.pw-rules li.bad {color: var(--red);}
+.in.ok, .in.ok:focus {border-color: var(--ok); box-shadow: 0 0 0 1px var(--ok);}
+.in.bad, .in.bad:focus {border-color: var(--red); box-shadow: 0 0 0 1px var(--red);}
 /* Admin tabs */
 .atabs {display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); margin: 0 0 14px; overflow-x: auto; width: max-content; max-width: 100%;}
 .atabs button {border: 0; background: none; color: var(--ink-2); font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 10px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 7px;}
