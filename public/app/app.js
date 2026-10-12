@@ -330,9 +330,34 @@ function loginView(message, bad) {
 }
 
 // Save a new password for the signed-in person (Supabase keeps it; the app only remembers which email has one).
+// Password rules: shown as a live checklist under the two boxes, and checked again before saving.
+const PW_RULES = [
+  ["len", "At least 10 characters", (a) => a.length >= 10],
+  ["case", "A capital and a small letter", (a) => /[A-Z]/.test(a) && /[a-z]/.test(a)],
+  ["num", "At least one number", (a) => /\d/.test(a)],
+  ["sym", "At least one symbol, like ! # @ or ?", (a) => /[!@#$%^&*()_+\-=\[\]{};':"\\|<>?,.\/`~]/.test(a)],  // the same symbols Supabase accepts
+  ["same", "Both passwords match", (a, b) => a.length > 0 && a === b],
+];
+const pwProblem = (a, b) => (PW_RULES.find(([, , ok]) => !ok(a, b)) || [])[1] || "";
+// Wires a checklist (ticks) and green/red borders to two password boxes; the button only works when all rules pass.
+function pwChecks(box, p1, p2, go) {
+  box.innerHTML = PW_RULES.map(([k, t]) => `<li data-r="${k}"><i>${svg("checkin")}</i>${esc(t)}</li>`).join("");
+  const draw = () => {
+    const a = p1.value, b = p2.value;
+    PW_RULES.forEach(([k, , ok]) => {
+      const li = box.querySelector(`[data-r="${k}"]`), good = ok(a, b), touched = k === "same" ? b.length > 0 : a.length > 0;
+      li.className = good ? "ok" : touched ? "bad" : "";
+    });
+    const firstOk = PW_RULES.filter(([k]) => k !== "same").every(([, , ok]) => ok(a, b));
+    p1.classList.toggle("ok", firstOk); p1.classList.toggle("bad", a.length > 0 && !firstOk);
+    p2.classList.toggle("ok", b.length > 0 && a === b && firstOk); p2.classList.toggle("bad", b.length > 0 && a !== b);
+    go.disabled = !!pwProblem(a, b);
+  };
+  p1.addEventListener("input", draw); p2.addEventListener("input", draw); draw();
+  return draw;
+}
 async function savePassword(a, b) {
-  if (a.length < 8) throw new Error("Use at least 8 characters.");
-  if (a !== b) throw new Error("The two passwords don't match.");
+  const wrong = pwProblem(a, b); if (wrong) throw new Error(wrong === "Both passwords match" ? "The two passwords don't match." : `The password needs: ${wrong.toLowerCase()}.`);
   if (S.session.expires_at - Date.now() < 60000) await refresh();
   const r = await fetch(S.cfg.url + "/auth/v1/user", {method: "PUT", body: JSON.stringify({password: a}),
     headers: {apikey: S.cfg.key, "Content-Type": "application/json", Authorization: "Bearer " + S.session.access_token}});
@@ -349,19 +374,21 @@ function offerPassword() {
     <div class="card-head"><h2>Sign in faster next time?</h2></div>
     <p class="note" style="margin-top:0">Set a password and next time just type your email and password. No waiting for an email.</p>
     <input type="email" autocomplete="username" value="${esc(S.me.email)}" readonly hidden>
-    <div class="fields"><div><label class="f" for="op1">New password</label><input class="in" id="op1" type="password" autocomplete="new-password" minlength="8" maxlength="72" required></div>
-      <div><label class="f" for="op2">Type it again</label><input class="in" id="op2" type="password" autocomplete="new-password" minlength="8" maxlength="72" required></div></div>
+    <div class="fields"><div><label class="f" for="op1">New password</label><input class="in" id="op1" type="password" autocomplete="new-password" maxlength="72" required></div>
+      <div><label class="f" for="op2">Type it again</label><input class="in" id="op2" type="password" autocomplete="new-password" maxlength="72" required></div></div>
+    <ul class="pw-rules" id="op-rules" aria-live="polite"></ul>
     <div class="msg bad" id="op-err" hidden></div>
     <div class="modal-foot"><button type="button" class="pill-btn" data-later>Remind me next time</button><button class="pill-btn primary" id="op-go">Save password</button></div>
     <button type="button" class="link" data-never style="display:block;margin:14px auto 0">Don't show this again</button></form>`;
   document.body.append(d);
   const close = () => d.remove();
   d.querySelector("[data-later]").onclick = close;
+  const redraw = pwChecks(d.querySelector("#op-rules"), d.querySelector("#op1"), d.querySelector("#op2"), d.querySelector("#op-go"));
   d.querySelector("[data-never]").onclick = () => { try { localStorage.setItem(key, "1"); } catch {} close(); toast("OK. You can set a password any time in Your account."); };
   d.querySelector("form").onsubmit = async e => {
     e.preventDefault(); const go = d.querySelector("#op-go"), err = d.querySelector("#op-err"); go.disabled = true; err.hidden = true;
     try { await savePassword(d.querySelector("#op1").value, d.querySelector("#op2").value); close(); toast("Password saved. Next time choose Password and sign in straight away."); }
-    catch (ex) { err.textContent = ex.message; err.hidden = false; go.disabled = false; }
+    catch (ex) { err.textContent = ex.message; err.hidden = false; redraw(); }
   };
 }
 
@@ -1660,8 +1687,9 @@ function helpTopics() {
     ]],
     ["account", "Sign-in and account", [
       ["The sign-in email didn't arrive", "Wait a minute and check Spam or Junk. If you typed the email wrong, fix it and tap Email me a code again. You can also tap Resend code after 25 seconds."],
-      ["How do I sign in faster?", "Set a password: you'll be offered one after signing in with a code, or set it any time in Your account. Next time choose Password."],
-      ["I forgot my password", "On the sign-in page choose Email code instead. Once you're in, set a new password in Your account."],
+      ["How do I sign in faster?", "Set a password: you'll be offered one after signing in with a code, or tap your name or picture at the top of the app to open Your account and set one there. Next time choose Password."],
+      ["How do I change my password?", "Tap your name or picture at the top of the app to open Your account, then type a new password twice and tap Save password. You don't need to sign out."],
+      ["I forgot my password", "If you're still signed in, just change it in Your account (tap your name or picture at the top). If you're signed out, choose Email code on the sign-in page, then set a new password in Your account."],
       ["I need to see more than I can", "Send a message to the admin below and say what you need."],
     ]],
   ];
@@ -1737,27 +1765,28 @@ function account(el) {
       <p class="facts" style="margin-top:14px">Email: ${esc(S.me.email)}<br>Role: ${ROLE[S.me.role]}${S.me.church ? "<br>Church: " + esc(S.me.church) : ""}${S.me.role === "pastor" && S.me.pastor ? "<br>Your people: those assigned to " + esc(S.me.pastor) : ""}</p>
       
       <div style="margin-top:14px"><button class="pill-btn primary">Save name</button></div></form>
-    <form class="card" id="setpw" style="max-width:560px;margin-bottom:14px"><div class="card-head"><h2>Sign in with a password</h2></div>
-      <p class="note" style="margin-top:0">Skip the email code next time you sign in.</p>
+    <form class="card" id="setpw" style="max-width:560px;margin-bottom:14px"><div class="card-head"><h2>Password</h2></div>
+      <p class="note" style="margin-top:0">Set a password to skip the email code when you sign in, or change the one you have. You stay signed in.</p>
       <input type="email" autocomplete="username" value="${esc(S.me.email)}" readonly hidden>
-      <label class="f" for="pw1">New password</label><input class="in" id="pw1" type="password" autocomplete="new-password" minlength="8" maxlength="72" required>
-      <label class="f" for="pw2" style="margin-top:12px">Type it again</label><input class="in" id="pw2" type="password" autocomplete="new-password" minlength="8" maxlength="72" required>
-      <div style="margin-top:14px"><button class="pill-btn primary">Save password</button></div></form>
-    <div class="card" style="max-width:560px"><label class="check"><input type="checkbox" id="emoji" ${S.emoji ? "checked" : ""}> Use emojis in WhatsApp messages</label>
-      <div style="margin-top:16px"><button class="pill-btn" data-bye>${svg("out")}Log out</button></div></div>`;
+      <label class="f" for="pw1">New password</label><input class="in" id="pw1" type="password" autocomplete="new-password" maxlength="72" required>
+      <label class="f" for="pw2" style="margin-top:12px">Type it again</label><input class="in" id="pw2" type="password" autocomplete="new-password" maxlength="72" required>
+      <ul class="pw-rules" id="pw-rules" aria-live="polite"></ul>
+      <div style="margin-top:14px"><button class="pill-btn primary" id="pw-go">Save password</button></div></form>
+    <div class="card" style="max-width:560px"><button class="pill-btn" data-bye>${svg("out")}Log out</button></div>`;
   el.querySelector("#me").onsubmit = async e => {
     e.preventDefault();
     try { S.me.name = await api("rpc/app_set_my_name", {method: "POST", body: {new_name: el.querySelector("#my-name").value}}); toast("Saved."); render(); }
     catch (err) { toast(/app_set_my_name/.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
   };
+  const pwGo = el.querySelector("#pw-go"), redraw = pwChecks(el.querySelector("#pw-rules"), el.querySelector("#pw1"), el.querySelector("#pw2"), pwGo);
   el.querySelector("#setpw").onsubmit = async e => {
-    e.preventDefault();
+    e.preventDefault(); pwGo.disabled = true;
     try {
       await savePassword(el.querySelector("#pw1").value, el.querySelector("#pw2").value);
       e.target.reset(); toast("Password saved. Next time, sign in with your email and this password.");
     } catch (err) { toast("Not saved: " + err.message); }
+    redraw();
   };
-  el.querySelector("#emoji").onchange = e => { S.emoji = e.target.checked; try { localStorage.setItem("fcc-emoji", S.emoji ? "on" : "off"); } catch {} toast(S.emoji ? "Emojis on." : "Emojis off."); };
   el.querySelector("[data-bye]").onclick = signOut;
 }
 
