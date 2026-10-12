@@ -2,7 +2,7 @@
   "name": "fcc-welcome",
   "version": "1.0.0",
   "private": true,
-  "description": "Welcome card for first-timers at Favourite Child Church — saves sign-ups to Supabase for approval in the FCC Attendance Tracker.",
+  "description": "FCC Attendance phone app for Favourite Child Church: check-in, congregation, follow-up and church dashboards, plus the first-timer welcome form (Supabase + Vercel).",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
