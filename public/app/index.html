@@ -59,7 +59,7 @@ button {font: inherit; color: inherit; cursor: pointer;}
 .nav.out {color: var(--red);}
 
 /* main */
-.main {background: var(--panel); border-radius: 24px; box-shadow: var(--shadow); min-width: 0; overflow: hidden;}
+.main {background: var(--panel); border-radius: 24px; box-shadow: var(--shadow); min-width: 0; overflow: hidden;} .main {display: flex; flex-direction: column;} .main > .body {flex: 1 0 auto;}
 .top {display: flex; align-items: center; gap: 12px; padding: 16px 22px; border-bottom: 1px solid var(--line);}
 .search {flex: 1; max-width: 320px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line);
          border-radius: 999px; padding: 9px 14px; color: var(--ink-3); background: var(--card);}
@@ -266,6 +266,11 @@ input.in:focus, select.in:focus {border-color: var(--accent); box-shadow: 0 0 0 
 .pill-btn:disabled {opacity: .55; cursor: default;}
 .pill-btn.block {width: 100%; justify-content: center; margin-top: 16px;}
 .link {background: none; border: 0; color: var(--accent); font-weight: 600; padding: 0; margin-top: 14px;}
+/* Resend code: grey while counting down, then solid with white text */
+.resend {margin-top: 10px; background: var(--soft); color: var(--ink-3); border-color: transparent; font-weight: 600; font-variant-numeric: tabular-nums;}
+.resend:disabled {opacity: 1; cursor: default;}
+.resend.ready {background: var(--dock); color: #fff; border-color: var(--dock-line);}
+.resend.ready:hover {filter: brightness(1.15);}
 .msg {border-radius: 14px; padding: 11px 14px; font-size: 14px; margin-top: 14px; background: var(--accent-soft); color: var(--ink);}
 .msg.bad {background: var(--red-bg);}
 .chips {display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;}
@@ -333,6 +338,31 @@ td .x {border: 0; background: none; color: var(--red); font-weight: 600;}
 .dock button {white-space: nowrap;}
 @media (max-width: 380px) {.dock {left: 8px; right: 8px;} .dock button {padding: 0 8px; min-width: 42px;} .dock button.on {padding: 0 12px; font-size: 13.5px; gap: 6px;}}
 .faq {border-top: 1px solid var(--line); padding: 12px 2px;} .faq:first-of-type {border-top: 0;} .faq summary {cursor: pointer; font-weight: 600;} .faq p {margin: 8px 0 0; color: var(--ink-2); line-height: 1.5;}
+/* Help: topics on the left, questions that open and close on the right; stacked on phones */
+.help {display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 40px; align-items: start; max-width: 1080px;}
+.help-side .head {margin-bottom: 6px;} .help .lede {color: var(--ink-2); font-size: 17px; line-height: 1.5; margin: 0 0 22px;}
+.help-chips {display: flex; flex-wrap: wrap; gap: 10px;}
+.hchip {border: 1.5px solid var(--ink); background: transparent; color: var(--ink); border-radius: 999px; padding: 9px 16px; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer;}
+.hchip:hover {background: var(--soft);} .hchip[aria-selected="true"] {background: var(--ink); color: var(--panel);}
+.acc {margin-bottom: 18px;}
+.acc-item {border-bottom: 1px solid var(--line);}
+.acc-q {display: flex; align-items: center; gap: 16px; width: 100%; background: none; border: 0; padding: 18px 2px; font: inherit; font-size: 17px; font-weight: 500; color: var(--ink); text-align: left; cursor: pointer;}
+.acc-q span {flex: 1;} .acc-q:hover span {color: var(--accent);}
+.acc-ico {position: relative; width: 18px; height: 18px; flex: none;}
+.acc-ico::before, .acc-ico::after {content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1.5px; margin-top: -.75px; background: var(--ink); transition: transform .2s;}
+.acc-ico::after {transform: rotate(90deg);} .acc-item.open .acc-ico::after {transform: rotate(0deg);}
+.acc-a {padding: 0 36px 18px 2px; color: var(--ink-2); line-height: 1.6;}
+.still {padding: 24px;} .still h2 {margin: 0 0 6px; font-size: 18px;} .still p {margin: 0 0 18px; color: var(--ink-2); line-height: 1.5;}
+.still .pill-btn svg {width: 18px; height: 18px;} a.pill-btn {text-decoration: none; color: var(--ink); display: inline-flex; align-items: center; gap: 6px;} .inbox-item .pill-btn svg {width: 15px; height: 15px;}
+.inbox-item {border-top: 1px solid var(--line); padding: 14px 2px;} .inbox-item:first-of-type {border-top: 0;}
+.inbox-item.done {opacity: .6;} .ib-top {display: flex; align-items: baseline; gap: 8px;} .ib-top small {margin-left: auto; white-space: nowrap;}
+.ib-acts {display: flex; flex-wrap: wrap; gap: 8px; align-items: center;} .ib-acts .x {border: 0; background: none; color: var(--red); font: inherit; font-weight: 600; cursor: pointer; padding: 6px 8px;} .inbox-item .msg-body {white-space: pre-wrap; margin: 8px 0 10px; line-height: 1.5;}
+@media (max-width: 900px) {
+  .help {grid-template-columns: minmax(0, 1fr); gap: 18px;}
+  .help .lede {font-size: 15px; margin-bottom: 16px;}
+  .help-chips {flex-wrap: nowrap; overflow-x: auto; margin: 0 -4px; padding: 2px 4px 6px;} .hchip {flex: none;}
+  .acc-q {font-size: 16px; padding: 16px 2px;} .acc-a {padding-right: 8px;}
+}
 .name small {flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right;} .name span {flex: 0 1 auto; min-width: 0; max-width: 72%;}
 button.chip.ghost {border-style: dashed; color: var(--accent); background: none;}
 #m-send {white-space: nowrap; grid-column: 1 / -1; order: -1;}

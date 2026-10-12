@@ -459,6 +459,49 @@ grant execute on function app_pastor_name(), app_is_mine(text, text) to authenti
 grant execute on function app_last_seen(), app_set_my_name(text), app_can_approve(), app_who(),
   app_approve_signup(uuid, text, boolean, text), app_reject_signup(uuid, text) to authenticated;
 
+-- ---------------------------------------------------------------- Help → Contact the admin
+-- Messages sent from the Help page. Anyone signed in can send one (through app_help_post, at most 5 an hour);
+-- only the main admin can read, mark done or delete them.
+create table if not exists help_messages (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  email text, name text, role text, church text, topic text,
+  message text not null check (length(message) between 1 and 2000),
+  done boolean not null default false
+);
+alter table help_messages enable row level security;
+drop policy if exists help_admin_read on help_messages;
+create policy help_admin_read on help_messages for select to authenticated using (app_role() = 'admin');
+drop policy if exists help_admin_update on help_messages;
+create policy help_admin_update on help_messages for update to authenticated using (app_role() = 'admin') with check (app_role() = 'admin');
+drop policy if exists help_admin_delete on help_messages;
+create policy help_admin_delete on help_messages for delete to authenticated using (app_role() = 'admin');
+grant select, update (done), delete on help_messages to authenticated;
+
+-- Saves the message with the sender's own details, and returns the main admins' emails so the server can email them.
+create or replace function app_help_post(topic text, message text) returns json
+language plpgsql volatile security definer set search_path = public as $
+declare
+  me text := lower(auth.jwt() ->> 'email'); u app_users; new_id uuid;
+begin
+  select * into u from app_users where email = me;
+  if u.email is null then raise exception 'not allowed'; end if;
+  message := trim(coalesce(message, ''));
+  if message = '' then raise exception 'Please type your message.'; end if;
+  if length(message) > 2000 then raise exception 'Please keep the message under 2000 characters.'; end if;
+  if (select count(*) from help_messages h where h.email = me and h.created_at > now() - interval '1 hour') >= 5 then
+    raise exception 'You have sent 5 messages in the last hour. Please try again later.';
+  end if;
+  insert into help_messages (email, name, role, church, topic, message)
+  values (me, u.name, u.role, coalesce(u.church, case when u.role in ('admin', 'bishop') then 'All churches' end),
+          left(trim(coalesce(topic, '')), 80), message)
+  returning id into new_id;
+  return json_build_object('id', new_id, 'name', coalesce(nullif(trim(u.name), ''), me), 'email', me, 'role', u.role, 'church', u.church,
+    'to', (select coalesce(json_agg(email), '[]'::json) from app_users where role = 'admin'));
+end $;
+revoke all on function app_help_post(text, text) from public, anon;
+grant execute on function app_help_post(text, text) to authenticated;
+
 -- ---------------------------------------------------------------- first church and first admin
 insert into churches (name) values (app_home_church()) on conflict do nothing;
 -- Then add yourself as the first admin (use your own email, lower case):
