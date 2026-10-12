@@ -255,15 +255,42 @@ function loginView(message, bad) {
     <div id="pw" hidden><label class="f" for="password">Password</label><input class="in" id="password" type="password" autocomplete="current-password"></div>
     <div id="code" hidden><label class="f" for="token">Code from the email</label><input class="in" id="token" inputmode="numeric" autocomplete="one-time-code"></div>
     <button class="pill-btn primary block" id="go"></button>
+    <button type="button" class="pill-btn block resend" id="resend" hidden disabled></button>
     <button type="button" class="link" id="forgot" hidden>Forgot it? Get an email code instead</button>
     ${message ? `<div class="msg ${bad ? "bad" : ""}">${esc(message)}</div>` : ""}
     <p class="note" style="margin-top:14px">No email? Check Spam. No access? Ask your church admin.</p>
   </form></div>`;
   const f = root.querySelector("#login"), pw = f.querySelector("#pw"), code = f.querySelector("#code"), go = f.querySelector("#go");
-  let sent = false;
+  let sent = false, sentTo = "", tick = null;
+  const resend = f.querySelector("#resend"), emailIn = f.querySelector("#email");
+  const say = (text, bad) => { f.querySelectorAll(".msg").forEach(m => m.remove()); f.insertAdjacentHTML("beforeend", `<div class="msg ${bad ? "bad" : ""}">${esc(text)}</div>`); };
+  // "Resend code": grey and counting down for 25 seconds after a code is sent, then a solid button with white text.
+  const countdown = (secs = 25) => {
+    clearInterval(tick); resend.disabled = true; resend.classList.remove("ready");
+    const draw = () => { resend.textContent = secs > 0 ? `Resend code in ${secs}s` : "Resend code"; };
+    draw();
+    tick = setInterval(() => {
+      if (!document.body.contains(resend)) return clearInterval(tick);
+      secs -= 1; draw();
+      if (secs <= 0) { clearInterval(tick); resend.disabled = false; resend.classList.add("ready"); }
+    }, 1000);
+  };
+  const sendCode = async email => {
+    try { await auth("otp?redirect_to=" + encodeURIComponent(location.origin + location.pathname), {email, create_user: true}); }
+    catch (err) {  // Supabase allows one email per address every so often and says how long to wait
+      const wait = +(err.message.match(/after (\d+) seconds?/i) || [])[1];
+      if (wait && sent && email === sentTo) { countdown(wait); say(`Please wait ${wait} seconds, then tap Resend code.`, true); return false; }
+      throw err;
+    }
+    sent = true; sentTo = email; show("code"); countdown();
+    say(`Check ${email} for an email from us. Type the code above, or tap the link in the email.`);
+    f.querySelector("#token").focus();
+    return true;
+  };
   const show = m => {
     mode = m; f.querySelectorAll("[data-m]").forEach(b => b.setAttribute("aria-selected", b.dataset.m === m));
     pw.hidden = m !== "pw"; code.hidden = m !== "code" || !sent; f.querySelector("#forgot").hidden = m !== "pw";
+    resend.hidden = m !== "code" || !sent;
     f.querySelector("#how").textContent = m === "pw" ? "Use the password you set in the app." : "We'll email you a code. You can also tap the link in that email.";
     go.textContent = m === "pw" ? "Sign in" : sent ? "Sign in with the code" : "Email me a code";
   };
@@ -271,6 +298,18 @@ function loginView(message, bad) {
   if (had) f.querySelector("#email").value = had;
   f.querySelectorAll("[data-m]").forEach(b => b.onclick = () => show(b.dataset.m));
   f.querySelector("#forgot").onclick = () => show("code");
+  // Typed the wrong email? Changing it goes back to "Email me a code" for the new address.
+  emailIn.addEventListener("input", () => {
+    if (!sent || emailIn.value.trim().toLowerCase() === sentTo) return;
+    sent = false; clearInterval(tick); f.querySelector("#token").value = ""; f.querySelectorAll(".msg").forEach(m => m.remove()); show(mode);
+  });
+  resend.onclick = async () => {
+    const email = emailIn.value.trim().toLowerCase(), wrong = emailProblem(email);
+    if (wrong) return say(wrong, true);
+    resend.disabled = true;
+    try { if (await sendCode(email)) say(`A new code is on its way to ${email}. Use the newest email.`); }
+    catch (err) { say(err.message, true); resend.disabled = false; }
+  };
   show(mode);
   f.onsubmit = async e => {
     e.preventDefault();
@@ -280,15 +319,13 @@ function loginView(message, bad) {
     try {
       if (mode === "pw") { keep(await auth("token?grant_type=password", {email, password: f.querySelector("#password").value})); S.via = "password"; try { localStorage.setItem("fcc-pw", email); } catch {} }
       else if (sent && f.querySelector("#token").value.trim()) { keep(await auth("verify", {type: "email", email, token: f.querySelector("#token").value.trim()})); S.via = "email"; }
-      else {
-        await auth("otp?redirect_to=" + encodeURIComponent(location.origin + location.pathname), {email, create_user: true});
-        sent = true; show("code"); go.disabled = false; f.querySelector("#token").focus();
-        f.querySelectorAll(".msg").forEach(m => m.remove());
-        f.insertAdjacentHTML("beforeend", `<div class="msg">Check ${esc(email)} for an email from us. Type the code above, or tap the link in the email.</div>`);
-        return;
-      }
-      start();
-    } catch (err) { go.disabled = false; loginView(/invalid login/i.test(err.message) ? "That email and password don't match. Try again, or get an email code instead." : err.message, true); }
+      else if (sent && email === sentTo) { go.disabled = false; f.querySelector("#token").focus(); return say("Type the code from the email first, or tap Resend code.", true); }
+      else { await sendCode(email); go.disabled = false; return; }
+      clearInterval(tick); start();
+    } catch (err) {
+      go.disabled = false;
+      if (mode === "code" && sent) return say(/expired|invalid/i.test(err.message) ? "That code didn't work. Check it, or tap Resend code for a new one." : err.message, true);
+      clearInterval(tick); loginView(/invalid login/i.test(err.message) ? "That email and password don't match. Try again, or get an email code instead." : err.message, true); }
   };
 }
 
@@ -414,6 +451,8 @@ const ICON = {
   mine: '<path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+  inbox: '<path d="M4 13l2.5-7h11L20 13v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M4 13h4.5l1 2h5l1-2H20"/>',
   back: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   prev: '<path d="M15 6l-6 6 6 6"/>',
@@ -1205,9 +1244,10 @@ async function admin(el) {
   const users = await api("app_users?select=email,role,church,name,pastor&order=email").catch(() => api("app_users?select=email,role,church,name&order=email")).catch(() => []);
   const pnames = [...new Set(Object.values(S.pastorList).flat())].sort();  // names on every church's pastor list
   const space = await api("rpc/app_db_size", {method: "POST", body: {}}).catch(() => null);  // null until the newer setup SQL has been run
+  const inbox = await api("help_messages?select=*&order=created_at.desc&limit=50").catch(() => null);  // messages sent from Help
   if (S.view !== "admin") return;
   const LIMIT = 500 * 1024 * 1024, mb = b => b >= 1024 * 1024 ? `${(b / 1048576).toFixed(b < 10 * 1048576 ? 1 : 0)} MB` : `${Math.max(1, Math.round(b / 1024))} kB`;
-  const LABEL = {activity_log: "Activity log", attendance: "Ticks", members: "People", registrations: "Sign-ups", email_log: "Emails sent", services: "Services", settings: "Settings", app_users: "Sign-ins", churches: "Churches"};
+  const LABEL = {activity_log: "Activity log", attendance: "Ticks", members: "People", registrations: "Sign-ups", email_log: "Emails sent", services: "Services", settings: "Settings", app_users: "Sign-ins", churches: "Churches", help_messages: "Help messages"};
   const pct = space ? Math.min(100, space.total / LIMIT * 100) : 0;
   const spaceCard = `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Database space</h2><span class="gap"></span>
       ${space ? `<span style="color:var(--ink-3);font-size:13px">${mb(LIMIT - space.total)} left</span>` : ""}</div>
@@ -1216,7 +1256,20 @@ async function admin(el) {
         Biggest: ${(space.tables || []).slice(0, 3).map(t => `${esc(LABEL[t.name] || t.name)} ${mb(t.bytes)}`).join(" · ")}</p>`
       : `<p class="note" style="margin:0">Run the latest setup SQL in Supabase once to see this.</p>`}</div>`;
   if (S.view !== "admin") return;
-  el.innerHTML = head("Admin", "") + spaceCard + `
+  const fresh = (inbox || []).filter(m => !m.done), shown = S.inboxAll ? inbox || [] : fresh;
+  const when = t => { const d = new Date(t); return d.toLocaleDateString(undefined, {day: "numeric", month: "short"}) + ", " + d.toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"}); };
+  const inboxCard = `<div class="card" style="margin-bottom:14px" id="inbox"><div class="card-head"><h2>Messages${fresh.length ? ` <span class="badge red">${fresh.length} new</span>` : ""}</h2><span class="gap"></span>
+      ${inbox?.length ? `<button class="link" style="margin:0" id="inbox-all">${S.inboxAll ? "Hide done" : "Show done too"}</button>` : ""}</div>
+    ${inbox === null ? `<p class="note" style="margin:0">Run the latest setup SQL in Supabase once to get messages from the Help page here.</p>`
+      : !shown.length ? `<p class="empty" style="margin:0">No ${inbox.length ? "new " : ""}messages. When someone uses Contact the admin on the Help page, it shows here and is emailed to you.</p>`
+      : shown.map(m => `<div class="inbox-item ${m.done ? "done" : ""}">
+        <div class="ib-top"><b>${esc(m.name || m.email)}</b><small class="muted">${esc(when(m.created_at))}</small></div>
+        <small class="muted">${esc([m.name ? m.email : "", ROLE[m.role] || m.role, m.church, m.topic].filter(Boolean).join(" · "))}</small>
+        <div class="msg-body">${esc(m.message)}</div>
+        <div class="ib-acts"><a class="pill-btn sm" href="mailto:${esc(m.email)}?subject=${encodeURIComponent("Re: " + (m.topic || "your message"))}">${svg("mail")}Reply</a>
+          <button class="pill-btn sm" data-done="${m.id}" data-v="${!m.done}">${m.done ? "Mark as new" : "Mark done"}</button>
+          <button class="x" data-mdel="${m.id}">Delete</button></div></div>`).join("")}</div>`;
+  el.innerHTML = head("Admin", "") + inboxCard + spaceCard + `
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Churches</h2></div>
       <div class="chips">${S.churches.map(c => c === S.me.home ? `<span class="chip">${esc(c)} · home church</span>`
         : `<button class="chip" data-rename="${esc(c)}" title="Rename ${esc(c)}">${esc(c)}${svg("edit")}</button>`).join("")}</div>
@@ -1275,6 +1328,14 @@ async function admin(el) {
       toast("Saved. They will see the change next time they open the app."); render();
     });
   });
+  const ib = el.querySelector("#inbox-all"); if (ib) ib.onclick = () => { S.inboxAll = !S.inboxAll; render(); };
+  el.querySelectorAll("[data-done]").forEach(b => b.onclick = async () => {
+    try { await api(`help_messages?id=eq.${b.dataset.done}`, {method: "PATCH", prefer: "return=minimal", body: {done: b.dataset.v === "true"}}); render(); }
+    catch (err) { toast("Not saved: " + err.message); } });
+  el.querySelectorAll("[data-mdel]").forEach(b => { let armed = false; b.onclick = async () => {
+    if (!armed) { armed = true; b.textContent = "Tap again to delete"; setTimeout(() => { armed = false; b.textContent = "Delete"; }, 4000); return; }
+    try { await api(`help_messages?id=eq.${b.dataset.mdel}`, {method: "DELETE", prefer: "return=minimal"}); toast("Deleted."); render(); }
+    catch (err) { toast("Not deleted: " + err.message); } }; });
   el.querySelectorAll("[data-del]").forEach(b => b.onclick = () => again(() => api(`app_users?email=eq.${encodeURIComponent(b.dataset.del)}`, {method: "DELETE", prefer: "return=minimal"})));
 }
 
@@ -1560,36 +1621,98 @@ async function reports(el) {
   }, "Send now");
 }
 
-// ---------------------------------------------------------------- help: quick fixes and who to contact
-async function help(el) {
-  const admin = S.me.role === "admin";
-  el.innerHTML = head("Help", "") + `<p class="empty">Loading…</p>`;
-  let contact = "";
-  try { contact = (await api("settings?select=value&key=eq.help_contact"))[0]?.value || ""; } catch {}
-  if (S.view !== "help") return;
-  const link = t => esc(t).replace(/[^\s<>@]+@[^\s<>@]+\.[a-z]{2,}/gi, m => `<a href="mailto:${m}">${m}</a>`).replace(/\+?\d[\d ]{6,}\d/g, m => `<a href="tel:${m.replace(/ /g, "")}">${m}</a>`);
-  const faq = [
-    ["I can't see a person on the list", "Check the church name at the top is the right one, then use the search box. If they are new, add them at the bottom of Check-in."],
-    ["I ticked the wrong person", "Tap their name again on Check-in to untick them. Nothing else is changed."],
-    ["A name, phone number or role is wrong", "A church admin can fix it: Congregation, then Edit beside the name."],
-    ["The numbers look out of date", "Pull the page down to refresh, or close the app and open it again."],
-    ["The sign-in email didn't arrive", "Wait two minutes, check Spam or Junk, and check the email address is spelled correctly."],
-    ["I need to see more than I can", "Ask the admin below to change your role."],
+// ---------------------------------------------------------------- help: questions by topic, and a message to the admin
+function helpTopics() {
+  const r = S.me.role, ticks = r !== "bishop", adds = ["admin", "lead", "team"].includes(r), edits = ["admin", "lead"].includes(r);
+  const t = [
+    ["start", "Getting started", [
+      ["How do I put the app on my phone?", "iPhone: open the app in Safari, tap Share, then Add to Home Screen.\nAndroid: open it in Chrome, tap the ⋮ menu, then Add to Home screen or Install app.\nIt then opens like any other app."],
+      ["What can I see in the app?", {admin: "As the main admin you see every church, and you can change who can sign in on the Admin page.",
+        bishop: "You see the numbers for every church on the Churches page: pick a day on the calendar and a church to see its dashboard.",
+        lead: "You see everything for your own church: check-in, the congregation list, reports and follow-up.",
+        team: "You can tick people in on Check-in and look up people in your church.",
+        pastor: "You see only the people assigned to you: how many came, who wasn't there and who needs a call."}[r] || "Ask the admin below if you need to see more."],
+      ["The app looks old or out of date", "Pull the page down to refresh. If it still looks old, close the app fully (swipe it away) and open it again. It updates itself after that."],
+    ]],
+    ...(ticks ? [["checkin", "Check-in", [
+      ["I can't see a person on the list", "Check the church name at the top is the right one, then use the search box." + (adds ? " If they are new, add them at the bottom of Check-in." : " If they are new, ask an usher or church admin to add them.")],
+      ["I ticked the wrong person", "Tap their name again to untick them. Nothing else is changed."],
+      ...(adds ? [["Someone new came but I don't have their number", "That's fine: the phone number is optional on Check-in. Add it later with Edit on the Congregation page."]] : []),
+      ["It says the service is locked", "Tap Unlock at the top of Check-in, make your change, then tap Save & lock again so the ticks stay safe."],
+    ]]] : []),
+    ["people", "People and follow-up", [
+      ["What do red and yellow mean?", `Yellow: missed ${YELLOW_AT}–${RED_AT - 1} services in a row. Red: missed ${RED_AT} or more. These are the people to call. Visitors are never flagged.`],
+      ["A name, phone number or role is wrong", edits ? "Open Congregation, find the person and tap Edit." : "Ask your church admin to fix it, or send a message to the admin below."],
+      ["How do I share the numbers on WhatsApp?", "On a phone, tap the WhatsApp button on your home page. It writes the message for you to send. On a computer you can copy the text instead."],
+    ]],
+    ["account", "Sign-in and account", [
+      ["The sign-in email didn't arrive", "Wait a minute and check Spam or Junk. If you typed the email wrong, fix it and tap Email me a code again. You can also tap Resend code after 25 seconds."],
+      ["How do I sign in faster?", "Set a password: you'll be offered one after signing in with a code, or set it any time in Your account. Next time choose Password."],
+      ["I forgot my password", "On the sign-in page choose Email code instead. Once you're in, set a new password in Your account."],
+      ["I need to see more than I can", "Send a message to the admin below and say what you need."],
+    ]],
   ];
-  el.innerHTML = head("Help", "") + `
-    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Contact the admin</h2></div>
-      ${contact ? `<p style="white-space:pre-line;margin:0;line-height:1.6">${link(contact)}</p>` : `<p class="empty">${admin ? "Nothing is shown here yet. Add how people can reach you below." : "Ask your church admin or pastor."}</p>`}
-      ${admin ? `<form id="hc" style="margin-top:14px"><label class="f" for="hc-text">What everyone sees here</label>
-        <textarea class="in" id="hc-text" rows="3" maxlength="400" placeholder="Name, phone, email">${esc(contact)}</textarea>
-        <div class="row" style="margin-top:12px"><p class="note" style="margin:0">Everyone signed in sees this.</p>
-          <div style="flex:0 0 auto"><button class="pill-btn primary">Save</button></div></div></form>` : ""}</div>
-    <div class="card"><div class="card-head"><h2>Quick fixes</h2></div>
-      ${faq.map(([q, a]) => `<details class="faq"><summary>${esc(q)}</summary><p>${esc(a)}</p></details>`).join("")}</div>`;
-  const f = el.querySelector("#hc");
-  if (f) f.onsubmit = async e => {
+  return t;
+}
+
+async function help(el) {
+  const topics = helpTopics();
+  if (!topics.some(t => t[0] === S.helpTopic)) S.helpTopic = topics[0][0];
+  const topic = topics.find(t => t[0] === S.helpTopic);
+  el.innerHTML = `<div class="help">
+    <div class="help-side"><div class="head"><div><h1>Help</h1></div></div>
+      <p class="lede">Answers to common questions about the app, and a quick way to reach the admin.</p>
+      <div class="help-chips" role="tablist" aria-label="Topics">${topics.map(([k, name]) =>
+        `<button class="hchip" role="tab" data-ht="${k}" aria-selected="${k === S.helpTopic}">${esc(name)}</button>`).join("")}</div></div>
+    <div class="help-main">
+      <div class="acc">${topic[2].map(([q, a], i) => `<div class="acc-item${i === 0 ? " open" : ""}">
+        <button class="acc-q" aria-expanded="${i === 0}" aria-controls="acc-${i}"><span>${esc(q)}</span><i class="acc-ico" aria-hidden="true"></i></button>
+        <div class="acc-a" id="acc-${i}" ${i === 0 ? "" : "hidden"}>${esc(a).replace(/\n/g, "<br>")}</div></div>`).join("")}</div>
+      <div class="card still"><h2>Still have questions?</h2>
+        <p>Send a message to the admin and they'll get back to you.</p>
+        <button class="pill-btn primary" id="contact">${svg("mail")}Contact the admin</button></div>
+    </div></div>`;
+  el.querySelectorAll("[data-ht]").forEach(b => b.onclick = () => { S.helpTopic = b.dataset.ht; help(el); });
+  el.querySelectorAll(".acc-q").forEach(b => b.onclick = () => {
+    const item = b.closest(".acc-item"), open = !item.classList.contains("open");
+    el.querySelectorAll(".acc-item.open").forEach(x => { x.classList.remove("open"); x.querySelector(".acc-q").setAttribute("aria-expanded", false); x.querySelector(".acc-a").hidden = true; });
+    if (open) { item.classList.add("open"); b.setAttribute("aria-expanded", true); item.querySelector(".acc-a").hidden = false; }
+  });
+  el.querySelector("#contact").onclick = () => contactDialog(topic[1]);
+}
+
+// The message form: it goes to the main admin by email and into the Messages inbox on the Admin page.
+function contactDialog(topicName) {
+  document.querySelectorAll(".modal").forEach(m => m.remove());
+  const topics = helpTopics().map(t => t[1]).concat("Something else");
+  const d = document.createElement("div"); d.className = "modal";
+  d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="Contact the admin">
+    <div class="card-head"><h2>Contact the admin</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+    <div class="fields">
+      <div><label class="f">From</label><p style="margin:2px 2px 0">${esc(S.me.name || S.me.email)}${S.me.name ? ` <span class="muted">· ${esc(S.me.email)}</span>` : ""}</p></div>
+      <div><label class="f" for="ct-topic">About</label><select class="in" id="ct-topic">${topics.map(t => `<option ${t === topicName ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></div>
+      <div><label class="f" for="ct-msg">Message</label><textarea class="in" id="ct-msg" rows="5" maxlength="2000" required placeholder="What do you need help with?"></textarea>
+        <p class="note" style="margin:6px 2px 0">The admin replies to your email address.</p></div></div>
+    <div class="msg bad" id="ct-err" hidden></div>
+    <div class="modal-foot"><button type="button" class="pill-btn" data-x>Cancel</button><button class="pill-btn primary" id="ct-go">Send message</button></div></form>`;
+  document.body.append(d);
+  const close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
+  d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
+  document.addEventListener("keydown", onKey);
+  d.querySelector("#ct-msg").focus();
+  d.querySelector("form").onsubmit = async e => {
     e.preventDefault();
-    try { await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key: "help_contact", value: f.querySelector("#hc-text").value.trim()}}); toast("Saved."); render(); }
-    catch (err) { toast(/row-level|policy/i.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
+    const go = d.querySelector("#ct-go"), err = d.querySelector("#ct-err"), message = d.querySelector("#ct-msg").value.trim();
+    if (!message) return;
+    go.disabled = true; go.textContent = "Sending…"; err.hidden = true;
+    try {
+      if (S.session.expires_at - Date.now() < 60000) await refresh();
+      const r = await fetch("/app-help", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Bearer " + S.session.access_token},
+        body: JSON.stringify({topic: d.querySelector("#ct-topic").value, message})});
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.message || "The message was not sent. Please try again.");
+      close(); toast("Message sent. The admin will get back to you.");
+    } catch (ex) { err.textContent = ex.message; err.hidden = false; go.disabled = false; go.textContent = "Send message"; }
   };
 }
 
