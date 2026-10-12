@@ -333,7 +333,8 @@ function loginView(message, bad) {
 // Password rules: shown as a live checklist under the two boxes, and checked again before saving.
 const PW_RULES = [
   ["len", "At least 10 characters", (a) => a.length >= 10],
-  ["mix", "Letters and at least one number", (a) => /[A-Za-z]/.test(a) && /\d/.test(a)],
+  ["case", "A capital and a small letter", (a) => /[A-Z]/.test(a) && /[a-z]/.test(a)],
+  ["num", "At least one number", (a) => /\d/.test(a)],
   ["same", "Both passwords match", (a, b) => a.length > 0 && a === b],
 ];
 const pwProblem = (a, b) => (PW_RULES.find(([, , ok]) => !ok(a, b)) || [])[1] || "";
@@ -346,7 +347,7 @@ function pwChecks(box, p1, p2, go) {
       const li = box.querySelector(`[data-r="${k}"]`), good = ok(a, b), touched = k === "same" ? b.length > 0 : a.length > 0;
       li.className = good ? "ok" : touched ? "bad" : "";
     });
-    const firstOk = PW_RULES.slice(0, 2).every(([, , ok]) => ok(a, b));
+    const firstOk = PW_RULES.filter(([k]) => k !== "same").every(([, , ok]) => ok(a, b));
     p1.classList.toggle("ok", firstOk); p1.classList.toggle("bad", a.length > 0 && !firstOk);
     p2.classList.toggle("ok", b.length > 0 && a === b && firstOk); p2.classList.toggle("bad", b.length > 0 && a !== b);
     go.disabled = !!pwProblem(a, b);
