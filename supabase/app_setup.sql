@@ -480,7 +480,7 @@ grant select, update (done), delete on help_messages to authenticated;
 
 -- Saves the message with the sender's own details, and returns the main admins' emails so the server can email them.
 create or replace function app_help_post(topic text, message text) returns json
-language plpgsql volatile security definer set search_path = public as $
+language plpgsql volatile security definer set search_path = public as $$
 declare
   me text := lower(auth.jwt() ->> 'email'); u app_users; new_id uuid;
 begin
@@ -498,7 +498,7 @@ begin
   returning id into new_id;
   return json_build_object('id', new_id, 'name', coalesce(nullif(trim(u.name), ''), me), 'email', me, 'role', u.role, 'church', u.church,
     'to', (select coalesce(json_agg(email), '[]'::json) from app_users where role = 'admin'));
-end $;
+end $$;
 revoke all on function app_help_post(text, text) from public, anon;
 grant execute on function app_help_post(text, text) to authenticated;
 
