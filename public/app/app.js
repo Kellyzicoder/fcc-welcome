@@ -1269,13 +1269,21 @@ async function admin(el) {
         <div class="ib-acts"><a class="pill-btn sm" href="mailto:${esc(m.email)}?subject=${encodeURIComponent("Re: " + (m.topic || "your message"))}">${svg("mail")}Reply</a>
           <button class="pill-btn sm" data-done="${m.id}" data-v="${!m.done}">${m.done ? "Mark as new" : "Mark done"}</button>
           <button class="x" data-mdel="${m.id}">Delete</button></div></div>`).join("")}</div>`;
-  el.innerHTML = head("Admin", "") + inboxCard + spaceCard + `
+  // Tabs: one area at a time. Opens on Messages when there are new ones, otherwise on Sign-ins; then remembers the choice.
+  const TABS = [["messages", "Messages", fresh.length], ["names", "Sign-ins", users.length], ["churches", "Churches", S.churches.length], ["space", "Space", 0]];
+  if (!TABS.some(t => t[0] === S.adminTab)) S.adminTab = fresh.length ? "messages" : "names";
+  const tab = k => `data-at="${k}" ${S.adminTab === k ? "" : "hidden"}`;
+  el.innerHTML = head("Admin", "") + `<div class="atabs" role="tablist" aria-label="Admin">${TABS.map(([k, name, n]) =>
+      `<button role="tab" data-atab="${k}" aria-selected="${S.adminTab === k}">${name}${k === "messages" && n ? ` <span class="anum new">${n}</span>` : k !== "space" && k !== "messages" ? ` <span class="anum">${n}</span>` : ""}</button>`).join("")}</div>
+    <section ${tab("messages")}>${inboxCard}</section><section ${tab("space")}>${spaceCard}</section>
+    <section ${tab("churches")}>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Churches</h2></div>
       <div class="chips">${S.churches.map(c => c === S.me.home ? `<span class="chip">${esc(c)} · home church</span>`
         : `<button class="chip" data-rename="${esc(c)}" title="Rename ${esc(c)}">${esc(c)}${svg("edit")}</button>`).join("")}</div>
       <p class="note" style="margin:-4px 2px 14px">Tap a church to rename it.</p>
       <form class="row" id="add-church"><div><label class="f" for="c-name">New church</label><input class="in" id="c-name" placeholder="e.g. Melbourne" required></div>
-        <div style="flex:0 0 auto"><button class="pill-btn primary">Add church</button></div></form></div>
+        <div style="flex:0 0 auto"><button class="pill-btn primary">Add church</button></div></form></div></section>
+    <section ${tab("names")}>
     <div class="card"><div class="card-head"><h2>People who can sign in</h2></div>
       <div class="scroll"><table><thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Church</th><th></th></tr></thead><tbody>
       ${users.map(u => `<tr><td>${esc(u.email)}</td><td class="muted">${esc(u.name || "")}</td><td>${ROLE[u.role]}${u.role === "pastor" ? `<br><small class="muted">${esc(u.pastor || "No pastor name yet")}</small>` : ""}</td><td class="muted">${esc(u.church || "All churches")}</td>
@@ -1288,7 +1296,12 @@ async function admin(el) {
           <datalist id="u-pastor-list">${pnames.map(n => `<option value="${esc(n)}">`).join("")}</datalist></div>
         <div><label class="f" for="u-church">Church</label><select class="in" id="u-church">${S.churches.map(c => `<option>${esc(c)}</option>`).join("")}</select></div>
         <div style="flex:0 0 auto"><button class="pill-btn primary">Add person</button></div></form>
-      </div>`;
+      </div></section>`;
+  el.querySelectorAll("[data-atab]").forEach(b => b.onclick = () => {
+    S.adminTab = b.dataset.atab;
+    el.querySelectorAll("[data-atab]").forEach(x => x.setAttribute("aria-selected", x === b));
+    el.querySelectorAll("section[data-at]").forEach(x => x.hidden = x.dataset.at !== S.adminTab);
+  });
   const again = async fn => { try { await fn(); } catch (err) { toast("Not saved: " + err.message); } S.churches = (await api("churches?select=name&order=name")).map(c => c.name); render(); };
   el.querySelectorAll("[data-rename]").forEach(b => b.onclick = () => formDialog(`Rename ${b.dataset.rename}`, [
     {k: "name", label: "New name", value: b.dataset.rename, required: true, hint: "If this church has passwords on the Streamlit site, rename it in the Streamlit Secrets too."}],
