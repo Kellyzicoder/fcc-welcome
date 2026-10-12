@@ -306,9 +306,16 @@ input.in:focus, select.in:focus {border-color: var(--accent); box-shadow: 0 0 0 
 .b-key.yellow, .b-track i.yellow {background: var(--yellow);} .b-key.blue, .b-track i.blue {background: var(--info);}
 .b-track {height: 10px; border-radius: 99px; background: var(--line); overflow: hidden;} .b-track i {display: block; height: 100%; border-radius: inherit;}
 @media (max-width: 900px) {
-  .bish {grid-template-columns: 1fr; grid-template-areas: "cal" "list" "detail";}
-  .bish.open .b-list {display: none;} .bish:not(.open) .b-detail {display: none;} .b-back {display: inline-flex;}
-  .bish.open {grid-template-areas: "detail" "cal";}
+  /* phones: the same page as on a computer, stacked - churches as a row to swipe, the dashboard, then the calendar */
+  .bish {grid-template-columns: minmax(0, 1fr); grid-template-areas: "list" "detail" "cal"; gap: 12px;}
+  .b-list {display: flex; gap: 8px; overflow-x: auto; padding: 8px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;}
+  .b-item {flex: 0 0 auto; width: auto; min-width: 128px; padding: 10px 12px; border: 1px solid var(--line); scroll-snap-align: start;}
+  .b-item:first-child {border-bottom: 1px solid var(--line); border-radius: 14px; margin-bottom: 0;}
+  .b-item > svg, .b-item .spark {display: none;}
+  .b-item.on {border-color: var(--accent);}
+  .b-num {font-size: 18px; min-width: 0;}
+  .b-title h2 {font-size: 19px;}
+  .b-bar {grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) 2em; gap: 10px;} .b-bar > span:first-child {font-size: 14px;}
 }
 .meter {height: 12px; border-radius: 99px; background: var(--line); overflow: hidden;} .meter i {display: block; height: 100%; border-radius: inherit; background: var(--accent);}
 .meter.warn i {background: #e0a100;} .meter.bad i {background: #d64545;}
