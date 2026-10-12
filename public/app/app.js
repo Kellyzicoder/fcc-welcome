@@ -1630,4 +1630,25 @@ let saved = null; try { saved = localStorage.getItem("fcc-mode"); } catch {}
 setMode(saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
 try { S.emoji = localStorage.getItem("fcc-emoji") !== "off"; } catch {}
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+
+// Phones (iPhones especially) can keep running an old copy of the app for days. Each time the app is opened or
+// brought back to the front, compare the copy we have with the one on the server; if a newer one exists, reload.
+let lastCheck = 0;
+async function freshCheck() {
+  if (Date.now() - lastCheck < 60000) return;
+  lastCheck = Date.now();
+  try {
+    const tag = r => r.headers.get("etag") || r.headers.get("last-modified") || "";
+    const have = tag(await fetch("app.js", {cache: "force-cache"}));
+    const live = tag(await fetch("app.js", {cache: "reload"}));   // also refreshes the phone's stored copy
+    await fetch("index.html", {cache: "reload"});
+    if (!have || !live || have === live) return;
+    const key = "fcc-updated:" + live;                            // never loop: reload at most once per version
+    if (sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, "1");
+    location.reload();
+  } catch {}
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") freshCheck(); });
+setTimeout(freshCheck, 3000);
 start().catch(e => fatal(e.message));
