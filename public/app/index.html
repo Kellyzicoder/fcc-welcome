@@ -354,6 +354,15 @@ td .x {border: 0; background: none; color: var(--red); font-weight: 600;}
 .acc-a {padding: 0 36px 18px 2px; color: var(--ink-2); line-height: 1.6;}
 .still {padding: 24px;} .still h2 {margin: 0 0 6px; font-size: 18px;} .still p {margin: 0 0 18px; color: var(--ink-2); line-height: 1.5;}
 .still .pill-btn svg {width: 18px; height: 18px;} a.pill-btn {text-decoration: none; color: var(--ink); display: inline-flex; align-items: center; gap: 6px;} .inbox-item .pill-btn svg {width: 15px; height: 15px;}
+/* Admin tabs */
+.atabs {display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); margin: 0 0 14px; overflow-x: auto; width: max-content; max-width: 100%;}
+.atabs button {border: 0; background: none; color: var(--ink-2); font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 10px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 7px;}
+.atabs button:hover {color: var(--ink);}
+.atabs button[aria-selected="true"] {background: var(--accent); color: var(--accent-ink);}
+.anum {font-size: 12px; font-weight: 700; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--soft); color: var(--ink-2); text-align: center;}
+.anum.new {background: var(--red); color: #fff;}
+.atabs button[aria-selected="true"] .anum:not(.new) {background: rgba(255,255,255,.22); color: #fff;}
+@media (max-width: 900px) {.atabs {display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: auto; gap: 2px;} .atabs button {justify-content: center; padding: 9px 2px; font-size: 13.5px; gap: 4px;} .atabs .anum:not(.new) {display: none;} .atabs button {position: relative; font-size: 13px;} .atabs {overflow: visible;} .atabs .anum.new {position: absolute; top: -7px; right: -2px; font-size: 10px; min-width: 16px; padding: 0 4px; line-height: 16px;}}
 .inbox-item {border-top: 1px solid var(--line); padding: 14px 2px;} .inbox-item:first-of-type {border-top: 0;}
 .inbox-item.done {opacity: .6;} .ib-top {display: flex; align-items: baseline; gap: 8px;} .ib-top small {margin-left: auto; white-space: nowrap;}
 .ib-acts {display: flex; flex-wrap: wrap; gap: 8px; align-items: center;} .ib-acts .x {border: 0; background: none; color: var(--red); font: inherit; font-weight: 600; cursor: pointer; padding: 6px 8px;} .inbox-item .msg-body {white-space: pre-wrap; margin: 8px 0 10px; line-height: 1.5;}
