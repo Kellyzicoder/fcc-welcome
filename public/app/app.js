@@ -335,6 +335,7 @@ const PW_RULES = [
   ["len", "At least 10 characters", (a) => a.length >= 10],
   ["case", "A capital and a small letter", (a) => /[A-Z]/.test(a) && /[a-z]/.test(a)],
   ["num", "At least one number", (a) => /\d/.test(a)],
+  ["sym", "At least one symbol, like ! # @ or ?", (a) => /[!@#$%^&*()_+\-=\[\]{};':"\\|<>?,.\/`~]/.test(a)],  // the same symbols Supabase accepts
   ["same", "Both passwords match", (a, b) => a.length > 0 && a === b],
 ];
 const pwProblem = (a, b) => (PW_RULES.find(([, , ok]) => !ok(a, b)) || [])[1] || "";
