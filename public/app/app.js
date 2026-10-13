@@ -1615,8 +1615,8 @@ async function reports(el) {
   el.innerHTML = head("Reports", sub) + `
     <form class="card" id="to" style="margin-bottom:14px"><div class="card-head"><h2>Who gets the email</h2></div>
       <label class="f" for="emails">Email addresses, one per line</label>
-      <textarea class="in" id="emails" rows="${Math.max(3, list.length + 1)}" placeholder="name@example.com">${esc(list.join("\n"))}</textarea>
-      <div class="row" style="margin-top:12px"><p class="note" style="margin:0">${list.length ? "" : "Add an address and press Save first."}</p>
+      <textarea class="in" id="emails" rows="${Math.max(3, list.length + 1)}" placeholder="e.g. fcc@gmail.com&#10;usher@gmail.com">${esc(list.join("\n"))}</textarea>
+      <div class="row" style="margin-top:12px"><p class="note" style="margin:0">${list.length ? "To take someone off, delete their line and press Save." : "Type the leaders' email addresses, then press Save."}</p>
         <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap"><button class="pill-btn">Save</button><button type="button" class="pill-btn primary" id="send" ${list.length && p.last ? "" : "disabled"}>${svg("reports")}Send report now</button></div></div></form>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Emails sent</h2></div>
       ${sent.length ? `<div class="scroll"><table><thead><tr><th>Sent</th><th>Report for</th><th>Type</th><th>To</th><th>Result</th></tr></thead><tbody>
@@ -1632,9 +1632,8 @@ async function reports(el) {
     e.preventDefault();
     const items = el.querySelector("#emails").value.split(/[,\s;]+/).filter(Boolean), bad = items.map(emailProblem).filter(Boolean);
     if (bad.length) return toast("Not saved: " + bad[0]);
-    if (!items.length) return toast("Not saved: add at least one email address.");
-    const value = [...new Set(items.map(x => x.toLowerCase()))].join(", ");
-    try { await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key, value}}); toast("Saved."); render(); }
+    const value = [...new Set(items.map(x => x.toLowerCase()))].join(", ");  // an empty box clears the list
+    try { await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key, value}}); toast(value ? "Saved." : "List cleared. Nobody will get the report until you add an address."); render(); }
     catch (err) { toast("Not saved: " + err.message); }
   };
   const type = typeName, age = m => isKid(m) ? "Child" : "Adult";
