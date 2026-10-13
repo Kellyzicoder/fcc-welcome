@@ -1615,7 +1615,7 @@ async function reports(el) {
   el.innerHTML = head("Reports", sub) + `
     <form class="card" id="to" style="margin-bottom:14px"><div class="card-head"><h2>Who gets the email</h2></div>
       <label class="f" for="emails">Email addresses, one per line</label>
-      <textarea class="in" id="emails" rows="${Math.max(3, list.length + 1)}" placeholder="e.g. pastor@yourchurch.org&#10;leader@yourchurch.org">${esc(list.join("\n"))}</textarea>
+      <textarea class="in" id="emails" rows="${Math.max(3, list.length + 1)}" placeholder="e.g. fcc@gmail.com&#10;usher@gmail.com">${esc(list.join("\n"))}</textarea>
       <div class="row" style="margin-top:12px"><p class="note" style="margin:0">${list.length ? "To take someone off, delete their line and press Save." : "Type the leaders' email addresses, then press Save."}</p>
         <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap"><button class="pill-btn">Save</button><button type="button" class="pill-btn primary" id="send" ${list.length && p.last ? "" : "disabled"}>${svg("reports")}Send report now</button></div></div></form>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Emails sent</h2></div>
