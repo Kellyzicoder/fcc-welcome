@@ -2,7 +2,18 @@
   "headers": [
     {
       "source": "/app/(.*)",
-      "headers": [{"key": "Cache-Control", "value": "no-cache"}]
+      "headers": [
+        {"key": "Cache-Control", "value": "no-cache"},
+        {"key": "X-Robots-Tag", "value": "noindex"}
+      ]
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/",
+      "has": [{"type": "host", "value": "fcc-attendance.vercel.app"}],
+      "destination": "/app/index.html",
+      "permanent": false
     }
   ]
 }
