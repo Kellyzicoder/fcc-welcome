@@ -15,7 +15,7 @@ with the [FCC Attendance Tracker](https://fcc-attendance.streamlit.app) (Streaml
 |---|---|---|
 | Phone app | `public/app/` | Plain HTML + JavaScript, no build step. Installable with *Add to Home Screen*. |
 | Welcome form | `app/page.tsx`, `app/WelcomeForm.tsx`, `app/registration.ts` | First-timers fill it in (e.g. from a QR code). Sign-ups wait as *pending* until a leader approves them. |
-| Server routes | `app/app-config`, `app/app-send`, `app/app-help` | Public Supabase settings for the app; sending the attendance report email; Help → Contact the admin. |
+| Server routes | `app/app-config`, `app/app-send`, `app/app-help`, `app/app-chat` | Public Supabase settings for the app; sending the attendance report email; Help → Contact the admin; Help → Ask the helper. |
 | Database rules | `supabase/app_setup.sql` | Tables, helper functions and Row Level Security. Safe to run again. |
 | Test database | `supabase/test_1_tables.sql`, `supabase/test_2_sample_data.sql` | A separate Supabase project with made-up people, used by Vercel previews. |
 | Guide | `docs/FCC-Attendance-Guide.pdf` | How it fits together, design decisions, common fixes. |
@@ -43,6 +43,7 @@ in `supabase/app_setup.sql` decides what comes back.
 - All-churches dashboard: month calendar, church list, charts, *No service was recorded* when a day is empty
 - WhatsApp summaries (phones only) and CSV downloads
 - Help page with questions by role, and a contact form that emails the admin and lands in the Admin inbox
+- Ask the helper: a chat on the Help page that answers how-to questions (it never sees names, numbers or attendance)
 - Light and dark mode; checks for a newer version each time it opens
 
 ## Keeping it safe
@@ -50,6 +51,8 @@ in `supabase/app_setup.sql` decides what comes back.
 - Only Supabase's **publishable** key is used in the browser. Never put the **secret / service_role** key in this
   project or in Vercel.
 - `BREVO_API_KEY` and `REPORT_SENDER` are server-only Vercel settings, used by `app-send` and `app-help`.
+- `ANTHROPIC_API_KEY` is a server-only Vercel setting, used by `app-chat` (Ask the helper). The Claude API is billed
+  separately from a Claude chat subscription. Without it, the helper says it isn't set up and points to Contact the admin.
 - Never commit real names, phone numbers or emails. Add the first admin by typing the one-line `insert` at the
   bottom of `app_setup.sql` into the Supabase SQL editor.
 - The welcome form can only *insert pending* sign-ups; it can't read anything. A honeypot field drops most bots,

@@ -1708,6 +1708,11 @@ async function help(el) {
       <div class="acc">${topic[2].map(([q, a], i) => `<div class="acc-item${i === 0 ? " open" : ""}">
         <button class="acc-q" aria-expanded="${i === 0}" aria-controls="acc-${i}"><span>${esc(q)}</span><i class="acc-ico" aria-hidden="true"></i></button>
         <div class="acc-a" id="acc-${i}" ${i === 0 ? "" : "hidden"}>${esc(a).replace(/\n/g, "<br>")}</div></div>`).join("")}</div>
+      <div class="card chat" id="chat"><h2>Ask the helper</h2>
+        <p class="note" style="margin:0 0 10px">Type a question about using the app. The helper can make mistakes, so for anything important use Contact the admin.</p>
+        <div class="chat-log" id="chat-log" aria-live="polite"></div>
+        <form class="chat-form" id="chat-form"><input class="in" id="chat-in" maxlength="500" autocomplete="off" placeholder="e.g. How do I untick someone?" aria-label="Your question">
+          <button class="pill-btn primary" id="chat-go">Ask</button></form></div>
       <div class="card still"><h2>Still have questions?</h2>
         <p>Send a message to the admin and they'll get back to you.</p>
         <button class="pill-btn primary" id="contact">${svg("mail")}Contact the admin</button></div>
@@ -1719,6 +1724,35 @@ async function help(el) {
     if (open) { item.classList.add("open"); b.setAttribute("aria-expanded", true); item.querySelector(".acc-a").hidden = false; }
   });
   el.querySelector("#contact").onclick = () => contactDialog(topic[1]);
+  helpChat(el, topics);
+}
+
+// Ask the helper: the chat keeps its messages while the person looks at other Help topics.
+function helpChat(el, topics) {
+  const log = el.querySelector("#chat-log"), form = el.querySelector("#chat-form"), input = el.querySelector("#chat-in"), go = el.querySelector("#chat-go");
+  const chat = S.helpChat = S.helpChat || [];
+  const draw = pending => {
+    log.innerHTML = chat.map(m => `<div class="bub ${m.role === "user" ? "me" : "bot"}${m.bad ? " bad" : ""}">${esc(m.content).replace(/\n/g, "<br>")}</div>`).join("")
+      + (pending ? `<div class="bub bot">Thinking…</div>` : "");
+    log.hidden = !chat.length && !pending; log.scrollTop = log.scrollHeight;
+  };
+  draw(false);
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const q = input.value.trim(); if (!q) return;
+    chat.push({role: "user", content: q}); input.value = ""; go.disabled = true; draw(true);
+    const faq = topics.flatMap(t => t[2]).map(([a, b]) => `Q: ${a}\nA: ${b}`).join("\n\n");
+    const history = chat.filter(m => !m.bad).map(({role, content}) => ({role, content}));
+    try {
+      if (S.session.expires_at - Date.now() < 60000) await refresh();
+      const r = await fetch("/app-chat", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Bearer " + S.session.access_token},
+        body: JSON.stringify({messages: history, faq})});
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.message || "The helper isn't working right now. Please use Contact the admin.");
+      chat.push({role: "assistant", content: j.reply});
+    } catch (ex) { chat.push({role: "assistant", content: ex.message, bad: true}); }
+    go.disabled = false; draw(false); input.focus();
+  };
 }
 
 // The message form: it goes to the main admin by email and into the Messages inbox on the Admin page.
