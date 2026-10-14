@@ -493,6 +493,7 @@ const ICON = {
   reports: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 8l9 6 9-6"/>',
   lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
   unlock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
+  ask: '<path d="M4 5h16v11H9l-5 4z"/><path d="M9 9.5h6M9 12.5h4"/>',
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7"/><path d="M12 17h.01"/>',
   out: '<path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
 };
@@ -500,12 +501,12 @@ const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 function pages() {  // the menu, in groups; what each role can actually load is decided by the database
   const r = S.me.role;
   if (r === "bishop") return [["", [["overview", "All churches"], ["help", "Help"]]]];
-  if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ["help", "Help"]]]];  // a pastor: just their own people
+  if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people
   return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["followup", "Follow-up"], ["pastors", "Pastors"]]],
           ["PEOPLE", [["people", "Congregation"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ["archive", "Archive"]]],
           ...(r === "team" ? [] : [["RECORDS", [["activity", "Activity"], ["reports", "Reports"],
             ...(r === "admin" ? [["overview", "Churches"], ["admin", "Admin"]] : [])]]]),
-          ["", [["help", "Help"]]]];
+          ["", [["ask", "Ask a question"], ["help", "Help"]]]];
 }
 function setMode(mode, remember) {
   document.documentElement.dataset.theme = mode;
@@ -554,7 +555,7 @@ function render() {
     const t = e.target.closest("[data-to-pastor]"); if (t) { S.pastor = t.dataset.toPastor; S.pastorJump = true; go("pastors"); }
   };
   root.querySelectorAll("[data-back]").forEach(b => b.onclick = () => history.back());  // same as the phone's back gesture
-  ({mine, dashboard, checkin, followup, pastors, people, person, signups, archive, activity, reports, overview, admin, account, help}[S.view] || dashboard)(view);
+  ({mine, dashboard, checkin, followup, pastors, people, person, signups, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
 }
 // An arrow that jumps back to the top of a long page; it shows once you have scrolled down a fair way.
 {
@@ -570,7 +571,7 @@ addEventListener("popstate", () => {
   if (!S.me || !S.hist?.length) return;
   S.view = S.hist.pop(); S.goingBack = true; document.querySelectorAll(".modal").forEach(m => m.remove()); render();
 });
-const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", pastors: "Pastors", people: "Congregation", person: "Person", account: "Your account", help: "Help", signups: "Sign-ups", archive: "Archive",
+const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", pastors: "Pastors", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", archive: "Archive",
                activity: "Activity", reports: "Reports", overview: "All churches", admin: "Admin"};
 const head = (title, sub, buttons = "") => `<div class="head"><div><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ""}</div><span class="gap" style="flex:1"></span>${buttons}</div>`;
 const badge = f => `<span class="badge ${f}">${FLAG[f]}</span>`;
@@ -1753,6 +1754,139 @@ function contactDialog(topicName) {
       if (!r.ok) throw new Error(j.message || "The message was not sent. Please try again.");
       close(); toast("Message sent. The admin will get back to you.");
     } catch (ex) { err.textContent = ex.message; err.hidden = false; go.disabled = false; go.textContent = "Send message"; }
+  };
+}
+
+// ---------------------------------------------------------------- ask: ready-made questions, answered by SQL in Supabase
+// Each question is a saved query inside the database (app_ask in supabase/app_setup.sql). The app sends the question's id and
+// the church, plus a date, month, name or number when the question needs one. Nobody types SQL, and the database's own rules
+// decide what each sign-in may see (the Bishop is refused, a pastor only gets their own people).
+// Extra boxes a question needs: d = a service, m = a month, t = words to look for, n = a number.
+const ASK_FIRST = "A first-timer here is anyone with a first-visit date.", ASK_MISSED = "Only Sunday services count as missed, and visitors are never listed.";
+const ASK = [
+  ["Services", [
+    ["svc_latest", "How many came to the last service?"],
+    ["svc_day", "How many came to a service?", [["d"]]],
+    ["svc_name", "Find services by name (for example Fathers Day)", [["t", "Part of the name", "Fathers Day"]]],
+    ["svc_who_came", "Who came to a service?", [["d"]]],
+    ["svc_who_missed", "Who did not come to a service?", [["d"]], "Shows people on the register who were not ticked in. Visitors are left out."],
+    ["svc_first_timers", "Who were the first-timers at a service?", [["d"]]],
+    ["svc_gender", "How many males and females came to a service?", [["d"]]],
+    ["svc_biggest", "Which were the 10 biggest services?"],
+    ["svc_smallest", "Which were the 10 smallest services this year?"],
+    ["svc_avg", "What is the average attendance on a Sunday?"],
+    ["svc_last12", "How did the last 12 Sundays go?"],
+    ["svc_by_name", "How do the different kinds of service compare?"],
+    ["svc_month", "How many came each month this past year?"],
+    ["svc_compare", "How does a month compare with the month before?", [["m"]]],
+    ["svc_special", "Which special services have we held?", [], "Any service with its own name, such as Fathers Day or a Prayer Meeting."],
+  ]],
+  ["First-timers", [
+    ["ft_month_count", "How many first-timers in a month?", [["m"]], ASK_FIRST],
+    ["ft_month_names", "Who were the first-timers in a month?", [["m"]], ASK_FIRST],
+    ["ft_by_month", "First-timers each month, and how many came back", [], ASK_FIRST + " \"Came again\" means they were ticked in at a later service."],
+    ["ft_came_back", "Which first-timers have come back? (past year)", [], ASK_FIRST],
+    ["ft_not_back", "Which first-timers have not come back yet? (past 6 months)", [], ASK_FIRST + " These are good people to call."],
+    ["ft_recent", "Who first visited in the last few days?", [["n", "Days", 30]], ASK_FIRST],
+    ["new_people", "Who was added to the register in the last few days?", [["n", "Days", 30]]],
+    ["a_new_attenders", "Who came for the very first time in a month?", [["m"]], "Based on the first time someone was ticked in."],
+  ]],
+  ["People", [
+    ["p_total", "How many people do we have?"],
+    ["p_females", "How many females?"],
+    ["p_males", "How many males?"],
+    ["p_kids", "How many kids?"],
+    ["p_adults", "How many adults?"],
+    ["p_gender_age", "Females, males, adults and kids together"],
+    ["p_gender_missing", "Who has no gender filled in?"],
+    ["p_by_church", "How many people are in each church?"],
+    ["p_by_pastor", "How many people does each pastor have?"],
+    ["p_no_pastor", "Who has no pastor?"],
+    ["p_no_phone", "Who has no phone number?"],
+    ["p_by_role", "How many people are in each team?"],
+    ["p_role_who", "Who is in a team?", [["t", "Team or role", "Ushers"]]],
+    ["p_status", "How many people are Active, Away or Moved?"],
+    ["p_archive", "Who has not been seen for two years?"],
+    ["p_search", "Look up a person", [["t", "Name", "Grace"]]],
+    ["p_visitors", "Who are our visitors?"],
+  ]],
+  ["Attendance", [
+    ["a_red", "Who missed 5 or more Sundays? (red)", [], ASK_MISSED],
+    ["a_yellow", "Who missed 3 or 4 Sundays? (yellow)", [], ASK_MISSED],
+    ["a_blue", "Who missed only the last Sunday or two? (blue)", [], ASK_MISSED],
+    ["a_missed_n", "Who missed a number of Sundays in a row or more?", [["n", "Sundays missed", 3]], ASK_MISSED],
+    ["a_away_weeks", "Who has not been seen for some weeks?", [["n", "Weeks", 4]]],
+    ["a_faithful", "Who came the most in the last 12 Sundays?"],
+    ["a_perfect", "Who came to every Sunday lately?", [["n", "Last Sundays", 4]]],
+    ["a_person", "When did a person come?", [["t", "Name", "Grace"]]],
+    ["a_gender_trend", "Females, males and kids over the last 8 Sundays"],
+    ["a_pastor_last", "How did each pastor's people do at the last service?"],
+  ]],
+];
+function ask(el) {
+  const all = ASK.flatMap(([g, qs]) => qs.map(([id, title, params = [], note = ""]) => ({id, g, title, params, note})));
+  const st = S.ask = S.ask || {g: ASK[0][0], q: all[0].id, v: {}, find: ""};
+  const dates = () => Object.keys(S.names || {}).filter(d => d <= today()).sort().reverse().slice(0, 150);
+  const shown = () => st.find ? all.filter(q => norm(q.title).includes(norm(st.find))) : all.filter(q => q.g === st.g);
+  const cur = () => all.find(q => q.id === st.q) || all[0];
+  el.innerHTML = head("Ask a question", `${esc(S.church)} · pick a question and the answer comes from your records`) + `
+    <div class="card" style="margin-bottom:14px">
+      <div class="chips" role="tablist" aria-label="Kinds of question">${ASK.map(([g]) => `<button class="chip ${!st.find && st.g === g ? "on" : ""}" role="tab" data-g="${g}">${g}</button>`).join("")}</div>
+      <label class="f" for="ask-find">Search the questions</label>
+      <input class="in" id="ask-find" type="search" maxlength="60" autocomplete="off" placeholder="e.g. first-timers, kids, Fathers Day" value="${esc(st.find)}">
+      <label class="f" for="ask-q" style="margin-top:12px">Question</label>
+      <select class="in" id="ask-q"></select>
+      <div class="row" id="ask-params" style="margin-top:12px"></div>
+      <p class="note" id="ask-note" style="margin:10px 2px 0" hidden></p>
+      <div style="margin-top:14px"><button class="pill-btn primary" id="ask-go">Show the answer</button></div></div>
+    <div id="ask-out" aria-live="polite"></div>`;
+  const sel = el.querySelector("#ask-q"), box = el.querySelector("#ask-params"), note = el.querySelector("#ask-note"), out = el.querySelector("#ask-out");
+  const drawParams = () => {
+    const q = cur(); st.v[q.id] = st.v[q.id] || {};
+    const v = st.v[q.id], ds = dates();
+    box.innerHTML = q.params.map(([k, label, hint]) => k === "d"
+      ? `<div><label class="f" for="ask-d">Service</label><select class="in" id="ask-d">${ds.length ? ds.map(d => `<option value="${d}" ${(v.d || ds[0]) === d ? "selected" : ""}>${esc(full(d))} · ${esc(S.names[d] || "Service")}</option>`).join("") : "<option value=''>No services yet</option>"}</select></div>`
+      : k === "m" ? `<div><label class="f" for="ask-m">Month</label><input class="in" id="ask-m" type="month" value="${v.m || today().slice(0, 7)}"></div>`
+      : k === "t" ? `<div><label class="f" for="ask-t">${esc(label)}</label><input class="in" id="ask-t" maxlength="60" autocomplete="off" placeholder="e.g. ${esc(hint)}" value="${esc(v.t || "")}"></div>`
+      : `<div><label class="f" for="ask-n">${esc(label)}</label><input class="in" id="ask-n" type="number" inputmode="numeric" min="1" max="365" value="${v.n || hint}"></div>`).join("");
+    box.hidden = !q.params.length; note.textContent = q.note; note.hidden = !q.note;
+    box.querySelectorAll("[id^=ask-]").forEach(i => i.oninput = i.onchange = () => { v[i.id.slice(4)] = i.value; });
+  };
+  const drawList = () => {
+    const list = shown(); if (!list.some(q => q.id === st.q) && list.length) st.q = list[0].id;
+    sel.innerHTML = list.length ? list.map(q => `<option value="${q.id}" ${q.id === st.q ? "selected" : ""}>${esc(q.title)}</option>`).join("") : "<option value=''>No question matches. Try another word.</option>";
+    drawParams();
+  };
+  drawList();
+  el.querySelectorAll("[data-g]").forEach(b => b.onclick = () => { st.g = b.dataset.g; st.find = ""; ask(el); });
+  el.querySelector("#ask-find").oninput = e => { st.find = e.target.value; drawList(); };
+  sel.onchange = () => { st.q = sel.value; drawParams(); };
+  el.querySelector("#ask-go").onclick = async () => {
+    const q = cur(), v = st.v[q.id] || {}, body = {q: q.id, ch: S.church};
+    if (!sel.value) return;
+    for (const [k] of q.params) {
+      const x = String(el.querySelector("#ask-" + k)?.value ?? "").trim();
+      if (k === "t" && !x) { toast("Please type a word or name to look for."); el.querySelector("#ask-t").focus(); return; }
+      if (k === "d") { if (!x) { toast("There are no services yet."); return; } body.d = x; v.d = x; }
+      if (k === "m") { body.m = (x || today().slice(0, 7)) + "-01"; v.m = x; }
+      if (k === "t") { body.t = x; v.t = x; }
+      if (k === "n") { body.n = Math.min(365, Math.max(1, parseInt(x, 10) || 1)); v.n = String(body.n); }
+    }
+    const go = el.querySelector("#ask-go"); go.disabled = true; go.textContent = "Looking…";
+    out.innerHTML = `<div class="card"><p class="empty" style="margin:0">Looking it up…</p></div>`;
+    try {
+      const rows = (await api("rpc/app_ask", {method: "POST", body})) || [], cols = rows.length ? Object.keys(rows[0]) : [];
+      const asked = q.params.map(([k]) => k === "d" ? full(body.d) : k === "m" ? new Date(body.m + "T12:00:00").toLocaleDateString("en-NZ", {month: "long", year: "numeric"}) : k === "t" ? `“${body.t}”` : k === "n" ? body.n : "").filter(Boolean).join(" · ");
+      out.innerHTML = `<div class="card"><div class="card-head"><h2>${esc(q.title)}</h2><span class="gap"></span>${rows.length ? `<button class="pill-btn" id="ask-dl">Download</button>` : ""}</div>
+        <p class="note" style="margin:0 2px 10px">${esc(S.church)}${asked ? " · " + esc(asked) : ""} · ${rows.length} ${rows.length === 1 ? "row" : "rows"}</p>
+        ${rows.length ? `<div class="scroll"><table><thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${cols.map((c, i) => `<td class="${i ? "muted" : ""}">${esc(r[c])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+          : `<p class="empty">Nothing found for that question.</p>`}</div>`;
+      const dl = out.querySelector("#ask-dl");
+      if (dl) dl.onclick = () => download(`${q.id}_${S.church}_${today()}.csv`, [cols, ...rows.map(r => cols.map(c => r[c]))]);
+    } catch (ex) {
+      out.innerHTML = `<div class="msg bad">${esc(/app_ask/.test(ex.message) ? "Ask isn't set up yet: run the latest setup SQL in Supabase once." : /not allowed/.test(ex.message) ? "This sign-in can't use Ask." : ex.message)}</div>`;
+    }
+    go.disabled = false; go.textContent = "Show the answer";
   };
 }
 
