@@ -148,6 +148,43 @@ grant update (name) on services to authenticated;
 grant select, insert, delete on attendance to authenticated;
 grant select, insert on activity_log to authenticated;
 
+-- ---------------------------------------------------------------- two (or more) services on one day
+-- A church can split a day into services (e.g. 9am and 11am). attendance still holds one tick per person per day, so every
+-- day total, report and the Streamlit tracker stay as they are (someone at both services counts once). service_parts names
+-- each service of that day for that church; service_ticks says which of the day's services each person came to.
+create table if not exists service_parts (
+  church text not null references churches(name) on update cascade on delete cascade,
+  service_date date not null,
+  part smallint not null check (part between 1 and 5),
+  name text not null default '' check (length(name) <= 60),
+  primary key (church, service_date, part));
+create table if not exists service_ticks (
+  service_date date not null,
+  part smallint not null check (part between 1 and 5),
+  member_id text not null references members(id) on delete cascade,
+  checked_at text,
+  primary key (service_date, part, member_id));
+alter table service_parts enable row level security;
+alter table service_ticks enable row level security;
+drop policy if exists "app: see a day's services" on service_parts;
+create policy "app: see a day's services" on service_parts for select to authenticated
+  using (app_can_see(church) or (app_role() = 'pastor' and church = app_church()));
+drop policy if exists "app: split a day into services" on service_parts;
+create policy "app: split a day into services" on service_parts for all to authenticated
+  using (app_role() in ('admin', 'lead', 'team') and app_can_see(church))
+  with check (app_role() in ('admin', 'lead', 'team') and app_can_see(church));
+drop policy if exists "app: see own church's service ticks" on service_ticks;
+create policy "app: see own church's service ticks" on service_ticks for select to authenticated
+  using (exists (select 1 from members m where m.id = member_id and (app_can_see(m.church) or app_is_mine(m.church, m.pastor))));
+drop policy if exists "app: tick own church's people at a service" on service_ticks;
+create policy "app: tick own church's people at a service" on service_ticks for insert to authenticated
+  with check (exists (select 1 from members m where m.id = member_id and (app_can_see(m.church) or app_is_mine(m.church, m.pastor))));
+drop policy if exists "app: untick own church's people at a service" on service_ticks;
+create policy "app: untick own church's people at a service" on service_ticks for delete to authenticated
+  using (exists (select 1 from members m where m.id = member_id and (app_can_see(m.church) or app_is_mine(m.church, m.pastor))));
+grant select, insert, update, delete on service_parts to authenticated;
+grant select, insert, delete on service_ticks to authenticated;
+
 -- ---------------------------------------------------------------- numbers for every church (Bishop and admin)
 -- Returns counts only. The Bishop's sign-in has no rule that lets it read the members table, so names and phone
 -- numbers cannot be loaded with it; this function is the only thing it can call.
