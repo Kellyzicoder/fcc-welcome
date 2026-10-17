@@ -228,7 +228,6 @@ async function refresh() {
   catch { store.set(null); return false; }
 }
 async function api(path, {method = "GET", body, prefer, retry = true} = {}) {
-  if (S.preview && method !== "GET" && !/^rpc\/app_(me|ask|db_size|last_seen|set_my_name)\b/.test(path)) throw new Error(viewOnly());  // View as: look, don't change
   if (S.session && S.session.expires_at - Date.now() < 60000) await refresh();
   const r = await fetch(S.cfg.url + "/rest/v1/" + path, {method, body: body === undefined ? undefined : JSON.stringify(body),
     headers: {apikey: S.cfg.key, Authorization: "Bearer " + (S.session?.access_token || S.cfg.key), "Content-Type": "application/json",
@@ -350,7 +349,7 @@ const PW_RULES = [
 const pwProblem = (a, b) => (PW_RULES.find(([, , ok]) => !ok(a, b)) || [])[1] || "";
 // Wires a checklist (ticks) and green/red borders to two password boxes; the button only works when all rules pass.
 function pwChecks(box, p1, p2, go) {
-  box.innerHTML = `<li class="phrase" data-r="phrase"><i>${svg("checkin")}</i><span>Easiest: a phrase of 3 or more words, 16+ characters, like <b>sunday choir sings loud</b>. Then the three rules below aren't needed.</span></li>`
+  box.innerHTML = `<li class="phrase" data-r="phrase"><i>${svg("checkin")}</i><span>Easiest: a phrase of 3 or more words, 16+ characters, like <b>sunday choir sings loud</b>.</span></li>`
     + PW_RULES.map(([k, t]) => `<li data-r="${k}"><i>${svg("checkin")}</i>${esc(t)}</li>`).join("");
   const draw = () => {
     const a = p1.value, b = p2.value;
@@ -359,7 +358,7 @@ function pwChecks(box, p1, p2, go) {
       li.className = good ? "ok" : touched ? "bad" : "";
     });
     const ph = box.querySelector('[data-r="phrase"]'); ph.className = "phrase" + (isPhrase(a) ? " ok" : "");
-    ph.querySelector("span").innerHTML = isPhrase(a) ? "Passphrase: long enough, nothing else needed" : "Easiest: a phrase of 3 or more words, 16+ characters, like <b>sunday choir sings loud</b>. Then the three rules below aren't needed.";
+    ph.querySelector("span").innerHTML = isPhrase(a) ? "Passphrase: long enough, nothing else needed" : "Easiest: a phrase of 3 or more words, 16+ characters, like <b>sunday choir sings loud</b>.";
     for (const k of ["case", "num", "sym"]) box.querySelector(`[data-r="${k}"]`).classList.toggle("skip", isPhrase(a));
     const firstOk = PW_RULES.filter(([k]) => k !== "same").every(([, , ok]) => ok(a, b));
     p1.classList.toggle("ok", firstOk); p1.classList.toggle("bad", a.length > 0 && !firstOk);
@@ -516,8 +515,7 @@ async function switchView(to) {
   toast(to === "pastor" ? "Pastor view: just your own people." : `Back to ${baseName()} view.`);
 }
 // View as: the admin picks a role (and church, and pastor name for Pastor) and the whole app shows what that person would see.
-// Only the screens change, and it's view only: nothing is saved while viewing as someone else (see api()).
-const viewOnly = () => `You're viewing as ${previewName()}, which is view only. Tap Back to Admin to make changes.`;
+// Only the screens change: the admin is still signed in as themselves, so anything saved is saved for real.
 const PREVIEW = {team: "Team (usher)", lead: "Church admin", pastor: "Pastor", bishop: "Bishop"};
 function viewAs() {
   const allP = [...new Set(Object.values(S.pastorList || {}).flat())];
@@ -690,7 +688,7 @@ function render() {
       ${S.me.role === "admin" ? `<h6>CHURCH</h6><button class="church on" data-view="overview" title="See every church and switch to another one"><i></i><span>${esc(S.church)}</span><em>Change</em></button>` : ""}
       <div class="side-foot">${S.me.base === "admin" ? (S.preview ? `<button class="nav" data-unpreview title="Back to Admin">${svg("back")}<span class="nl">Back to Admin</span></button>`
           : `<button class="nav" data-viewas title="View as another role">${svg("eye")}<span class="nl">View as another role</span></button>`) : ""}${S.canSwitch ? `<button class="nav" data-switch title="${switchLabel()}">${svg("pastors")}<span class="nl">${switchLabel()}</span></button>` : ""}<button class="nav out" data-out title="Log out">${svg("out")}<span class="nl">Log out</span></button></div></aside>
-    <main class="main">${S.preview ? `<div class="preview-bar">${svg("eye")}<span>Viewing as <b>${esc(previewName())}</b>. View only: nothing you do here is saved.</span>
+    <main class="main">${S.preview ? `<div class="preview-bar">${svg("eye")}<span>Viewing as <b>${esc(previewName())}</b>. You're still signed in as you, so anything you change is saved for real.</span>
         <button class="pill-btn sm" data-unpreview>Back to Admin</button></div>` : ""}<div class="top">${S.hist?.length ? `<button class="back" data-back>${svg("back")}Back</button>` : ""}<span class="gap"></span>
         <div class="mode" role="group" aria-label="Colour mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button></div>
         <button class="acct" data-view="account" title="Your account and settings" aria-label="Your account and settings"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${roleName(S.me)} · ${esc(where)}</small></span></button>
@@ -1048,7 +1046,6 @@ function boardList(b) {
 async function saveBoard(b, list) {
   const home = b === "home" ? list : boardList("home"), church = b === "church" ? list : boardList("church");
   const raw = S.prefs = [...home, "h:", ...church.map(k => "c:" + k), "c:"];
-  if (S.preview) return;  // View as: rearranging is fine to try, but it isn't kept
   try { localStorage.setItem("fcc-dash:" + S.me.email, JSON.stringify(raw)); } catch {}
   if (S.dashDb !== false) try { await api("app_prefs?on_conflict=email", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {email: S.me.email, dash: raw}}); } catch { S.dashDb = false; }
 }
@@ -2228,7 +2225,6 @@ async function reports(el) {
   ], async v => {
     const was = S.emoji; S.emoji = false;
     let text; try { text = summary(p, {names: v.names === "yes"}); } finally { S.emoji = was; }
-    if (S.preview) throw new Error("Not sent: " + viewOnly());
     if (S.session && S.session.expires_at - Date.now() < 60000) await refresh();
     const r = await fetch("/app-send", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Bearer " + S.session.access_token},
       body: JSON.stringify({church: S.church, date: p.last, at: isoLocal(), text,
@@ -2327,7 +2323,6 @@ function contactDialog(topicName) {
     if (!message) return;
     go.disabled = true; go.textContent = "Sending…"; err.hidden = true;
     try {
-      if (S.preview) throw new Error("Not sent: " + viewOnly());
       if (S.session.expires_at - Date.now() < 60000) await refresh();
       const r = await fetch("/app-help", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Bearer " + S.session.access_token},
         body: JSON.stringify({topic: d.querySelector("#ct-topic").value, message})});
