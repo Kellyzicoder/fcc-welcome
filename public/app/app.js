@@ -605,18 +605,31 @@ async function signOut() { try { await auth("logout", {}, S.session?.access_toke
 // ---------------------------------------------------------------- data for the church being looked at
 async function load() {
   const since = new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10);
-  const [members, ticks, services, seen, lists] = await Promise.all([
+  const [members, ticks, services, seen, lists, parts, pticks] = await Promise.all([
     all("members?select=id,full_name,phone,type,status,age_group,gender,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name")
       .catch(() => all("members?select=id,full_name,phone,type,status,age_group,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name")),
     all(`attendance?select=service_date,member_id,checked_at&service_date=gte.${since}&order=service_date`),
     all(`services?select=service_date,name&service_date=gte.${since}`),
     api("rpc/app_last_seen", {method: "POST", body: {}}).catch(() => null),  // null until the newer setup SQL has been run
-    api("settings?select=key,value&key=like.pastors:*").catch(() => [])]);  // each church's list of pastors to choose from
+    api("settings?select=key,value&key=like.pastors:*").catch(() => []),  // each church's list of pastors to choose from
+    // days split into more than one service (null until the newer setup SQL has been run)
+    all(`service_parts?select=service_date,part,name&church=eq.${encodeURIComponent(S.church)}&service_date=gte.${since}&order=service_date,part`).catch(() => null),
+    all(`service_ticks?select=service_date,part,member_id&service_date=gte.${since}`).catch(() => [])]);
   S.pastorList = Object.fromEntries(lists.map(r => [r.key.slice(8), (r.value || "").split("\n").map(x => x.trim()).filter(Boolean)]));
   S.seen = seen && Object.fromEntries(seen.map(r => [r.member_id, r.last_seen]));
   S.members = S.me.role === "pastor" && S.me.base !== "pastor"  // an admin in Pastor view: only the people assigned to them
     ? members.filter(m => pastorsOf(m).some(n => norm(n) === norm(S.me.pastor))) : members;
   S.ticks = ticks; S.names = Object.fromEntries(services.map(s => [s.service_date, s.name]));
+  S.partsOk = parts !== null; S.parts = {}; for (const r of parts || []) (S.parts[r.service_date] ??= []).push({part: r.part, name: r.name});
+  S.pticks = pticks;
+}
+// A day split into services (two or more): each one's name and how many of this church's people came to it.
+// The day's own ticks still decide who was there, so someone at both services counts once in the day's total.
+const partsOf = d => (S.parts?.[d] || []).length > 1 ? S.parts[d] : [];
+const partName = (d, n) => partsOf(d).find(x => x.part === n)?.name || `Service ${n}`;
+function partCounts(p, d) {
+  const day = p.byDate[d] || {};
+  return partsOf(d).map(x => ({...x, n: new Set(S.pticks.filter(t => t.service_date === d && t.part === x.part && day[t.member_id]).map(t => t.member_id)).size}));
 }
 const isSunday = d => new Date(d + "T12:00:00").getDay() === 0;
 function picture(upTo = today()) {  // everything the pages show, as things stood on upTo (today unless a past service is asked for)
@@ -814,6 +827,7 @@ function report(p, o = {}) {
   const firsts = p.present.filter(m => m.type === "first_timer");
   const out = [`${svcName(day).toUpperCase()} ATTENDANCE`, "", `DAY - ${new Date(day + "T12:00:00").toLocaleDateString("en-NZ", {weekday: "long"}).toUpperCase()}`, "",
     `DATE - ${dmy(day)}`, "", `PREACHER NAME - ${o.preacher || ""}`, "", `SERMON TITLE: ${o.sermon || ""}`, "", `BRANCH/MISSION - ${S.church}`, "",
+    ...(partsOf(day).length ? [`SERVICES - ${partCounts(p, day).map(x => `${x.name}: ${x.n}`).join(", ")} (${p.present.length} people in total)`, ""] : []),
     `*ADULTS - ${adults}`, `[Attending: Adults - ${adultsIn}]`, `[Zoom: Adults - ${n("zoomA")}]`, `[Youtube -  ${n("yt")}]`, `[Facebook -  ${n("fb")}]`, "",
     `*CHILDREN - ${kids}`, `[Attending - ${kidsIn}]`, `[Zoom - ${n("zoomK")}]`, "",
     `First timers - ${firsts.length}`, ...(o.names && firsts.length ? [firsts.map(m => m.full_name).join(", ")] : []), "",
@@ -831,7 +845,8 @@ function summary(p, o = {}) {
   const who = list => o.names && list.length ? [list.map(x => x.full_name).join(", ")] : [];
   const flagged = f => p.people.filter(x => x.flag === f);
   return wa([`*FCC ${S.church}*${S.emoji ? " ⛪" : ""}`, p.last ? `${S.names[p.last] || "Service"} · ${nice(p.last, true)}` : "No services recorded yet", "",
-    ["✅", `Present: *${p.present.length}*`], ["🧑", `Adults: *${p.present.length - p.kids}*`], ["🧒", `Kids: *${p.kids}*`],
+    ["✅", `Present: *${p.present.length}*`], ...(p.last && partsOf(p.last).length ? partCounts(p, p.last).map(x => ["⛪", `${x.name}: *${x.n}*`]) : []),
+    ["🧑", `Adults: *${p.present.length - p.kids}*`], ["🧒", `Kids: *${p.kids}*`],
     ["👋", `First-timers: *${p.first}*`], ...who(p.present.filter(m => m.type === "first_timer")),
     ...(p.visitors ? [["🤝", `Visitors: *${p.visitors}*`], ...who(p.present.filter(m => m.type === "visitor"))] : []), "", "*Follow-up*",
     ["🔴", `Missed ${RED_AT}+ in a row: *${p.count("red")}*`], ...who(flagged("red")),
@@ -930,7 +945,8 @@ const WIDGETS = {
       const c = p.last ? countsOn(p, p.last) : {present: 0, adults: 0, kids: 0, first: 0, visitors: 0}, pc = n => c.present ? Math.round(n / c.present * 100) + "% of those here" : "";
       el.innerHTML = `<div class="ov">${[["Present", c.present, 5, `of ${p.mine.filter(m => !AWAY.has(norm(m.status))).length} on the register`], ["Adults", c.adults, 1, pc(c.adults)],
         ["Kids", c.kids, 2, pc(c.kids)], ["First-timers", c.first, 3, c.visitors ? `+ ${c.visitors} ${c.visitors === 1 ? "visitor" : "visitors"}` : "at this service"]]
-        .map(([t, n, h, sub]) => `<button type="button" class="ov-cell" title="Open Check-in for this service"><b>${n}</b><span>${t}</span><small><i style="background:var(--h${h})"></i>${esc(sub)}</small></button>`).join("")}</div>`;
+        .map(([t, n, h, sub]) => `<button type="button" class="ov-cell" title="Open Check-in for this service"><b>${n}</b><span>${t}</span><small><i style="background:var(--h${h})"></i>${esc(sub)}</small></button>`).join("")}</div>
+        ${p.last && partsOf(p.last).length ? `<p class="ov-parts">${partCounts(p, p.last).map(x => `${esc(x.name)}: <b>${x.n}</b>`).join(" · ")} · someone at both counts once in Present</p>` : ""}`;
       el.querySelectorAll(".ov-cell").forEach(t => t.onclick = () => { S.date = p.last || today(); S.view = "checkin"; render(); });
     }},
   compare: {name: "Compared with last time", sub: p => { const prev = p.last && sameDayBefore(p, p.last); return prev ? `Against ${svcName(prev)} · ${nice(prev, true)}` : "The same day last week"; }, desc: "Each number against the previous service on the same day of the week, as more or fewer people.", size: "wide", icon: "compare", hue: 4,
@@ -1265,7 +1281,7 @@ async function log(kind, member_id, result = "done", detail = "") {
 }
 // A service's title. Until someone types one, Sunday and Wednesday get the usual names.
 const svcName = d => S.names[d] || (S.titles?.[d]) || ({0: "Sunday Service", 3: "Midweek Service"})[new Date(d + "T12:00:00").getDay()] || "Service";
-async function setPresent(id, on, seen, at = isoLocal()) {
+async function setPresent(id, on, seen, at = isoLocal(), part = 0) {
   if (on) {
     // the service row only needs saving once per date; doing it on every tick doubled the wait
     if (!S.names[S.date] && !(S.svcSaved ??= {})[S.date]) {
@@ -1273,11 +1289,19 @@ async function setPresent(id, on, seen, at = isoLocal()) {
       S.svcSaved[S.date] = true;
     }
     await api("attendance?on_conflict=service_date,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, member_id: id, checked_at: at}});
-    log("tick", id); return "done";
+    if (part) await api("service_ticks?on_conflict=service_date,part,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, part, member_id: id, checked_at: at}});
+    log("tick", id, "done", part ? partName(S.date, part) : ""); return "done";
+  }
+  if (part) {  // off one of the day's services; off the day too once they're at none of them
+    await api(`service_ticks?service_date=eq.${S.date}&part=eq.${part}&member_id=eq.${encodeURIComponent(id)}`, {method: "DELETE", prefer: "return=minimal"});
+    const still = await api(`service_ticks?select=part&service_date=eq.${S.date}&member_id=eq.${encodeURIComponent(id)}`).catch(() => []);
+    if (!still?.length) await api(`attendance?service_date=eq.${S.date}&member_id=eq.${encodeURIComponent(id)}`, {method: "DELETE", prefer: "return=minimal"});
+    log("untick", id, "done", partName(S.date, part)); return "done";
   }
   // only remove the tick this phone was showing; a newer tick from another phone is left alone
   const gone = await api(`attendance?service_date=eq.${S.date}&member_id=eq.${encodeURIComponent(id)}${seen ? "&checked_at=eq." + encodeURIComponent(seen) : ""}`, {method: "DELETE", prefer: "return=representation"});
   const result = gone?.length ? "done" : "changed";
+  if (gone?.length && S.partsOk) await api(`service_ticks?service_date=eq.${S.date}&member_id=eq.${encodeURIComponent(id)}`, {method: "DELETE", prefer: "return=minimal"}).catch(() => {});  // off the whole day: off each of its services too
   log("untick", id, result); return result;
 }
 function checkin(el) {
@@ -1289,7 +1313,8 @@ function checkin(el) {
     <div class="card" style="margin-bottom:14px"><div class="row">
       <div style="flex:0 0 170px"><label class="f" for="d">Service date</label><input class="in" id="d" type="date" value="${S.date}"></div>
       <div><label class="f" for="svc">Service</label><input class="in" id="svc" list="svc-list" maxlength="60" autocomplete="off" value="${esc(svcName(S.date))}" ${pastor ? "readonly" : ""}>
-        <datalist id="svc-list">${[...new Set(["Sunday Service", "Midweek Service", "Prayer Meeting", "Special Service", ...Object.values(S.names)])].map(n => `<option value="${esc(n)}">`).join("")}</datalist></div></div></div>
+        <datalist id="svc-list">${[...new Set(["Sunday Service", "Midweek Service", "Prayer Meeting", "Special Service", ...Object.values(S.names)])].map(n => `<option value="${esc(n)}">`).join("")}</datalist></div></div>
+      <div id="ci-parts"></div></div>
     <div class="tiles"><div class="card tile"><div class="label">Checked in</div><div class="num" id="n-in">0</div></div>
       <div class="card tile"><div class="label">Adults</div><div class="num" id="n-ad">0</div></div>
       <div class="card tile"><div class="label">Kids</div><div class="num" id="n-kid">0</div></div>
@@ -1310,6 +1335,63 @@ function checkin(el) {
       <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap"><button class="pill-btn primary">Add &amp; check in</button><button class="pill-btn" data-only>Add only</button></div></div>
       </form>`}`;
   const box = el.querySelector("#names");
+  // A day can hold more than one service: pick which one you're ticking for, or the whole day
+  const curPart = () => { const ps = partsOf(S.date); if (!ps.length) return 0; const v = S.ciParts?.[S.date]; return v === undefined || (v && !ps.some(x => x.part === v)) ? ps[0].part : v; };
+  let armedPart = false;
+  const drawParts = () => {
+    const ps = partsOf(S.date), n = curPart(), wrap = el.querySelector("#ci-parts"), boss = ["admin", "lead"].includes(S.me.role);
+    if (!S.partsOk || (pastor && !ps.length)) { wrap.innerHTML = ""; return; }
+    wrap.innerHTML = ps.length ? `<div class="ci-parts"><span class="f">Ticking for</span><div class="seg" role="group" aria-label="Which service">${ps.map(x =>
+        `<button type="button" data-part="${x.part}" aria-pressed="${n === x.part}">${esc(x.name || "Service " + x.part)}</button>`).join("")}
+        <button type="button" data-part="0" aria-pressed="${n === 0}">Whole day</button></div>
+        ${pastor ? "" : `<span class="gap" style="flex:1"></span>${ps.length < 5 ? `<button type="button" class="link-btn" data-split>+ Add another service</button>` : ""}
+        ${n && boss ? `<button type="button" class="link-btn danger-link" data-unsplit>${armedPart ? "Tap again to remove it" : "Remove this service"}</button>` : ""}`}</div>
+        <p class="note" style="margin:8px 0 0">${n ? `Ticks here are for ${esc(partName(S.date, n))}. Someone at more than one service counts once in the day's total.` : "The whole day: everyone at any of today's services."}</p>`
+      : pastor ? "" : `<button type="button" class="link-btn" data-split style="margin-top:10px">+ Two services today? Add another service</button>`;
+    wrap.querySelectorAll("[data-part]").forEach(b => b.onclick = () => { (S.ciParts ??= {})[S.date] = +b.dataset.part; armedPart = false; here = {}; svc.value = svcLabel(); drawParts(); draw(); pull(); });
+    wrap.querySelector("[data-split]")?.addEventListener("click", split);
+    wrap.querySelector("[data-unsplit]")?.addEventListener("click", unsplit);
+  };
+  const svcLabel = () => { const n = curPart(); return n ? partName(S.date, n) : svcName(S.date); };
+  const sqlNeeded = err => /service_parts|service_ticks|schema cache|does not exist/i.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message;
+  const split = async () => {
+    if (lock) return toast("This service is locked. Unlock it to make changes.");
+    const day = S.date, have = S.parts[day] || [], first = svcName(day);
+    const next = have.length > 1 ? Math.max(...have.map(x => x.part)) + 1 : 2;
+    const rows = have.length > 1 ? [{church: S.church, service_date: day, part: next, name: `Service ${next}`}]
+      : [{church: S.church, service_date: day, part: 1, name: first}, {church: S.church, service_date: day, part: 2, name: "Second service"}];
+    try {
+      await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: day, name: first}});
+      await api("service_parts?on_conflict=church,service_date,part", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: rows});
+      if (have.length < 2) {  // everyone ticked so far today was at the first service
+        const ticked = Object.entries(here).filter(([id]) => mine.some(m => m.id === id));
+        if (ticked.length) await api("service_ticks?on_conflict=service_date,part,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal",
+          body: ticked.map(([id, at]) => ({service_date: day, part: 1, member_id: id, checked_at: at}))});
+        S.pticks.push(...ticked.map(([id]) => ({service_date: day, part: 1, member_id: id})));
+      }
+      S.parts[day] = [...(have.length > 1 ? have : [{part: 1, name: first}]), {part: next, name: rows.at(-1).name}];
+      (S.ciParts ??= {})[day] = next; log("edit", "", "done", `${S.church} · ${day}: added ${rows.at(-1).name}`);
+      toast(have.length > 1 ? "Service added. Rename it in the Service box." : "Two services today. Everyone ticked so far is in the first one. Rename this one in the Service box.");
+      here = {}; svc.value = svcLabel(); drawParts(); draw(); pull();
+    } catch (err) { toast(sqlNeeded(err)); }
+  };
+  const unsplit = async () => {
+    const day = S.date, n = curPart(); if (!n) return;
+    if (!armedPart) { armedPart = true; drawParts(); setTimeout(() => { if (armedPart) { armedPart = false; if (S.view === "checkin") drawParts(); } }, 4000); return; }
+    armedPart = false;
+    const left = (S.parts[day] || []).filter(x => x.part !== n), gone = left.length < 2 ? [n, ...left.map(x => x.part)] : [n];
+    const ids = mine.map(m => m.id);
+    try {
+      for (const k of gone) for (let i = 0; i < ids.length; i += 80)  // only this church's people: part numbers are per church
+        await api(`service_ticks?service_date=eq.${day}&part=eq.${k}&member_id=in.(${ids.slice(i, i + 80).map(x => `"${x}"`).join(",")})`, {method: "DELETE", prefer: "return=minimal"});
+      await api(`service_parts?church=eq.${encodeURIComponent(S.church)}&service_date=eq.${day}&part=in.(${gone.join(",")})`, {method: "DELETE", prefer: "return=minimal"});
+      S.pticks = S.pticks.filter(t => !(t.service_date === day && gone.includes(t.part) && ids.includes(t.member_id)));
+      S.parts[day] = left.length < 2 ? [] : left; if (S.ciParts) delete S.ciParts[day];
+      log("edit", "", "done", `${S.church} · ${day}: removed ${partName(day, n)}`);
+      toast(left.length < 2 ? "Back to one service today. Everyone ticked is still in the day's total." : "Service removed. Everyone ticked is still in the day's total.");
+      here = {}; svc.value = svcLabel(); drawParts(); draw(); pull();
+    } catch (err) { toast(sqlNeeded(err)); }
+  };
   const teams = {};  // each role in this church with how many people have it
   for (const m of mine) for (const r of new Set(rolesOf(m).map(norm))) (teams[r] ??= {label: rolesOf(m).find(x => norm(x) === r), n: 0}).n++;
   if (S.ciRole && !teams[S.ciRole]) S.ciRole = "";
@@ -1361,10 +1443,15 @@ function checkin(el) {
     el.querySelector("#n-kid").textContent = kids; el.querySelector("#n-not").textContent = mine.length - ids.length;
   };
   const pull = async () => {
-    const rows = await api(`attendance?select=member_id,checked_at&service_date=eq.${S.date}`).catch(() => null);
+    const n = curPart(), day0 = S.date;
+    const [rows, prows] = await Promise.all([api(`attendance?select=member_id,checked_at&service_date=eq.${day0}`).catch(() => null),
+      n ? api(`service_ticks?select=member_id,checked_at,part&service_date=eq.${day0}`).catch(() => null) : null]);
     readLock();
-    if (!rows || S.view !== "checkin") return;
-    here = Object.fromEntries(rows.map(r => [r.member_id, r.checked_at]));
+    if (!rows || S.view !== "checkin" || day0 !== S.date || n !== curPart()) return;
+    const dayHere = Object.fromEntries(rows.map(r => [r.member_id, r.checked_at]));
+    if (prows) S.pticks = S.pticks.filter(t => t.service_date !== day0).concat(prows.map(r => ({service_date: day0, part: r.part, member_id: r.member_id})));
+    // one service: who was ticked for it (and is still ticked for the day); the whole day: everyone
+    here = n ? Object.fromEntries((prows || []).filter(r => r.part === n && dayHere[r.member_id]).map(r => [r.member_id, r.checked_at || dayHere[r.member_id]])) : dayHere;
     for (const [id, v] of pending) { if (v) here[id] ??= v; else delete here[id]; }  // taps still saving win over an older copy from the server
     S.ticks = S.ticks.filter(t => t.service_date !== S.date).concat(rows.map(r => ({...r, service_date: S.date})));
     if (document.activeElement?.type !== "checkbox") draw();
@@ -1401,7 +1488,7 @@ function checkin(el) {
     if (on) here[id] = at; else delete here[id];
     pending.set(id, on ? at : null); e.target.blur(); draw();
     try {
-      const result = await setPresent(id, on, seen, at);
+      const result = await setPresent(id, on, curPart() ? undefined : seen, at, curPart());
       if (result === "changed") toast("That tick was changed on another phone, so it was left as it is.");
     } catch (err) {
       if (seen) here[id] = seen; else delete here[id];
@@ -1417,6 +1504,8 @@ function checkin(el) {
       await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, name: svcName(S.date)}});
       const at = isoLocal();  // one request for the whole group; anyone already ticked on another phone is left as they are
       await api("attendance?on_conflict=service_date,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: todo.map(m => ({service_date: S.date, member_id: m.id, checked_at: at}))});
+      if (curPart()) await api("service_ticks?on_conflict=service_date,part,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal",
+        body: todo.map(m => ({service_date: S.date, part: curPart(), member_id: m.id, checked_at: at}))});
       for (const m of todo) { here[m.id] = at; log("tick", m.id, "done", S.ciRole ? `with ${teams[S.ciRole].label}` : "with a group"); }
       toast(`Ticked ${todo.length} ${todo.length === 1 ? "person" : "people"}. Untick anyone who isn't here.`);
     } catch (err) { toast("Not saved: " + err.message); }
@@ -1427,7 +1516,7 @@ function checkin(el) {
     if (!armed) { armed = true; draw(); setTimeout(() => { if (armed) { armed = false; if (S.view === "checkin") draw(); } }, 4000); return; }
     busy = true; armed = false; draw();
     let n = 0;
-    try { for (const m of todo) { if (await setPresent(m.id, false, here[m.id]) === "done") { delete here[m.id]; n++; } } toast(`Unticked ${n} ${n === 1 ? "person" : "people"}.`); }
+    try { for (const m of todo) { if (await setPresent(m.id, false, curPart() ? undefined : here[m.id], undefined, curPart()) === "done") { delete here[m.id]; n++; } } toast(`Unticked ${n} ${n === 1 ? "person" : "people"}.`); }
     catch (err) { toast("Not saved: " + err.message); }
     busy = false; draw(); pull();
   };
@@ -1437,7 +1526,8 @@ function checkin(el) {
     busy = true; armedAll = false; draw();
     try {
       let n = 0;
-      for (let i = 0; i < todo.length; i += 80) {
+      if (curPart()) { for (const m of todo) if (await setPresent(m.id, false, undefined, undefined, curPart()) === "done") n++; }
+      else for (let i = 0; i < todo.length; i += 80) {
         const gone = await api(`attendance?service_date=eq.${S.date}&member_id=in.(${todo.slice(i, i + 80).map(m => `"${m.id}"`).join(",")})`, {method: "DELETE", prefer: "return=representation"});
         n += gone?.length || 0;
       }
@@ -1446,12 +1536,21 @@ function checkin(el) {
     } catch (err) { toast("Not saved: " + err.message); }
     busy = false; draw(); pull();
   };
-  const svc = el.querySelector("#svc");
-  el.querySelector("#d").onchange = e => { S.date = e.target.value || today(); svc.value = svcName(S.date); here = {}; lock = null; draw(); showLock(); pull(); };
+  const svc = el.querySelector("#svc"); svc.value = svcLabel(); drawParts();
+  el.querySelector("#d").onchange = e => { S.date = e.target.value || today(); armedPart = false; svc.value = svcLabel(); here = {}; lock = null; drawParts(); draw(); showLock(); pull(); };
   if (!pastor) svc.onchange = async () => {
-    const name = svc.value.trim().replace(/\s+/g, " "), was = svcName(S.date);
+    const name = svc.value.trim().replace(/\s+/g, " "), n = curPart(), was = svcLabel();
     if (!name) { svc.value = was; return; }
     if (name === was) return;
+    if (n) {  // renaming one of the day's services
+      try {
+        await api(`service_parts?church=eq.${encodeURIComponent(S.church)}&service_date=eq.${S.date}&part=eq.${n}`, {method: "PATCH", prefer: "return=minimal", body: {name: name.slice(0, 60)}});
+        const x = S.parts[S.date].find(y => y.part === n); if (x) x.name = name.slice(0, 60);
+        if (n === S.parts[S.date][0].part) { await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {service_date: S.date, name}}).catch(() => {}); S.names[S.date] = name; }
+        log("edit", "", "done", `service title: ${name}`); toast("Saved."); drawParts();
+      } catch (err) { svc.value = was; toast(sqlNeeded(err)); }
+      return;
+    }
     (S.titles ??= {})[S.date] = name;  // used when the first person is ticked, if the service isn't saved yet
     try {
       await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {service_date: S.date, name}});
@@ -1479,7 +1578,7 @@ function checkin(el) {
         S.members.push(m); mine.push(m); mine.sort((a, b) => norm(a.full_name).localeCompare(norm(b.full_name)));
       }
       if (only) { e.target.reset(); toast(known ? `${name} is already on the list.` : `${name} is added to the register.`); draw(); return; }
-      await setPresent(id, true);
+      await setPresent(id, true, undefined, undefined, curPart());
       e.target.reset(); toast(`${name} is checked in${known ? " (already on the list)" : ""}.`); pull();
     } catch (err) { toast("Not saved: " + err.message); }
   };

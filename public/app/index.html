@@ -455,7 +455,11 @@ td .x {border: 0; background: none; color: var(--red); font-weight: 600;}
   .rpills {flex-wrap: nowrap; overflow-x: auto; width: 100%; padding-bottom: 4px;} .rpill {flex: none;}
   .u-tools {flex-basis: 100%; flex-wrap: wrap;}
   .u-tools select, .u-tools select#sort, .u-tools select#teamF {flex: 1 1 calc(50% - 4px); min-width: 0; padding-right: 34px; text-overflow: ellipsis;}
-  .u-tools input, .u-tools .find-bar {flex: 1 1 100%; min-width: 0;}
+  .u-tools input, .u-tools /* Check-in: a day with more than one service */
+.ci-parts {display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px;} .ci-parts > .f {margin: 0;}
+.ci-parts .seg {flex-wrap: wrap;} .danger-link {color: var(--red);}
+.ov-parts {margin: 0; padding: 12px 18px 14px; color: var(--ink-2); font-size: 13.5px; border-top: 1px solid var(--line);} .ov-parts b {color: var(--ink);}
+.find-bar {flex: 1 1 100%; min-width: 0;}
   .u-tools select:only-of-type {flex-basis: 100%;}
   .pager > .muted:first-child {flex-basis: 100%;}
 }
