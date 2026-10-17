@@ -508,3 +508,348 @@ insert into churches (name) values (app_home_church()) on conflict do nothing;
 --   insert into app_users (email, role, name) values ('you@example.com', 'admin', 'Your Name') on conflict (email) do update set role = 'admin';
 
 notify pgrst, 'reload schema';
+
+-- ---------------------------------------------------------------- Ask: ready-made questions (Help → Ask a question)
+-- Fifty fixed questions about attendance and the congregation. The app sends a question id (and a date, month, name or
+-- number when the question needs one); the database runs the saved query and sends back a small table.
+-- Nothing here writes data, and nobody can send their own SQL. These functions run with the signed-in person's own
+-- rules (Row Level Security), so an usher or church admin only gets their church, a pastor only their own people,
+-- and the Bishop (who has no access to names) is refused. Phone numbers are never returned. Safe to run again.
+
+create or replace function app_ask_people(ch text default null) returns table (
+  id text, full_name text, type text, kid boolean, gender text, pastor text, role text, status text, church text,
+  active boolean, has_phone boolean, first_visit date, started date, added date
+) language sql stable set search_path = public as $$
+  select m.id, m.full_name,
+         case when m.type in ('first_timer', 'visitor') then m.type else 'member' end,
+         lower(coalesce(m.age_group, '')) in ('child', 'kid', 'kids', 'children'),
+         case lower(trim(coalesce(m.gender, ''))) when 'f' then 'Female' when 'female' then 'Female'
+              when 'm' then 'Male' when 'male' then 'Male' else 'Not given' end,
+         nullif(trim(m.pastor), ''), nullif(trim(m.role), ''), coalesce(nullif(trim(m.status), ''), 'Active'),
+         coalesce(nullif(trim(m.church), ''), app_home_church()),
+         lower(coalesce(m.status, '')) not in ('inactive', 'moved', 'left', 'deceased', 'transferred', 'away'),
+         nullif(regexp_replace(coalesce(m.phone, ''), '\s', '', 'g'), '') is not null,
+         m.first_visit, least(m.date_joined, m.first_visit),
+         case when left(m.created_at, 10) ~ '^\d{4}-\d{2}-\d{2}$' then left(m.created_at, 10)::date end
+  from members m
+  where ch is null or coalesce(nullif(trim(m.church), ''), app_home_church()) = ch
+$$;
+
+create or replace function app_ask_ticks(ch text default null) returns table (
+  service_date date, id text, full_name text, type text, kid boolean, gender text, pastor text
+) language sql stable set search_path = public as $$
+  select a.service_date, p.id, p.full_name, p.type, p.kid, p.gender, p.pastor
+  from attendance a join app_ask_people(ch) p on p.id = a.member_id
+  where a.service_date <= current_date
+$$;
+
+-- One row per service that anyone in the church was ticked at, with the counts.
+create or replace function app_ask_services(ch text default null) returns table (
+  service_date date, name text, total int, adults int, kids int, first_timers int, visitors int, females int, males int
+) language sql stable set search_path = public as $$
+  select t.service_date,
+         coalesce(nullif(trim(sv.name), ''), case extract(dow from t.service_date) when 0 then 'Sunday Service'
+                  when 3 then 'Midweek Service' else 'Service' end),
+         count(*)::int, (count(*) filter (where not t.kid))::int, (count(*) filter (where t.kid))::int,
+         (count(*) filter (where t.type = 'first_timer'))::int, (count(*) filter (where t.type = 'visitor'))::int,
+         (count(*) filter (where t.gender = 'Female'))::int, (count(*) filter (where t.gender = 'Male'))::int
+  from app_ask_ticks(ch) t left join services sv on sv.service_date = t.service_date
+  group by t.service_date, sv.name
+$$;
+
+-- Everyone with the last day they were ticked and how many Sunday services they have missed since (visitors: never).
+-- Only Sunday services count as missed, and only ones on or after the day the person joined or first visited.
+create or replace function app_ask_status(ch text default null) returns table (
+  id text, full_name text, type text, pastor text, active boolean, started date, added date, last_seen date, missed int
+) language sql stable set search_path = public as $$
+  with p as (select * from app_ask_people(ch)),
+  svc as (select distinct p.church as c, t.service_date from attendance t join p on p.id = t.member_id
+          where t.service_date <= current_date and extract(dow from t.service_date) = 0),
+  seen as (select a.member_id, max(a.service_date) as d from attendance a where a.service_date <= current_date group by 1)
+  select p.id, p.full_name, p.type, p.pastor, p.active, p.started, p.added, s.d,
+         case when p.type = 'visitor' then 0 else
+           (select count(*) from svc v where v.c = p.church and v.service_date > coalesce(s.d, date '0001-01-01')
+              and v.service_date >= coalesce(p.started, date '0001-01-01'))::int end
+  from p left join seen s on s.member_id = p.id
+$$;
+
+create or replace function app_ask(q text, ch text default null, d date default null, m date default null,
+                                   t text default null, n int default null) returns json
+language plpgsql stable set search_path = public as $$
+declare
+  latest date; day date; mon date; nxt date; nn int; term text := lower(trim(coalesce(t, '')));
+begin
+  if app_role() is null or app_role() = 'bishop' then raise exception 'not allowed'; end if;
+  select max(s.service_date) into latest from app_ask_services(ch) s;
+  day := coalesce(d, latest);
+  mon := date_trunc('month', coalesce(m, current_date))::date;
+  nxt := (mon + interval '1 month')::date;
+  if q in ('svc_name', 'p_role_who', 'p_search', 'a_person') and term = '' then raise exception 'Please type a name or word to look for.'; end if;
+  if q in ('svc_day', 'svc_who_came', 'svc_who_missed', 'svc_first_timers', 'svc_gender') and day is null then raise exception 'There are no services yet.'; end if;
+
+  -- ---------------------------------------------------------------- services
+  if q in ('svc_latest', 'svc_day') then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select to_char(s.service_date, 'DD Mon YYYY') as "Date", s.name as "Service", s.total as "Total", s.adults as "Adults",
+             s.kids as "Kids", s.first_timers as "First-timers", s.visitors as "Visitors", s.females as "Females", s.males as "Males"
+      from app_ask_services(ch) s where s.service_date = day) x);
+  elsif q = 'svc_name' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select to_char(s.service_date, 'DD Mon YYYY') as "Date", s.name as "Service", s.total as "Total", s.adults as "Adults",
+             s.kids as "Kids", s.first_timers as "First-timers", s.females as "Females", s.males as "Males"
+      from app_ask_services(ch) s where strpos(lower(s.name), term) > 0 order by s.service_date desc limit 60) x);
+  elsif q = 'svc_who_came' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select k.full_name as "Name", case k.type when 'first_timer' then 'First-timer' when 'visitor' then 'Visitor' else 'Member' end as "Type",
+             case when k.kid then 'Child' else 'Adult' end as "Age", k.gender as "Gender"
+      from app_ask_ticks(ch) k where k.service_date = day order by k.full_name limit 400) x);
+  elsif q = 'svc_who_missed' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select p.full_name as "Name", coalesce(p.pastor, 'Not assigned') as "Pastor",
+             coalesce((select to_char(max(a.service_date), 'DD Mon YYYY') from attendance a where a.member_id = p.id and a.service_date < day), 'Never') as "Last seen before"
+      from app_ask_people(ch) p
+      where p.active and p.type <> 'visitor' and (p.started is null or p.started <= day)
+        and not exists (select 1 from attendance a where a.member_id = p.id and a.service_date = day)
+      order by p.full_name limit 400) x);
+  elsif q = 'svc_first_timers' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select k.full_name as "Name", case when k.kid then 'Child' else 'Adult' end as "Age", k.gender as "Gender", coalesce(k.pastor, 'Not assigned') as "Pastor"
+      from app_ask_ticks(ch) k where k.service_date = day and k.type = 'first_timer' order by k.full_name limit 400) x);
+  elsif q = 'svc_gender' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select coalesce(k.gender, 'Everyone') as "Gender", (count(*) filter (where not k.kid))::int as "Adults",
+             (count(*) filter (where k.kid))::int as "Kids", count(*)::int as "Total"
+      from app_ask_ticks(ch) k where k.service_date = day group by rollup(k.gender)
+      order by grouping(k.gender), k.gender) x);
+  elsif q = 'svc_biggest' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select to_char(s.service_date, 'DD Mon YYYY') as "Date", s.name as "Service", s.total as "Total", s.adults as "Adults",
+             s.kids as "Kids", s.first_timers as "First-timers"
+      from app_ask_services(ch) s order by s.total desc, s.service_date desc limit 10) x);
+  elsif q = 'svc_smallest' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select to_char(s.service_date, 'DD Mon YYYY') as "Date", s.name as "Service", s.total as "Total", s.adults as "Adults", s.kids as "Kids"
+      from app_ask_services(ch) s where s.service_date >= current_date - 365 order by s.total asc, s.service_date desc limit 10) x);
+  elsif q = 'svc_avg' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      with r as (select s.*, row_number() over (order by s.service_date desc) as rn from app_ask_services(ch) s where extract(dow from s.service_date) = 0)
+      select 'Last 4 Sundays' as "Period", count(*)::int as "Sundays", round(avg(total))::int as "Average", max(total)::int as "Biggest" from r where rn <= 4
+      union all select 'Last 12 Sundays', count(*)::int, round(avg(total))::int, max(total)::int from r where rn <= 12
+      union all select 'This year', count(*)::int, round(avg(total))::int, max(total)::int from r where extract(year from service_date) = extract(year from current_date)
+      union all select 'All time', count(*)::int, round(avg(total))::int, max(total)::int from r) x);
+  elsif q = 'svc_last12' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select to_char(s.service_date, 'DD Mon YYYY') as "Date", s.name as "Service", s.total as "Total", s.adults as "Adults", s.kids as "Kids", s.first_timers as "First-timers"
+      from app_ask_services(ch) s where extract(dow from s.service_date) = 0 order by s.service_date desc limit 12) x);
+  elsif q = 'svc_by_name' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select s.name as "Service", count(*)::int as "Times held", round(avg(s.total))::int as "Average", max(s.total)::int as "Biggest",
+             to_char(max(s.service_date), 'DD Mon YYYY') as "Latest"
+      from app_ask_services(ch) s group by s.name order by count(*) desc, s.name limit 60) x);
+  elsif q = 'svc_month' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select to_char(g.mo, 'Mon YYYY') as "Month", count(*)::int as "Services", round(avg(g.total))::int as "Average", max(g.total)::int as "Biggest", sum(g.total)::int as "Total ticks"
+      from (select date_trunc('month', s.service_date)::date as mo, s.total from app_ask_services(ch) s
+            where s.service_date >= (date_trunc('month', current_date) - interval '11 months')::date) g
+      group by g.mo order by g.mo desc) x);
+  elsif q = 'svc_compare' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select to_char(g.mo, 'Mon YYYY') as "Month", count(*)::int as "Services", round(avg(g.total))::int as "Average", max(g.total)::int as "Biggest",
+             sum(g.first_timers)::int as "First-timers ticked", sum(g.kids)::int as "Kids ticked"
+      from (select date_trunc('month', s.service_date)::date as mo, s.* from app_ask_services(ch) s) g
+      where g.mo in (mon, (mon - interval '1 month')::date) group by g.mo order by g.mo desc) x);
+  elsif q = 'svc_special' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select to_char(s.service_date, 'DD Mon YYYY') as "Date", s.name as "Service", s.total as "Total", s.kids as "Kids", s.first_timers as "First-timers"
+      from app_ask_services(ch) s where lower(s.name) not in ('sunday service', 'midweek service', 'service')
+      order by s.service_date desc limit 100) x);
+
+  -- ---------------------------------------------------------------- first-timers (anyone with a first-visit date)
+  elsif q = 'ft_month_count' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select to_char(mon, 'Mon YYYY') as "Month", count(*)::int as "First-timers",
+             (count(*) filter (where exists (select 1 from attendance a where a.member_id = p.id and a.service_date > p.first_visit)))::int as "Came again",
+             (count(*) filter (where not exists (select 1 from attendance a where a.member_id = p.id and a.service_date > p.first_visit)))::int as "Not back yet"
+      from app_ask_people(ch) p where p.first_visit >= mon and p.first_visit < nxt) x);
+  elsif q = 'ft_month_names' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select p.full_name as "Name", to_char(p.first_visit, 'DD Mon YYYY') as "First visit",
+             case p.type when 'first_timer' then 'First-timer' when 'visitor' then 'Visitor' else 'Member now' end as "Now",
+             (select count(*) from attendance a where a.member_id = p.id)::int as "Times came", coalesce(p.pastor, 'Not assigned') as "Pastor"
+      from app_ask_people(ch) p where p.first_visit >= mon and p.first_visit < nxt order by p.first_visit, p.full_name limit 300) x);
+  elsif q = 'ft_by_month' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select to_char(g.mo, 'Mon YYYY') as "Month", count(p.id)::int as "First-timers",
+             (count(p.id) filter (where exists (select 1 from attendance a where a.member_id = p.id and a.service_date > p.first_visit)))::int as "Came again",
+             case when count(p.id) = 0 then '-' else round(100.0 * (count(p.id) filter (where exists (select 1 from attendance a where a.member_id = p.id and a.service_date > p.first_visit))) / count(p.id))::int || '%' end as "Came back"
+      from generate_series((date_trunc('month', current_date) - interval '11 months')::date, date_trunc('month', current_date)::date, interval '1 month') g(mo)
+      left join app_ask_people(ch) p on p.first_visit >= g.mo and p.first_visit < (g.mo + interval '1 month')
+      group by g.mo order by g.mo desc) x);
+  elsif q = 'ft_came_back' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select p.full_name as "Name", to_char(p.first_visit, 'DD Mon YYYY') as "First visit",
+             (select count(*) from attendance a where a.member_id = p.id and a.service_date > p.first_visit)::int as "Times since",
+             to_char((select max(a.service_date) from attendance a where a.member_id = p.id), 'DD Mon YYYY') as "Last seen"
+      from app_ask_people(ch) p
+      where p.first_visit >= current_date - 365 and exists (select 1 from attendance a where a.member_id = p.id and a.service_date > p.first_visit)
+      order by p.first_visit desc, p.full_name limit 200) x);
+  elsif q = 'ft_not_back' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select p.full_name as "Name", to_char(p.first_visit, 'DD Mon YYYY') as "First visit", coalesce(p.pastor, 'Not assigned') as "Pastor"
+      from app_ask_people(ch) p
+      where p.active and p.first_visit >= current_date - 183 and p.first_visit <= current_date - 6
+        and not exists (select 1 from attendance a where a.member_id = p.id and a.service_date > p.first_visit)
+      order by p.first_visit desc, p.full_name limit 200) x);
+  elsif q = 'ft_recent' then
+    nn := coalesce(n, 30);
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select p.full_name as "Name", to_char(p.first_visit, 'DD Mon YYYY') as "First visit", case when p.kid then 'Child' else 'Adult' end as "Age",
+             coalesce(p.pastor, 'Not assigned') as "Pastor"
+      from app_ask_people(ch) p where p.first_visit >= current_date - nn and p.first_visit <= current_date
+      order by p.first_visit desc, p.full_name limit 300) x);
+  elsif q = 'new_people' then
+    nn := coalesce(n, 30);
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select p.full_name as "Name", case p.type when 'first_timer' then 'First-timer' when 'visitor' then 'Visitor' else 'Member' end as "Type",
+             to_char(p.added, 'DD Mon YYYY') as "Added", case when p.kid then 'Child' else 'Adult' end as "Age"
+      from app_ask_people(ch) p where p.added >= current_date - nn order by p.added desc, p.full_name limit 300) x);
+
+  -- ---------------------------------------------------------------- people (everyone who is still part of the church)
+  elsif q = 'p_total' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select case when grouping(p.type) = 1 then 'Everyone' else case p.type when 'first_timer' then 'First-timers' when 'visitor' then 'Visitors' else 'Members' end end as "Who",
+             (count(*) filter (where p.active))::int as "In the church now", (count(*) filter (where not p.active))::int as "Away or moved"
+      from app_ask_people(ch) p group by rollup(p.type)
+      order by grouping(p.type), case p.type when 'member' then 0 when 'first_timer' then 1 else 2 end) x);
+  elsif q in ('p_females', 'p_males') then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select case when q = 'p_females' then 'Females' else 'Males' end as "Who", count(*)::int as "Total",
+             (count(*) filter (where not p.kid))::int as "Adults", (count(*) filter (where p.kid))::int as "Kids"
+      from app_ask_people(ch) p where p.active and p.gender = case when q = 'p_females' then 'Female' else 'Male' end) x);
+  elsif q in ('p_kids', 'p_adults') then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select coalesce(p.gender, 'Everyone') as "Gender", count(*)::int as "Total"
+      from app_ask_people(ch) p where p.active and p.kid = (q = 'p_kids') group by rollup(p.gender)
+      order by grouping(p.gender), p.gender) x);
+  elsif q = 'p_gender_age' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select coalesce(p.gender, 'Everyone') as "Gender", (count(*) filter (where not p.kid))::int as "Adults",
+             (count(*) filter (where p.kid))::int as "Kids", count(*)::int as "Total"
+      from app_ask_people(ch) p where p.active group by rollup(p.gender) order by grouping(p.gender), p.gender) x);
+  elsif q = 'p_gender_missing' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select p.full_name as "Name", case when p.kid then 'Child' else 'Adult' end as "Age",
+             case p.type when 'first_timer' then 'First-timer' when 'visitor' then 'Visitor' else 'Member' end as "Type"
+      from app_ask_people(ch) p where p.active and p.gender = 'Not given' order by p.full_name limit 400) x);
+  elsif q = 'p_by_church' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select p.church as "Church", count(*)::int as "People", (count(*) filter (where not p.kid))::int as "Adults", (count(*) filter (where p.kid))::int as "Kids",
+             (count(*) filter (where p.gender = 'Female'))::int as "Females", (count(*) filter (where p.gender = 'Male'))::int as "Males"
+      from app_ask_people(null) p where p.active group by p.church order by (p.church <> app_home_church()), p.church) x);
+  elsif q = 'p_by_pastor' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select coalesce(trim(u.pn), 'Not assigned') as "Pastor", count(*)::int as "People", (count(*) filter (where p.kid))::int as "Kids"
+      from app_ask_people(ch) p left join lateral unnest(string_to_array(p.pastor, ',')) as u(pn) on true
+      where p.active and p.type <> 'visitor' group by 1 order by (coalesce(trim(u.pn), 'Not assigned') = 'Not assigned'), 2 desc, 1) x);
+  elsif q = 'p_no_pastor' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select p.full_name as "Name", case when p.kid then 'Child' else 'Adult' end as "Age",
+             case p.type when 'first_timer' then 'First-timer' else 'Member' end as "Type"
+      from app_ask_people(ch) p where p.active and p.type <> 'visitor' and p.pastor is null order by p.full_name limit 400) x);
+  elsif q = 'p_no_phone' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select p.full_name as "Name", case when p.kid then 'Child' else 'Adult' end as "Age", coalesce(p.pastor, 'Not assigned') as "Pastor"
+      from app_ask_people(ch) p where p.active and not p.has_phone order by p.full_name limit 400) x);
+  elsif q = 'p_by_role' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select trim(u.r) as "Team or role", count(*)::int as "People"
+      from app_ask_people(ch) p cross join lateral unnest(string_to_array(p.role, ',')) as u(r)
+      where p.active and trim(u.r) <> '' group by 1 order by 2 desc, 1) x);
+  elsif q = 'p_role_who' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select p.full_name as "Name", p.role as "Team or role", coalesce(p.pastor, 'Not assigned') as "Pastor"
+      from app_ask_people(ch) p where p.active and strpos(lower(coalesce(p.role, '')), term) > 0 order by p.full_name limit 300) x);
+  elsif q = 'p_status' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select p.status as "Status", count(*)::int as "People" from app_ask_people(ch) p group by p.status order by 2 desc, 1) x);
+  elsif q = 'p_archive' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select s.full_name as "Name", coalesce(to_char(s.last_seen, 'DD Mon YYYY'), 'Never ticked') as "Last seen", coalesce(s.pastor, 'Not assigned') as "Pastor"
+      from app_ask_status(ch) s
+      where s.active and coalesce(s.last_seen, s.started, s.added) < current_date - 730
+      order by coalesce(s.last_seen, s.started, s.added), s.full_name limit 300) x);
+  elsif q = 'p_search' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select p.full_name as "Name", case p.type when 'first_timer' then 'First-timer' when 'visitor' then 'Visitor' else 'Member' end as "Type",
+             case when p.kid then 'Child' else 'Adult' end as "Age", p.gender as "Gender", coalesce(p.pastor, 'Not assigned') as "Pastor",
+             p.status as "Status", coalesce(to_char(s.last_seen, 'DD Mon YYYY'), 'Never') as "Last seen",
+             (select count(*) from attendance a where a.member_id = p.id and a.service_date <= current_date)::int as "Times came"
+      from app_ask_people(ch) p join app_ask_status(ch) s on s.id = p.id
+      where strpos(lower(p.full_name), term) > 0 order by p.full_name limit 30) x);
+  elsif q = 'p_visitors' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select s.full_name as "Name", coalesce(to_char(s.last_seen, 'DD Mon YYYY'), 'Never') as "Last seen",
+             (select count(*) from attendance a where a.member_id = s.id and a.service_date <= current_date)::int as "Times came"
+      from app_ask_status(ch) s where s.type = 'visitor' and s.active order by s.last_seen desc nulls last, s.full_name limit 300) x);
+
+  -- ---------------------------------------------------------------- attendance and follow-up
+  elsif q in ('a_red', 'a_yellow', 'a_blue', 'a_missed_n') then
+    nn := coalesce(n, 3);
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select s.full_name as "Name", s.missed as "Sundays missed", coalesce(to_char(s.last_seen, 'DD Mon YYYY'), 'Never') as "Last seen", coalesce(s.pastor, 'Not assigned') as "Pastor"
+      from app_ask_status(ch) s
+      where s.active and s.type <> 'visitor' and coalesce(s.last_seen, s.started, s.added, current_date) >= current_date - 730
+        and case q when 'a_red' then s.missed >= 5 when 'a_yellow' then s.missed between 3 and 4
+                   when 'a_blue' then s.missed between 1 and 2 else s.missed >= nn end
+      order by s.missed desc, s.full_name limit 300) x);
+  elsif q = 'a_away_weeks' then
+    nn := coalesce(n, 4);
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select s.full_name as "Name", to_char(s.last_seen, 'DD Mon YYYY') as "Last seen", ((current_date - s.last_seen) / 7)::int as "Weeks ago", coalesce(s.pastor, 'Not assigned') as "Pastor"
+      from app_ask_status(ch) s
+      where s.active and s.type <> 'visitor' and s.last_seen is not null and s.last_seen < current_date - 7 * nn and s.last_seen >= current_date - 730
+      order by s.last_seen desc, s.full_name limit 300) x);
+  elsif q = 'a_faithful' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      with r as (select s.service_date from app_ask_services(ch) s where extract(dow from s.service_date) = 0 order by s.service_date desc limit 12)
+      select k.full_name as "Name", count(*)::int as "Sundays came", (select count(*) from r)::int as "Out of"
+      from app_ask_ticks(ch) k join r on r.service_date = k.service_date
+      group by k.id, k.full_name order by count(*) desc, k.full_name limit 15) x);
+  elsif q = 'a_perfect' then
+    nn := coalesce(n, 4);
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      with r as (select s.service_date from app_ask_services(ch) s where extract(dow from s.service_date) = 0 order by s.service_date desc limit nn)
+      select k.full_name as "Name", coalesce(k.pastor, 'Not assigned') as "Pastor"
+      from app_ask_ticks(ch) k join r on r.service_date = k.service_date
+      group by k.id, k.full_name, k.pastor having count(*) = (select count(*) from r) and (select count(*) from r) > 0
+      order by k.full_name limit 300) x);
+  elsif q = 'a_person' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select k.full_name as "Name", to_char(k.service_date, 'DD Mon YYYY') as "Date", s.name as "Service"
+      from app_ask_ticks(ch) k join app_ask_services(ch) s on s.service_date = k.service_date
+      where strpos(lower(k.full_name), term) > 0 order by k.service_date desc, k.full_name limit 60) x);
+  elsif q = 'a_gender_trend' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select to_char(s.service_date, 'DD Mon YYYY') as "Date", s.females as "Females", s.males as "Males", s.kids as "Kids", s.total as "Total"
+      from app_ask_services(ch) s where extract(dow from s.service_date) = 0 order by s.service_date desc limit 8) x);
+  elsif q = 'a_pastor_last' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select coalesce(trim(u.pn), 'Not assigned') as "Pastor", count(*)::int as "People",
+             (count(*) filter (where exists (select 1 from attendance a where a.member_id = p.id and a.service_date = latest)))::int as "Came",
+             (count(*) filter (where not exists (select 1 from attendance a where a.member_id = p.id and a.service_date = latest)))::int as "Missed"
+      from app_ask_people(ch) p left join lateral unnest(string_to_array(p.pastor, ',')) as u(pn) on true
+      where p.active and p.type <> 'visitor' and latest is not null group by 1 order by (coalesce(trim(u.pn), 'Not assigned') = 'Not assigned'), 1) x);
+  elsif q = 'a_new_attenders' then
+    return (select coalesce(json_agg(row_to_json(x)), '[]'::json) from (
+      select f.full_name as "Name", to_char(f.first_day, 'DD Mon YYYY') as "First came",
+             case f.type when 'first_timer' then 'First-timer' when 'visitor' then 'Visitor' else 'Member' end as "Type"
+      from (select k.id, k.full_name, k.type, min(k.service_date) as first_day from app_ask_ticks(ch) k group by 1, 2, 3) f
+      where f.first_day >= mon and f.first_day < nxt order by f.first_day, f.full_name limit 300) x);
+  end if;
+  raise exception 'That question is not on the list.';
+end $$;
+
+revoke all on function app_ask_people(text), app_ask_ticks(text), app_ask_services(text), app_ask_status(text),
+  app_ask(text, text, date, date, text, int) from public, anon;
+grant execute on function app_ask_people(text), app_ask_ticks(text), app_ask_services(text), app_ask_status(text),
+  app_ask(text, text, date, date, text, int) to authenticated;
