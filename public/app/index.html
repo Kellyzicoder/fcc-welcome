@@ -378,8 +378,12 @@ input.in:focus, select.in:focus {border-color: var(--accent); box-shadow: 0 0 0 
 @media (max-width: 900px) {
   /* phones: the same page as on a computer, stacked - churches as a row to swipe, the dashboard, then the calendar */
   .bish {grid-template-columns: minmax(0, 1fr); grid-template-areas: "list" "detail" "cal"; gap: 12px;}
-  .b-list {display: flex; gap: 8px; overflow-x: auto; padding: 8px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;}
-  .b-item {flex: 0 0 auto; width: auto; min-width: 128px; padding: 10px 12px; border: 1px solid var(--line); scroll-snap-align: start;}
+  .b-list {display: flex; gap: 8px; overflow-x: auto; padding: 2px 0; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+          background: none; border: 0; box-shadow: none; border-radius: 0; --fl: 0px; --fr: 0px;
+          -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--fl), #000 calc(100% - var(--fr)), transparent);
+          mask-image: linear-gradient(90deg, transparent, #000 var(--fl), #000 calc(100% - var(--fr)), transparent);}
+  .b-list::-webkit-scrollbar {display: none;}
+  .b-item {flex: 0 0 auto; width: auto; min-width: 128px; padding: 10px 12px; border: 1px solid var(--line); scroll-snap-align: start; background: var(--card);}
   .b-item:first-child {border-bottom: 1px solid var(--line); border-radius: 14px; margin-bottom: 0;}
   .b-item > svg, .b-item .spark {display: none;}
   .b-item.on {border-color: var(--accent);}
@@ -505,9 +509,12 @@ button.ov-cell {cursor: pointer;} button.ov-cell:hover {background: var(--soft);
 .split-rows em {font-style: normal; color: var(--ink-3);} .split-rows small {color: var(--ink-3); font-size: 12.5px; display: inline-flex; gap: 6px; align-items: center;}
 /* Biggest services: soft violet bars, the biggest in strong violet */
 .vbars {display: flex; align-items: flex-end; gap: 10px; height: 200px; padding-top: 22px;}
-.vbar {flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; border: 0; background: none; padding: 0; cursor: pointer; font: inherit;}
+.vbars {overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; scrollbar-width: thin; padding-bottom: 6px;}
+.vbars.more {-webkit-mask-image: linear-gradient(90deg, #000 82%, transparent); mask-image: linear-gradient(90deg, #000 82%, transparent);}
+.vbar {flex: 1 0 48px; scroll-snap-align: start; min-width: 0; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; border: 0; background: none; padding: 0; cursor: pointer; font: inherit;}
 .vbar span {width: 100%; max-width: 40px; border-radius: 8px 8px 4px 4px; background: linear-gradient(180deg, var(--h4b), color-mix(in srgb, var(--h4b) 35%, transparent)); transition: filter .15s;}
 .vbar.on span {background: linear-gradient(180deg, var(--h4), color-mix(in srgb, var(--h4) 55%, var(--h4b)));} .vbar:hover span {filter: brightness(.95) saturate(1.3);}
+.vbars.named .vbar {flex-basis: 84px;}
 .vbar b {font-size: 13px; min-height: 16px; color: var(--h4t);} .vbar small {font-size: 11.5px; color: var(--ink-3); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis;} .vbar.on small {color: var(--h4t); font-weight: 700;}
 .gauge {position: relative; display: grid; justify-items: center;} .gauge svg {width: min(100%, 260px); height: auto;}
 .gauge-num {font-size: 32px; font-weight: 700; margin-top: -44px; margin-bottom: 14px;}
