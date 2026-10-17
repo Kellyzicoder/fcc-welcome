@@ -221,19 +221,30 @@ function waDialog(title, build, opts = {}) {
   d.querySelectorAll("[data-share]").forEach(b => b.onclick = () => shareOut(b.dataset.share, text.textContent, title));
   drafted();
   // Livestream numbers for this service: shown as a note to copy from, or filled in for you (Settings → Sharing summaries)
+  // Livestream numbers for the chosen day's service. Morning prayers (streams that start between 4:30 and 6:30 am) aren't counted.
+  const prayers = t => { const x = new Date(t), m = x.getHours() * 60 + x.getMinutes(); return m >= 270 && m < 390; };
   const liveNote = async () => {
     d.querySelector(".live-note")?.remove();
-    if (!opts.fields?.some(f => f[0] === "yt") || !["admin", "lead"].includes(S.me.role) || st.day !== today() || !S.session) return;
+    if (!opts.fields?.some(f => f[0] === "yt") || !["admin", "lead"].includes(S.me.role) || !st.day || !S.session) return;
+    const day = st.day, from = new Date(day + "T00:00:00").getTime(), to = from + 86400000;  // that day, on this phone's clock
+    const get = async q => { const r = await fetch("/app-live?church=" + encodeURIComponent(S.church) + q, {cache: "no-store",
+      headers: {Authorization: "Bearer " + S.session.access_token}}); return r.ok ? r.json() : null; };
     try {
-      const r = await fetch("/app-live?church=" + encodeURIComponent(S.church), {cache: "no-store", headers: {Authorization: "Bearer " + S.session.access_token}});
-      const j = r.ok ? await r.json() : null; if (!j || j.setup || !d.isConnected) return;
-      const pk = j.peaks || {}, num = k => typeof pk[k] === "number" && pk[k] > 0 ? pk[k] : null;
-      const got = {yt: num("youtube"), fb: num("facebook"), zoomA: num("zoom")};
+      let svc = null;
+      const s = await get(`&from=${from}&to=${to}`);
+      if (s?.services) svc = s.services.filter(x => !prayers(x.start)).sort((a, b) => b.total - a.total)[0] || null;  // the day's biggest service
+      else if (day === today()) {  // a church without saved services (its own YouTube channel): today's recent counts
+        const j = await get(""); const h = (j?.history || []).filter(x => x.t >= from && !prayers(x.t) && x.total > 0);
+        if (h.length) svc = {start: h[0].t, youtube: Math.max(...h.map(x => x.total)), facebook: 0, zoom: 0};
+      }
+      if (!svc || !d.isConnected || st.day !== day) return;
+      const got = {yt: svc.youtube > 0 ? svc.youtube : null, fb: svc.facebook > 0 ? svc.facebook : null, zoomA: svc.zoom > 2 ? svc.zoom - 2 : null};
       if (!Object.values(got).some(v => v !== null)) return;
       const box = document.createElement("div"); box.className = "live-note";
       const fill = () => { for (const [k, v] of Object.entries(got)) if (v !== null && !st[k]) { st[k] = String(v); const i = d.querySelector("#m-" + k); if (i) i.value = v; } keepDraft(); draw(); };
-      box.innerHTML = `<b>${svg("live")}Livestream peaks today</b><span>YouTube ${got.yt ?? "–"} · Facebook ${got.fb ?? "–"} · Zoom ${got.zoomA ?? "–"}</span>
-        <small>Zoom is everyone in the meeting: split adults and children yourself.</small><button type="button" class="link-btn">Fill in the empty boxes</button>`;
+      box.innerHTML = `<b>${svg("live")}Livestream peaks${svc.start ? `, service from ${hm(svc.start)}` : ""}</b><span>YouTube ${got.yt ?? "–"} · Facebook ${got.fb ?? "–"} · Zoom ${got.zoomA ?? "–"}</span>
+        ${svc.zoom ? `<small>Zoom: ${svc.zoom} in the meeting, minus 2 for the host and co-host. Split adults and children yourself.</small>` : ""}
+        <small>Morning prayers (5 to 6 am) aren't counted.</small><button type="button" class="link-btn">Fill in the empty boxes</button>`;
       box.querySelector("button").onclick = () => { fill(); toast("Filled in from the livestream. Check them before sending."); };
       d.querySelector(".fields-grid")?.before(box);
       if (look().liveFill) { fill(); box.querySelector("button").textContent = "Filled in for you"; }
