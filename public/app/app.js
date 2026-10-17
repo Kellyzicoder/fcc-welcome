@@ -410,10 +410,15 @@ async function start() {
       <button class="pill-btn block" id="out">Sign out</button></div></div>`;
     root.querySelector("#out").onclick = signOut; return;
   }
+  // An admin or church admin who is also a pastor can switch to Pastor view without signing in again.
+  S.me.base = S.me.role;
+  S.canSwitch = !!(S.me.pastor && ["admin", "lead"].includes(S.me.role));
+  try { if (S.canSwitch && localStorage.getItem("fcc-as:" + S.me.email) === "pastor") S.me.role = "pastor"; } catch {}
   S.view = S.me.role === "bishop" ? "overview" : S.view;
   if (S.me.role !== "bishop") {
     S.churches = (await api("churches?select=name,livestream&order=name")).map(c => c.name);
-    S.church = S.me.role === "admin" ? (S.churches.includes(S.church) ? S.church : S.me.home) : S.me.church;
+    S.church = S.me.role === "admin" ? (S.churches.includes(S.church) ? S.church : S.me.home) : S.me.church || S.me.home;
+    if (S.me.role === "pastor" && S.me.base === "admin") S.church = await pastorChurch();
     await load();
     S.pending = canApprove() ? await api("registrations?select=id&status=eq.pending").then(r => r.length).catch(() => 0) : 0;
   }
@@ -421,6 +426,19 @@ async function start() {
   if (S.via === "email") setTimeout(offerPassword, 600);  // just signed in with an email code or link
   S.via = "";
 }
+// Which church's pastor list has this person's pastor name (for the main admin, who has no single church)
+async function pastorChurch() {
+  const lists = await api("settings?select=key,value&key=like.pastors:*").catch(() => []);
+  const hit = lists.find(r => (r.value || "").split("\n").some(n => norm(n) === norm(S.me.pastor)));
+  return hit && S.churches.includes(hit.key.slice(8)) ? hit.key.slice(8) : S.me.home;
+}
+async function switchView(to) {
+  try { localStorage.setItem("fcc-as:" + S.me.email, to); } catch {}
+  S.view = to === "pastor" ? "mine" : "dashboard"; S.hist = []; S.shown = "";
+  await start();
+  toast(to === "pastor" ? "Pastor view: just your own people." : `Back to ${ROLE[S.me.base]} view.`);
+}
+const switchLabel = () => S.me.role === "pastor" ? `Switch to ${ROLE[S.me.base]} view` : "Switch to Pastor view";
 function fatal(text) { root.innerHTML = `<div class="center"><div class="login"><h1>Something went wrong</h1><p>${esc(text)}</p><button class="pill-btn block" onclick="location.reload()">Try again</button></div></div>`; }
 async function signOut() { try { await auth("logout", {}, S.session?.access_token); } catch {} store.set(null); S.me = null; loginView(); }
 
@@ -436,7 +454,9 @@ async function load() {
     api("settings?select=key,value&key=like.pastors:*").catch(() => [])]);  // each church's list of pastors to choose from
   S.pastorList = Object.fromEntries(lists.map(r => [r.key.slice(8), (r.value || "").split("\n").map(x => x.trim()).filter(Boolean)]));
   S.seen = seen && Object.fromEntries(seen.map(r => [r.member_id, r.last_seen]));
-  S.members = members; S.ticks = ticks; S.names = Object.fromEntries(services.map(s => [s.service_date, s.name]));
+  S.members = S.me.role === "pastor" && S.me.base !== "pastor"  // an admin in Pastor view: only the people assigned to them
+    ? members.filter(m => pastorsOf(m).some(n => norm(n) === norm(S.me.pastor))) : members;
+  S.ticks = ticks; S.names = Object.fromEntries(services.map(s => [s.service_date, s.name]));
 }
 const isSunday = d => new Date(d + "T12:00:00").getDay() === 0;
 function picture(upTo = today()) {  // everything the pages show, as things stood on upTo (today unless a past service is asked for)
@@ -531,7 +551,7 @@ function render() {
       ${groups.map(([h, items]) => (h ? `<h6>${h}</h6>` : "") + items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}">${svg(k)}${t}${
         k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : ""}</button>`).join("")).join("")}
       ${S.me.role === "admin" ? `<h6>CHURCH</h6><button class="church on" data-view="overview" title="See every church and switch to another one"><i></i><span>${esc(S.church)}</span><em>Change</em></button>` : ""}
-      <div class="side-foot"><button class="nav out" data-out>${svg("out")}Log out</button></div></aside>
+      <div class="side-foot">${S.canSwitch ? `<button class="nav" data-switch>${svg("pastors")}${switchLabel()}</button>` : ""}<button class="nav out" data-out>${svg("out")}Log out</button></div></aside>
     <main class="main"><div class="top">${S.hist?.length ? `<button class="back" data-back>${svg("back")}Back</button>` : ""}<span class="gap"></span>
         <div class="mode" role="group" aria-label="Colour mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button></div>
         <button class="acct" data-view="account" title="Your account" aria-label="Your account"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${ROLE[S.me.role]} · ${esc(where)}</small></span></button>
@@ -548,6 +568,7 @@ function render() {
   root.querySelectorAll("[data-view]").forEach(b => b.onclick = () => go(b.dataset.view));
   root.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => setMode(b.dataset.mode, true));
   root.querySelectorAll("[data-out]").forEach(b => b.onclick = signOut);
+  root.querySelectorAll("[data-switch]").forEach(b => b.onclick = () => switchView(S.me.role === "pastor" ? S.me.base : "pastor"));
   const view = document.getElementById("view");
   view.onclick = e => {
     const b = e.target.closest("[data-person]"); if (b) { S.person = b.dataset.person; go("person"); return; }
@@ -1313,7 +1334,7 @@ async function admin(el) {
     <section ${tab("names")}>
     <div class="card"><div class="card-head"><h2>People who can sign in</h2></div>
       <div class="scroll"><table><thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Church</th><th></th></tr></thead><tbody>
-      ${users.map(u => `<tr><td>${esc(u.email)}</td><td class="muted">${esc(u.name || "")}</td><td>${ROLE[u.role]}${u.role === "pastor" ? `<br><small class="muted">${esc(u.pastor || "No pastor name yet")}</small>` : ""}</td><td class="muted">${esc(u.church || "All churches")}</td>
+      ${users.map(u => `<tr><td>${esc(u.email)}</td><td class="muted">${esc(u.name || "")}</td><td>${ROLE[u.role]}${u.role === "pastor" ? `<br><small class="muted">${esc(u.pastor || "No pastor name yet")}</small>` : u.pastor && ["admin", "lead"].includes(u.role) ? `<br><small class="muted">Also pastor: ${esc(u.pastor)}</small>` : ""}</td><td class="muted">${esc(u.church || "All churches")}</td>
         <td style="white-space:nowrap">${u.email === S.me.email ? `<span class="muted">You</span>` : `<button class="pill-btn sm" data-chg="${esc(u.email)}">${svg("edit")}Change</button> <button class="x" data-del="${esc(u.email)}">Remove</button>`}</td></tr>`).join("")}</tbody></table></div>
       
       <form class="row" id="add-user" style="margin-top:14px"><div><label class="f" for="u-email">Email</label><input class="in" id="u-email" type="email" required></div>
@@ -1344,25 +1365,27 @@ async function admin(el) {
   el.querySelector("#add-church").onsubmit = e => { e.preventDefault(); const name = el.querySelector("#c-name").value.trim().replace(/\s+/g, " ");
     again(() => api("churches", {method: "POST", prefer: "return=minimal", body: {name}})); };
   const uRole = el.querySelector("#u-role"), pw = el.querySelector("#u-pastor-wrap");
-  uRole.onchange = () => { pw.hidden = uRole.value !== "pastor"; el.querySelector("#u-pastor").required = uRole.value === "pastor"; };
+  uRole.onchange = () => { pw.hidden = !["pastor", "admin", "lead"].includes(uRole.value); el.querySelector("#u-pastor").required = uRole.value === "pastor";
+    el.querySelector("#u-pastor").placeholder = uRole.value === "pastor" ? "e.g. Pastor Grace Mensah" : "Only if they are also a pastor"; };
+  uRole.onchange();
   el.querySelector("#add-user").onsubmit = e => { e.preventDefault(); const role = el.querySelector("#u-role").value;
     const wrong = emailProblem(el.querySelector("#u-email").value); if (wrong) return toast("Not added: " + wrong);
-    const pastor = role === "pastor" ? el.querySelector("#u-pastor").value.trim().replace(/\s+/g, " ") : "";
+    const pastor = ["pastor", "admin", "lead"].includes(role) ? el.querySelector("#u-pastor").value.trim().replace(/\s+/g, " ") : "";
     if (role === "pastor" && !pastor) return toast("Not added: type their name as it is on the Pastors list.");
     again(() => api("app_users?on_conflict=email", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {email: el.querySelector("#u-email").value.trim().toLowerCase(),
       name: el.querySelector("#u-name").value.trim(), role, church: ["admin", "bishop"].includes(role) ? null : el.querySelector("#u-church").value,
-      ...(role === "pastor" ? {pastor} : {})}})); };
+      ...(pastor ? {pastor} : {})}})); };
   el.querySelectorAll("[data-chg]").forEach(b => b.onclick = () => {
     const u = users.find(x => x.email === b.dataset.chg);
     formDialog(`Change ${u.name || u.email}`, [
       {k: "name", label: "Name", value: u.name || "", hint: "The name shown in the app for this sign-in."},
       {k: "role", label: "Role", value: u.role, type: "select", options: ROLE_OPTS},
       {k: "church", label: "Church", value: u.church || S.churches[0], type: "select", options: S.churches.map(c => [c, c]), hint: "Not used for Admin or Bishop."},
-      {k: "pastor", label: "Their name on the Pastors list", value: u.pastor || "", suggest: pnames, hint: "Only for Pastor sign-ins: they see the people assigned to this name."},
+      {k: "pastor", label: "Their name on the Pastors list", value: u.pastor || "", suggest: pnames, hint: "For Pastor sign-ins: they see the people assigned to this name. For an Admin or Church admin who is also a pastor: lets them switch to Pastor view. Leave empty otherwise."},
     ], async v => {
       const church = ["admin", "bishop"].includes(v.role) ? null : v.church;
       if (v.role === "pastor" && !v.pastor) throw new Error("Type their name as it is on the Pastors list.");
-      const rows = await api(`app_users?email=eq.${encodeURIComponent(u.email)}`, {method: "PATCH", prefer: "return=representation", body: {name: v.name.slice(0, 80) || null, role: v.role, church, ...(v.role === "pastor" || u.pastor ? {pastor: v.role === "pastor" ? v.pastor : null} : {})}});
+      const rows = await api(`app_users?email=eq.${encodeURIComponent(u.email)}`, {method: "PATCH", prefer: "return=representation", body: {name: v.name.slice(0, 80) || null, role: v.role, church, ...(["pastor", "admin", "lead"].includes(v.role) || u.pastor ? {pastor: ["pastor", "admin", "lead"].includes(v.role) ? v.pastor || null : null} : {})}});
       if (!rows?.length) throw new Error("Not saved. Check you are still signed in as an admin.");
       log("role_change", "", "done", `${u.email}: ${v.name ? v.name + " · " : ""}${v.role}${church ? " · " + church : ""}`);
       toast("Saved. They will see the change next time they open the app."); render();
@@ -1771,6 +1794,9 @@ function account(el) {
       <label class="f" for="pw2" style="margin-top:12px">Type it again</label><input class="in" id="pw2" type="password" autocomplete="new-password" maxlength="72" required>
       <ul class="pw-rules" id="pw-rules" aria-live="polite"></ul>
       <div style="margin-top:14px"><button class="pill-btn primary" id="pw-go">Save password</button></div></form>
+    ${S.canSwitch ? `<div class="card" style="max-width:560px;margin-bottom:14px"><div class="card-head"><h2>Your views</h2></div>
+      <p class="note" style="margin-top:0">You're ${ROLE[S.me.base] === "Admin" ? "an" : "a"} ${ROLE[S.me.base]} and also a pastor (${esc(S.me.pastor)}). Switch any time, no need to sign in again.</p>
+      <button class="pill-btn primary" data-switch>${svg("pastors")}${switchLabel()}</button></div>` : ""}
     <div class="card" style="max-width:560px"><button class="pill-btn" data-bye>${svg("out")}Log out</button></div>`;
   el.querySelector("#me").onsubmit = async e => {
     e.preventDefault();
@@ -1787,6 +1813,7 @@ function account(el) {
     redraw();
   };
   el.querySelector("[data-bye]").onclick = signOut;
+  el.querySelectorAll("[data-switch]").forEach(b => b.onclick = () => switchView(S.me.role === "pastor" ? S.me.base : "pastor"));
 }
 
 // ---------------------------------------------------------------- go
