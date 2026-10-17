@@ -1217,7 +1217,7 @@ function addWidget(b) {
     ${left.length ? `<div class="wlist">${left.map(k => { const W = defs[k]; return `<button type="button" class="witem" data-add="${k}" style="--wc:var(--h${W.hue});--wb:var(--h${W.hue}b)">
       <span class="wico">${svg(W.icon)}</span><span class="wtxt"><b>${esc(W.name)}</b><span>${esc(W.desc || W.sub)}</span></span><span class="wadd">${svg("plus")}Add</span></button>`; }).join("")}</div>` : `<p class="empty">Every widget is already on this ${B.where}.</p>`}
     <p class="note">Drag a widget by its handle to move it. Your layout is yours only: nobody else's view changes.</p>
-    <div class="modal-foot"><button type="button" class="pill-btn" data-reset>Back to the standard layout</button></div></div>`;
+    <div class="modal-foot one"><button type="button" class="pill-btn" data-reset>Back to the standard layout</button></div></div>`;
   document.body.append(d);
   const close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
   d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
