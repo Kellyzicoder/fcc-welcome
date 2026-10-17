@@ -692,7 +692,7 @@ function render() {
         <button class="pill-btn sm" data-unpreview>Back to Admin</button></div>` : ""}<div class="top">${S.hist?.length ? `<button class="back" data-back>${svg("back")}Back</button>` : ""}<span class="gap"></span>
         <div class="mode" role="group" aria-label="Colour mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button></div>
         <button class="acct" data-view="account" title="Your account and settings" aria-label="Your account and settings"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${roleName(S.me)} · ${esc(where)}</small></span></button>
-        <button class="icon-btn" data-out aria-label="Log out" title="Log out">${svg("out")}</button></div>
+        <button class="out-btn" data-out title="Log out">${svg("out")}<span>Log out</span></button></div>
       <div class="body" id="view"></div></main>
     <nav class="dock" aria-label="Main">${dock.map(([k, t]) => `<button class="${S.view === k ? "on" : ""} ${t.length > 9 ? "long" : ""}" data-view="${k}" aria-label="${t}">${svg(k)}<span>${t}</span></button>`).join("")}
       <button class="${dock.some(x => x[0] === S.view) ? "" : "on"}" data-menu aria-label="More" aria-controls="menu" aria-expanded="false">${svg("more")}<span>More</span></button></nav></div>`;
@@ -946,7 +946,7 @@ const WIDGETS = {
         <div class="split-bar">${parts.filter(([, k]) => c[k]).map(([t, k, h]) => `<i style="flex:${c[k]};background:var(--h${h})" title="${t}: ${c[k]}"></i>`).join("") || "<i></i>"}</div>
         <div class="split-rows">${parts.map(([t, k, h]) => `<div><span><i style="background:var(--h${h})"></i>${t} <em>(${c[k]})</em></span>${b ? `<small>${delta(c[k], b[k])} vs ${esc(nice(prev))}</small>` : ""}</div>`).join("")}</div>`;
     }},
-  busiest: {name: "Biggest services", sub: "Recent services, the biggest one highlighted", size: "full", icon: "bars", hue: 4,
+  busiest: {name: "Biggest services", sub: "Recent services, the biggest one highlighted", size: "wide", icon: "bars", hue: 4,
     draw(el, p) {
       const rows = p.dates.slice(innerWidth < 640 ? -7 : -10).map(d => [d, Object.keys(p.byDate[d] || {}).length]);
       const best = p.dates.reduce((b, d) => { const v = Object.keys(p.byDate[d] || {}).length; return v > b[1] ? [d, v] : b; }, ["", 0]);
@@ -1089,8 +1089,6 @@ function drawBoard(grid, b, ctx) {
   grid.querySelectorAll("[data-rm]").forEach(x => x.onclick = () => { const k = dashKey(list[+x.dataset.rm]); save(list.filter((_, i) => i !== +x.dataset.rm));
     toast(`${defs[k].name} removed. Add it back any time with Add widget.`); render(); });
   grid.querySelectorAll("[data-go]").forEach(x => x.onclick = () => { S.view = x.dataset.go; render(); });
-  // bar charts with more bars than fit slide sideways; a fade on the right edge shows there's more
-  grid.querySelectorAll(".vbars").forEach(v => { const f = () => v.classList.toggle("more", v.scrollLeft + v.clientWidth < v.scrollWidth - 4); v.onscroll = f; requestAnimationFrame(f); });
   dragWidgets(grid, size, save);
 }
 // Drag a widget by its handle (mouse or finger): the others make room as you go, and the new order is saved for you only.
@@ -1624,7 +1622,7 @@ const CWIDGETS = {
   churches: {name: "Churches side by side", sub: "Tap one to open it", desc: "Present at each church's latest service, side by side.", size: "full", icon: "bars", hue: 4,
     draw(el, c) {
       const list = c.rows.filter(c.served), top = Math.max(1, ...list.map(r => r.present));
-      el.innerHTML = list.length ? `<div class="vbars named">${list.map(r => `<button type="button" class="vbar ${r.church === S.bChurch || (!S.bChurch && r.present === top) ? "on" : ""}" data-cb="${esc(r.church)}" title="${esc(r.church)}: ${r.present}">
+      el.innerHTML = list.length ? `<div class="vbars">${list.map(r => `<button type="button" class="vbar ${r.church === S.bChurch || (!S.bChurch && r.present === top) ? "on" : ""}" data-cb="${esc(r.church)}" title="${esc(r.church)}: ${r.present}">
         <b>${r.present}</b><span style="height:${Math.max(6, r.present / top * 100)}%"></span><small>${esc(r.church)}</small></button>`).join("")}</div>` : `<p class="empty">No services to compare.</p>`;
       el.querySelectorAll("[data-cb]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.cb; render(); });
     }},
