@@ -6,7 +6,11 @@ const RED_AT = 5, YELLOW_AT = 3, ARCHIVE_DAYS = 730;
 const AWAY = new Set(["inactive", "moved", "left", "deceased", "transferred", "away"]);
 const ROLE = {admin: "Admin", bishop: "Bishop", lead: "Church admin", team: "Team", pastor: "Pastor"};
 const ROLE_OPTS = [["team", "Team (ushers)"], ["pastor", "Pastor (only their own people)"], ["lead", "Church admin (whole church, follow-up)"],
+  ["lead_pastor", "Lead pastor (whole church, plus their own people)"],
   ["bishop", "Bishop (numbers only, all churches)"], ["admin", "Admin (everything, all churches)"]];
+// A lead pastor is a church admin with the title "Lead pastor" (they also get the Pastor view for their own people)
+const roleName = u => u?.role === "lead" && u?.title === "Lead pastor" ? "Lead pastor" : ROLE[u?.role] || u?.role || "";
+const baseName = () => roleName({role: S.me.base, title: S.me.title});
 const FLAG = {red: "Red", yellow: "Yellow", blue: "Blue", ok: "On track"};
 const root = document.getElementById("root");
 const S = {cfg: null, session: null, me: null, churches: [], church: "", members: [], ticks: [], names: {}, view: "dashboard",
@@ -436,9 +440,9 @@ async function switchView(to) {
   try { localStorage.setItem("fcc-as:" + S.me.email, to); } catch {}
   S.view = to === "pastor" ? "mine" : "dashboard"; S.hist = []; S.shown = "";
   await start();
-  toast(to === "pastor" ? "Pastor view: just your own people." : `Back to ${ROLE[S.me.base]} view.`);
+  toast(to === "pastor" ? "Pastor view: just your own people." : `Back to ${baseName()} view.`);
 }
-const switchLabel = () => S.me.role === "pastor" ? `Switch to ${ROLE[S.me.base]} view` : "Switch to Pastor view";
+const switchLabel = () => S.me.role === "pastor" ? `Switch to ${baseName()} view` : "Switch to Pastor view";
 function fatal(text) { root.innerHTML = `<div class="center"><div class="login"><h1>Something went wrong</h1><p>${esc(text)}</p><button class="pill-btn block" onclick="location.reload()">Try again</button></div></div>`; }
 async function signOut() { try { await auth("logout", {}, S.session?.access_token); } catch {} store.set(null); S.me = null; loginView(); }
 
@@ -567,7 +571,7 @@ function render() {
       <div class="side-foot">${S.canSwitch ? `<button class="nav" data-switch title="${switchLabel()}">${svg("pastors")}<span class="nl">${switchLabel()}</span></button>` : ""}<button class="nav out" data-out title="Log out">${svg("out")}<span class="nl">Log out</span></button></div></aside>
     <main class="main"><div class="top">${S.hist?.length ? `<button class="back" data-back>${svg("back")}Back</button>` : ""}<span class="gap"></span>
         <div class="mode" role="group" aria-label="Colour mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button></div>
-        <button class="acct" data-view="account" title="Your account" aria-label="Your account"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${ROLE[S.me.role]} · ${esc(where)}</small></span></button>
+        <button class="acct" data-view="account" title="Your account" aria-label="Your account"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${roleName(S.me)} · ${esc(where)}</small></span></button>
         <button class="icon-btn" data-out aria-label="Log out" title="Log out">${svg("out")}</button></div>
       <div class="body" id="view"></div></main>
     <nav class="dock" aria-label="Main">${dock.map(([k, t]) => `<button class="${S.view === k ? "on" : ""} ${t.length > 9 ? "long" : ""}" data-view="${k}" aria-label="${t}">${svg(k)}<span>${t}</span></button>`).join("")}
@@ -998,7 +1002,7 @@ function addWidget() {
 // ---------------------------------------------------------------- check-in
 async function log(kind, member_id, result = "done", detail = "") {
   try { await api("activity_log", {method: "POST", prefer: "return=minimal", body: {id: newId() + newId(), at: isoLocal(), kind, service_date: S.date,
-    member_id, detail, by_name: `${S.me.name || S.me.email} (${ROLE[S.me.role]})`, result}}); } catch {}
+    member_id, detail, by_name: `${S.me.name || S.me.email} (${roleName(S.me)})`, result}}); } catch {}
 }
 // A service's title. Until someone types one, Sunday and Wednesday get the usual names.
 const svcName = d => S.names[d] || (S.titles?.[d]) || ({0: "Sunday Service", 3: "Midweek Service"})[new Date(d + "T12:00:00").getDay()] || "Service";
@@ -1574,7 +1578,7 @@ async function bishop(el, rows, text, newest) {
 }
 async function admin(el) {
   el.innerHTML = head("Admin", "") + `<p class="empty">Loading…</p>`;
-  const users = await api("app_users?select=email,role,church,name,pastor&order=email").catch(() => api("app_users?select=email,role,church,name&order=email")).catch(() => []);
+  const users = await api("app_users?select=email,role,church,name,pastor,title,role3&order=email").catch(() => api("app_users?select=email,role,church,name,pastor&order=email")).catch(() => api("app_users?select=email,role,church,name&order=email")).catch(() => []);
   const pnames = [...new Set(Object.values(S.pastorList).flat())].sort();  // names on every church's pastor list
   const space = await api("rpc/app_db_size", {method: "POST", body: {}}).catch(() => null);  // null until the newer setup SQL has been run
   const inbox = await api("help_messages?select=*&order=created_at.desc&limit=50").catch(() => null);  // messages sent from Help
@@ -1658,7 +1662,7 @@ async function admin(el) {
     el.querySelector("#u-list").innerHTML = !list.length ? `<p class="empty">Nobody matches. Try another role, church or name.</p>` : `
       <div class="scroll"><table class="utable"><thead><tr><th>Name</th><th>Role</th><th>Church</th><th class="hide-sm">Pastor name</th><th></th></tr></thead><tbody>
       ${shown.map(u => `<tr><td><div class="who-cell"><span class="ava" ${avaStyle(u.name || u.email)}>${esc(initials(u.name || u.email))}</span><span><b>${esc(u.name || u.email.split("@")[0])}</b><small>${esc(u.email)}</small></span></div></td>
-        <td><span class="rbadge ${roleCls(u.role)}">${ROLE[u.role]}</span>${u.pastor && u.role !== "pastor" ? ` <span class="rbadge r-pastor">+ Pastor</span>` : ""}</td>
+        <td><span class="rbadge ${roleCls(u.role)}">${esc(roleName(u))}</span>${u.pastor && u.role !== "pastor" && roleName(u) !== "Lead pastor" ? ` <span class="rbadge r-pastor">+ Pastor</span>` : ""}${u.role3 ? ` <span class="tag">${esc(u.role3)}</span>` : ""}</td>
         <td class="muted">${esc(u.church || "All churches")}</td><td class="muted hide-sm">${esc(u.pastor || (u.role === "pastor" ? "Not set yet" : ""))}</td>
         <td style="white-space:nowrap;text-align:right">${u.email === S.me.email ? `<span class="muted">You</span>` : `<button class="pill-btn sm" data-chg="${esc(u.email)}">${svg("edit")}Change</button> <button class="x" data-del="${esc(u.email)}">Remove</button>`}</td></tr>`).join("")}</tbody></table></div>
       ${pages > 1 ? `<div class="pager"><span class="muted">Page ${S.uPage} of ${pages} · ${list.length} people</span><span class="gap"></span>
@@ -1681,7 +1685,7 @@ async function admin(el) {
   function userDialog(u) {
     document.querySelectorAll(".modal").forEach(m => m.remove());
     const two = r => ["admin", "lead"].includes(r), noChurch = r => ["admin", "bishop"].includes(r);
-    const role0 = u?.role || "team", second0 = u && two(u.role) && u.pastor ? "pastor" : "";
+    const role0 = roleName(u) === "Lead pastor" ? "lead_pastor" : u?.role || "team", second0 = u && two(u.role) && u.pastor && role0 !== "lead_pastor" ? "pastor" : "";
     const d = document.createElement("div"); d.className = "modal";
     d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="${u ? "Change sign-in" : "Add a person"}">
       <div class="card-head"><h2>${u ? `Change ${esc(u.name || u.email)}` : "Add a person"}</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
@@ -1693,6 +1697,9 @@ async function admin(el) {
         <div id="ud-p-wrap"><label class="f" for="ud-p">Their name on the Pastors list</label><input class="in" id="ud-p" list="ud-p-list" autocomplete="off" value="${esc(u?.pastor || "")}" placeholder="e.g. Pastor Grace Mensah">
           <datalist id="ud-p-list">${pnames.map(n => `<option value="${esc(n)}">`).join("")}</datalist>
           <p class="note" style="margin:6px 2px 0">Must match the Pastors list exactly: it decides whose people they see.</p></div>
+        <div><label class="f" for="ud-3">Role 3 <span class="muted">(optional, for later)</span></label><input class="in" id="ud-3" list="ud-3-list" maxlength="40" autocomplete="off" value="${esc(u?.role3 || "")}" placeholder="e.g. Treasurer, Youth leader">
+          <datalist id="ud-3-list">${[...new Set(["Treasurer", "Secretary", "Youth leader", "Usher leader", "Media lead", "Worship leader", ...users.map(x => x.role3).filter(Boolean)])].map(n => `<option value="${esc(n)}">`).join("")}</datalist>
+          <p class="note" style="margin:6px 2px 0">Saved with their sign-in. It doesn't change what they can see yet.</p></div>
         <div id="ud-c-wrap"><label class="f" for="ud-c">Church</label><select class="in" id="ud-c">${S.churches.map(c => `<option ${c === (u?.church || S.church) ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></div>
       </div>
       <div class="msg bad" id="ud-err" hidden></div>
@@ -1702,14 +1709,16 @@ async function admin(el) {
     d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
     document.addEventListener("keydown", onKey);
     const sync = () => {
-      const r = $("ud-role").value, needP = r === "pastor" || (two(r) && $("ud-2").value === "pastor");
+      const r = $("ud-role").value, needP = r === "pastor" || r === "lead_pastor" || (two(r) && $("ud-2").value === "pastor");
       $("ud-2-wrap").hidden = !two(r); $("ud-p-wrap").hidden = !needP; $("ud-p").required = needP; $("ud-c-wrap").hidden = noChurch(r);
     };
     $("ud-role").onchange = $("ud-2").onchange = sync; sync();
     (u ? $("ud-name") : $("ud-email")).focus();
     d.querySelector("form").onsubmit = async e => {
       e.preventDefault();
-      const go = $("ud-go"), err = $("ud-err"), r = $("ud-role").value, needP = r === "pastor" || (two(r) && $("ud-2").value === "pastor");
+      const go = $("ud-go"), err = $("ud-err"), pick = $("ud-role").value, r = pick === "lead_pastor" ? "lead" : pick, needP = pick === "pastor" || pick === "lead_pastor" || (two(pick) && $("ud-2").value === "pastor");
+      const title = pick === "lead_pastor" ? "Lead pastor" : null, role3 = $("ud-3").value.trim().replace(/\s+/g, " ").slice(0, 40) || null;
+      const more = {...(title || u?.title ? {title} : {}), ...(role3 || u?.role3 ? {role3} : {})};  // only sent when used, so it works before the new setup SQL
       const email = $("ud-email").value.trim().toLowerCase(), name = $("ud-name").value.trim().replace(/\s+/g, " ").slice(0, 80);
       const pastor = needP ? $("ud-p").value.trim().replace(/\s+/g, " ") : "", church = noChurch(r) ? null : $("ud-c").value;
       const fail = t => { err.textContent = t; err.hidden = false; go.disabled = false; };
@@ -1718,16 +1727,16 @@ async function admin(el) {
       go.disabled = true; err.hidden = true;
       try {
         if (u) {
-          const rows = await api(`app_users?email=eq.${encodeURIComponent(u.email)}`, {method: "PATCH", prefer: "return=representation", body: {name: name || null, role: r, church, pastor: pastor || null}});
+          const rows = await api(`app_users?email=eq.${encodeURIComponent(u.email)}`, {method: "PATCH", prefer: "return=representation", body: {name: name || null, role: r, church, pastor: pastor || null, ...more}});
           if (!rows?.length) throw new Error("Not saved. Check you are still signed in as an admin.");
-          log("role_change", "", "done", `${u.email}: ${name ? name + " · " : ""}${r}${pastor && r !== "pastor" ? " + pastor" : ""}${church ? " · " + church : ""}`);
+          log("role_change", "", "done", `${u.email}: ${name ? name + " · " : ""}${title || r}${pastor && r !== "pastor" && !title ? " + pastor" : ""}${role3 ? " + " + role3 : ""}${church ? " · " + church : ""}`);
           toast("Saved. They will see the change next time they open the app.");
         } else {
-          await api("app_users", {method: "POST", prefer: "return=minimal", body: {email, name: name || null, role: r, church, ...(pastor ? {pastor} : {})}});
+          await api("app_users", {method: "POST", prefer: "return=minimal", body: {email, name: name || null, role: r, church, ...(pastor ? {pastor} : {}), ...more}});
           toast(`Added. ${name || email} can now sign in with ${email}.`);
         }
         close(); render();
-      } catch (ex) { fail(/duplicate|already exists|23505/i.test(ex.message) ? "That email can already sign in." : ex.message); }
+      } catch (ex) { fail(/duplicate|already exists|23505/i.test(ex.message) ? "That email can already sign in." : /title|role3|column/i.test(ex.message) ? "Lead pastor and Role 3 need the latest setup SQL: run it in Supabase once, then try again." : ex.message); }
     };
   }
   drawUsers();
@@ -2285,7 +2294,7 @@ function account(el) {
   el.innerHTML = head("Your account", "") + `
     <form class="card" id="me" style="max-width:560px;margin-bottom:14px"><label class="f" for="my-name">Your name</label>
       <input class="in" id="my-name" maxlength="80" autocomplete="name" value="${esc(S.me.name || "")}" placeholder="e.g. Grace Mensah">
-      <p class="facts" style="margin-top:14px">Email: ${esc(S.me.email)}<br>Role: ${ROLE[S.me.role]}${S.me.church ? "<br>Church: " + esc(S.me.church) : ""}${S.me.role === "pastor" && S.me.pastor ? "<br>Your people: those assigned to " + esc(S.me.pastor) : ""}</p>
+      <p class="facts" style="margin-top:14px">Email: ${esc(S.me.email)}<br>Role: ${roleName(S.me)}${S.me.role3 ? " · " + esc(S.me.role3) : ""}${S.me.church ? "<br>Church: " + esc(S.me.church) : ""}${S.me.role === "pastor" && S.me.pastor ? "<br>Your people: those assigned to " + esc(S.me.pastor) : ""}</p>
       
       <div style="margin-top:14px"><button class="pill-btn primary">Save name</button></div></form>
     <form class="card" id="setpw" style="max-width:560px;margin-bottom:14px"><div class="card-head"><h2>Password</h2></div>
@@ -2296,7 +2305,7 @@ function account(el) {
       <ul class="pw-rules" id="pw-rules" aria-live="polite"></ul>
       <div style="margin-top:14px"><button class="pill-btn primary" id="pw-go">Save password</button></div></form>
     ${S.canSwitch ? `<div class="card" style="max-width:560px;margin-bottom:14px"><div class="card-head"><h2>Your views</h2></div>
-      <p class="note" style="margin-top:0">You're ${ROLE[S.me.base] === "Admin" ? "an" : "a"} ${ROLE[S.me.base]} and also a pastor (${esc(S.me.pastor)}). Switch any time, no need to sign in again.</p>
+      <p class="note" style="margin-top:0">You're ${baseName() === "Admin" ? "an" : "a"} ${baseName()} and also a pastor (${esc(S.me.pastor)}). Switch any time, no need to sign in again.</p>
       <button class="pill-btn primary" data-switch>${svg("pastors")}${switchLabel()}</button></div>` : ""}
     <div class="card" style="max-width:560px"><button class="pill-btn" data-bye>${svg("out")}Log out</button></div>`;
   el.querySelector("#me").onsubmit = async e => {
