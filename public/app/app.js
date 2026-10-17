@@ -423,6 +423,7 @@ async function start() {
   if (S.me.base === "admin") { let as = null; try { as = JSON.parse(localStorage.getItem("fcc-preview:" + S.me.email) || "null"); } catch {}
     if (as && PREVIEW[as.role]) { S.preview = as; S.canSwitch = false; Object.assign(S.me, {role: as.role, church: as.church || null, pastor: as.role === "pastor" ? as.pastor : S.me.pastor, title: null}); } }
   S.view = S.me.role === "bishop" ? "overview" : S.view;
+  if (!S.landed) { S.landed = true; const st = look().start; if (st) S.view = st; }  // the start page this person picked in Settings
   if (S.me.role !== "bishop") {
     S.churches = (await api("churches?select=name,livestream&order=name")).map(c => c.name);
     S.church = S.me.role === "admin" ? (S.churches.includes(S.church) ? S.church : S.me.home) : S.me.church || S.me.home;
@@ -569,6 +570,29 @@ function pages() {  // the menu, in groups; what each role can actually load is 
             ...(r === "admin" ? [["overview", "Churches"], ["admin", "Admin"]] : [])]]]),
           ["", [["ask", "Ask a question"], ["help", "Help"]]]];
 }
+// Settings each person picks for themselves: colour, theme, text size and so on. Kept on this phone or laptop, per person.
+const ACCENTS = [["#1f6fe5", "Blue"], ["#0e8a7c", "Teal"], ["#6250d6", "Violet"], ["#c8417a", "Pink"], ["#dc5f26", "Orange"], ["#2b9348", "Green"], ["#b8860b", "Gold"]];
+const LOOK0 = {accent: "", theme: "", text: "normal", motion: false, contrast: false, start: ""};
+const sysDark = matchMedia("(prefers-color-scheme: dark)");
+function look() { let v = {}; try { v = JSON.parse(localStorage.getItem("fcc-look:" + (S.me?.email || "")) || "{}"); } catch {} return {...LOOK0, ...v}; }
+function saveLook(ch) {
+  const v = ch ? {...look(), ...ch} : {...LOOK0};
+  try { if (ch) localStorage.setItem("fcc-look:" + (S.me?.email || ""), JSON.stringify(v)); else localStorage.removeItem("fcc-look:" + (S.me?.email || "")); } catch {}
+  applyLook(v); return v;
+}
+function inkOn(hex) {  // white or near-black text, whichever reads better on this colour
+  const n = parseInt(hex.slice(1), 16), [r, g, b] = [n >> 16, n >> 8 & 255, n & 255].map(c => { c /= 255; return c <= .03928 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; });
+  return .2126 * r + .7152 * g + .0722 * b > .4 ? "#10151c" : "#ffffff";
+}
+function applyLook(v = look()) {
+  const d = document.documentElement;
+  setMode(v.theme === "system" ? (sysDark.matches ? "dark" : "light") : v.theme || d.dataset.theme);
+  if (/^#[0-9a-f]{6}$/i.test(v.accent)) { d.style.setProperty("--accent", v.accent); d.style.setProperty("--accent-ink", inkOn(v.accent));
+    d.style.setProperty("--accent-soft", `color-mix(in srgb, ${v.accent} 14%, var(--panel))`); }
+  else ["--accent", "--accent-ink", "--accent-soft"].forEach(k => d.style.removeProperty(k));
+  d.dataset.text = v.text; d.classList.toggle("calm", !!v.motion); d.classList.toggle("strong", !!v.contrast);
+}
+sysDark.addEventListener?.("change", () => { if (S.me && look().theme === "system") applyLook(); });
 function setMode(mode, remember) {
   document.documentElement.dataset.theme = mode;
   if (remember) { try { localStorage.setItem("fcc-mode", mode); } catch {} }
@@ -600,7 +624,7 @@ function render() {
     <main class="main">${S.preview ? `<div class="preview-bar">${svg("eye")}<span>Viewing as <b>${esc(previewName())}</b>. You're still signed in as you, so anything you change is saved for real.</span>
         <button class="pill-btn sm" data-unpreview>Back to Admin</button></div>` : ""}<div class="top">${S.hist?.length ? `<button class="back" data-back>${svg("back")}Back</button>` : ""}<span class="gap"></span>
         <div class="mode" role="group" aria-label="Colour mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button></div>
-        <button class="acct" data-view="account" title="Your account" aria-label="Your account"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${roleName(S.me)} · ${esc(where)}</small></span></button>
+        <button class="acct" data-view="account" title="Your account and settings" aria-label="Your account and settings"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${roleName(S.me)} · ${esc(where)}</small></span></button>
         <button class="icon-btn" data-out aria-label="Log out" title="Log out">${svg("out")}</button></div>
       <div class="body" id="view"></div></main>
     <nav class="dock" aria-label="Main">${dock.map(([k, t]) => `<button class="${S.view === k ? "on" : ""} ${t.length > 9 ? "long" : ""}" data-view="${k}" aria-label="${t}">${svg(k)}<span>${t}</span></button>`).join("")}
@@ -615,9 +639,9 @@ function render() {
   };
   root.querySelector("[data-close]").onclick = () => menu(false);
   document.onkeydown = e => { if (e.key === "Escape") menu(false); };
-  setMode(document.documentElement.dataset.theme);
+  applyLook();
   root.querySelectorAll("[data-view]").forEach(b => b.onclick = () => go(b.dataset.view));
-  root.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => setMode(b.dataset.mode, true));
+  root.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => { setMode(b.dataset.mode, true); if (look().theme) saveLook({theme: b.dataset.mode}); });
   root.querySelectorAll("[data-out]").forEach(b => b.onclick = signOut);
   root.querySelectorAll("[data-viewas]").forEach(b => b.onclick = () => { menu(false); viewAs(); });
   root.querySelectorAll("[data-unpreview]").forEach(b => b.onclick = endPreview);
@@ -2391,6 +2415,7 @@ function account(el) {
       <p class="facts" style="margin-top:14px">Email: ${esc(S.me.email)}<br>Role: ${roleName(S.me)}${S.me.church ? "<br>Church: " + esc(S.me.church) : ""}${S.me.role === "pastor" && S.me.pastor ? "<br>Your people: those assigned to " + esc(S.me.pastor) : ""}</p>
       
       <div style="margin-top:14px"><button class="pill-btn primary">Save name</button></div></form>
+    <div id="look"></div>
     <form class="card" id="setpw" style="max-width:560px;margin-bottom:14px"><div class="card-head"><h2>Password</h2></div>
       <p class="note" style="margin-top:0">Set a password to skip the email code when you sign in, or change the one you have. You stay signed in.</p>
       <input type="email" autocomplete="username" value="${esc(S.me.email)}" readonly hidden>
@@ -2417,7 +2442,51 @@ function account(el) {
     redraw();
   };
   el.querySelector("[data-bye]").onclick = signOut;
+  settings(el.querySelector("#look"));
   el.querySelectorAll("[data-switch]").forEach(b => b.onclick = () => switchView(S.me.role === "pastor" ? S.me.base : "pastor"));
+}
+
+// Settings: how the app looks and behaves for this person. Nothing here changes what anyone else sees.
+function settings(box) {
+  const v = look(), saved = (() => { try { return localStorage.getItem("fcc-mode"); } catch { return null; } })();
+  const theme = v.theme || saved || "system", acc = v.accent || ACCENTS[0][0], own = !ACCENTS.some(a => a[0] === acc);
+  const row = (t, d, ctl) => `<div class="set-row"><div><b>${t}</b><small>${d}</small></div><div class="set-ctl">${ctl}</div></div>`;
+  const flip = (id, t, d, on) => `<label class="switch flat"><span><b>${t}</b><small>${d}</small></span><input type="checkbox" id="${id}" ${on ? "checked" : ""}><i></i></label>`;
+  const mk = c => `<span class="mk ${c}"><i></i><em><u></u><u></u></em></span>`;
+  const starts = pages().flatMap(g => g[1]).filter(([k]) => !["ask", "help"].includes(k));
+  box.innerHTML = `<div class="card set-card"><div class="card-head"><h2>Appearance</h2></div>
+      <p class="note">These only change the app for you, on this phone or laptop.</p>
+      ${row("Accent colour", "Buttons, the menu and highlights.", `<div class="swatches" role="group" aria-label="Accent colour">${ACCENTS.map(([c, n]) =>
+        `<button type="button" class="sw" data-accent="${c}" style="--sw:${c}" title="${n}" aria-label="${n}" aria-pressed="${acc === c}"></button>`).join("")}
+        <label class="sw own" title="Pick your own colour" ${own ? `style="--sw:${acc}" aria-current="true"` : ""}><input type="color" id="acc-own" value="${acc}" aria-label="Pick your own colour"></label></div>`)}
+      ${row("Theme", "System matches your phone or laptop and switches with it.", `<div class="themes" role="group" aria-label="Theme">${[["system", "System"], ["light", "Light"], ["dark", "Dark"]].map(([k, t]) =>
+        `<button type="button" data-theme-pick="${k}" aria-pressed="${theme === k}"><span class="mock">${k === "system" ? mk("light") + mk("dark half") : mk(k)}</span>${t}</button>`).join("")}</div>`)}</div>
+    <div class="card set-card"><div class="card-head"><h2>Accessibility</h2></div>
+      ${row("Text size", "Makes the pages and pop-ups bigger.", `<div class="seg" role="group" aria-label="Text size">${[["normal", "Normal"], ["large", "Large"], ["larger", "Larger"]].map(([k, t]) =>
+        `<button type="button" data-text-pick="${k}" aria-pressed="${v.text === k}" style="font-size:${{normal: 13.5, large: 15, larger: 16.5}[k]}px">${t}</button>`).join("")}</div>`)}
+      ${flip("set-contrast", "Stronger contrast", "Darker grey text and clearer lines.", v.contrast)}
+      ${flip("set-motion", "Reduce motion", "Turns off sliding and fading.", v.motion)}</div>
+    <div class="card set-card"><div class="card-head"><h2>Menu and start page</h2></div>
+      ${row("Start page", "The page you land on when you open the app.", `<select class="in" id="set-start" aria-label="Start page"><option value="">Default</option>${starts.map(([k, t]) =>
+        `<option value="${k}" ${v.start === k ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`)}
+      <div class="set-wide">${flip("set-mini", "Icons-only menu", "On laptops, show the side menu as icons only.", S.mini)}</div>
+      ${flip("set-emoji", "Emojis in shared messages", "Adds emojis to the WhatsApp summaries you copy.", S.emoji)}
+      <div class="set-row"><span class="gap" style="flex:1"></span><button type="button" class="pill-btn" data-look-reset>Reset to default</button></div></div>`;
+  const redo = () => settings(box), $ = q => box.querySelector(q);
+  box.querySelectorAll("[data-accent]").forEach(b => b.onclick = () => { saveLook({accent: b.dataset.accent === ACCENTS[0][0] ? "" : b.dataset.accent}); redo(); });
+  $("#acc-own").onchange = e => { saveLook({accent: e.target.value}); redo(); };
+  $("#acc-own").oninput = e => applyLook({...look(), accent: e.target.value});  // see it while picking
+  box.querySelectorAll("[data-theme-pick]").forEach(b => b.onclick = () => {
+    const t = b.dataset.themePick; saveLook({theme: t}); try { t === "system" ? localStorage.removeItem("fcc-mode") : localStorage.setItem("fcc-mode", t); } catch {} redo(); });
+  box.querySelectorAll("[data-text-pick]").forEach(b => b.onclick = () => { saveLook({text: b.dataset.textPick}); redo(); });
+  $("#set-contrast").onchange = e => saveLook({contrast: e.target.checked});
+  $("#set-motion").onchange = e => saveLook({motion: e.target.checked});
+  $("#set-start").onchange = e => { saveLook({start: e.target.value}); toast("Saved. You'll start there next time."); };
+  $("#set-mini").onchange = e => { S.mini = e.target.checked; try { localStorage.setItem("fcc-mini", S.mini ? "1" : "0"); } catch {}
+    document.querySelector(".shell")?.classList.toggle("mini", S.mini); };
+  $("#set-emoji").onchange = e => { S.emoji = e.target.checked; try { localStorage.setItem("fcc-emoji", S.emoji ? "on" : "off"); } catch {} };
+  $("[data-look-reset]").onclick = () => { saveLook(null); S.mini = false; S.emoji = true;
+    try { localStorage.removeItem("fcc-mini"); localStorage.removeItem("fcc-emoji"); } catch {} render(); toast("Back to the default settings."); };
 }
 
 // ---------------------------------------------------------------- go
