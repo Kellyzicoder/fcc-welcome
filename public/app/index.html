@@ -99,6 +99,8 @@ button {font: inherit; color: inherit; cursor: pointer;}
 .card-head {display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap;}
 .card-head .gap {flex: 1;}
 .tiles {display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px;}
+.tiles.three {grid-template-columns: repeat(3, minmax(0, 1fr));}
+@media (max-width: 560px) { .tiles.three {grid-template-columns: repeat(2, minmax(0, 1fr));} .tiles.three > .tile:last-child {grid-column: 1 / -1;} }
 .tile .label {color: var(--ink-2); font-weight: 500; font-size: 14px;}
 .tile .num {font-size: 34px; font-weight: 600; letter-spacing: -.03em; margin-top: 8px; font-variant-numeric: tabular-nums;}
 .tile .num small {font-size: 13px; color: var(--ink-3); font-weight: 500; letter-spacing: 0; margin-left: 6px;}
