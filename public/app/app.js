@@ -507,6 +507,7 @@ const ICON = {
   grip: '<circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/>',
   dots: '<circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+  panel: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   bars: '<path d="M5 20V10M12 20V4M19 20v-7"/>',
@@ -555,13 +556,15 @@ function render() {
   const dock = groups.flatMap(g => g[1]).filter(x => ["mine", "dashboard", "checkin", "followup", "people", "overview"].includes(x[0])).slice(0, 4).map(([k, t]) => [k, short[k] || t]);
   const go = to => { S.view = to; render(); };
   const where = S.me.role === "bishop" ? "All churches" : S.church;
-  root.innerHTML = `<div class="shell">
+  if (S.mini === undefined) { try { S.mini = localStorage.getItem("fcc-mini") === "1"; } catch { S.mini = false; } }
+  root.innerHTML = `<div class="shell ${S.mini ? "mini" : ""}">
     <div class="scrim" data-close></div>
-    <aside class="side" id="menu"><div class="brand"><span class="brand-mark">✝</span>Favourite Child Church</div>
-      ${groups.map(([h, items]) => (h ? `<h6>${h}</h6>` : "") + items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}${t}${
+    <aside class="side" id="menu"><div class="brand"><span class="brand-mark">✝</span><span class="brand-txt">Favourite Child Church</span>
+        <button type="button" class="side-tg" data-mini aria-label="${S.mini ? "Show menu names" : "Icons only"}" title="${S.mini ? "Show menu names" : "Icons only"}" aria-pressed="${!!S.mini}">${svg("panel")}</button></div>
+      ${groups.map(([h, items]) => (h ? `<h6>${h}</h6>` : "") + items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" title="${t}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}<span class="nl">${t}</span>${
         k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : ""}</button>`).join("")).join("")}
       ${S.me.role === "admin" ? `<h6>CHURCH</h6><button class="church on" data-view="overview" title="See every church and switch to another one"><i></i><span>${esc(S.church)}</span><em>Change</em></button>` : ""}
-      <div class="side-foot">${S.canSwitch ? `<button class="nav" data-switch>${svg("pastors")}${switchLabel()}</button>` : ""}<button class="nav out" data-out>${svg("out")}Log out</button></div></aside>
+      <div class="side-foot">${S.canSwitch ? `<button class="nav" data-switch title="${switchLabel()}">${svg("pastors")}<span class="nl">${switchLabel()}</span></button>` : ""}<button class="nav out" data-out title="Log out">${svg("out")}<span class="nl">Log out</span></button></div></aside>
     <main class="main"><div class="top">${S.hist?.length ? `<button class="back" data-back>${svg("back")}Back</button>` : ""}<span class="gap"></span>
         <div class="mode" role="group" aria-label="Colour mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button></div>
         <button class="acct" data-view="account" title="Your account" aria-label="Your account"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${ROLE[S.me.role]} · ${esc(where)}</small></span></button>
@@ -572,6 +575,11 @@ function render() {
   const shell = root.querySelector(".shell"), menuBtn = root.querySelector("[data-menu]");
   const menu = open => { shell.classList.toggle("open", open); menuBtn.setAttribute("aria-expanded", open); };
   menuBtn.onclick = () => menu(!shell.classList.contains("open"));
+  root.querySelector("[data-mini]").onclick = e => {  // laptop menu: icons only, or icons with names; remembered on this device
+    S.mini = !S.mini; try { localStorage.setItem("fcc-mini", S.mini ? "1" : "0"); } catch {}
+    shell.classList.toggle("mini", S.mini); const b = e.currentTarget, t = S.mini ? "Show menu names" : "Icons only";
+    b.setAttribute("aria-pressed", S.mini); b.setAttribute("aria-label", t); b.title = t;
+  };
   root.querySelector("[data-close]").onclick = () => menu(false);
   document.onkeydown = e => { if (e.key === "Escape") menu(false); };
   setMode(document.documentElement.dataset.theme);
