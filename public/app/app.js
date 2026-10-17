@@ -587,6 +587,7 @@ function picture(upTo = today()) {  // everything the pages show, as things stoo
 // ---------------------------------------------------------------- page frame
 const ICON = {
   dashboard: '<path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
+  live: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
   checkin: '<path d="M5 12l5 5 9-10"/>',
   followup: '<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/>',
   people: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
@@ -946,6 +947,30 @@ const WIDGETS = {
         <div class="split-bar">${parts.filter(([, k]) => c[k]).map(([t, k, h]) => `<i style="flex:${c[k]};background:var(--h${h})" title="${t}: ${c[k]}"></i>`).join("") || "<i></i>"}</div>
         <div class="split-rows">${parts.map(([t, k, h]) => `<div><span><i style="background:var(--h${h})"></i>${t} <em>(${c[k]})</em></span>${b ? `<small>${delta(c[k], b[k])} vs ${esc(nice(prev))}</small>` : ""}</div>`).join("")}</div>`;
     }},
+  live: {name: "Livestream", sub: "Watching now on YouTube, Facebook and Zoom", desc: "How many are watching the livestream right now, and the peak this service, from the church's live viewers dashboard.", size: "wide", icon: "live", hue: 5,
+    only: () => ["admin", "lead"].includes(S.me.role) && S.church === S.me.home,  // the live dashboard is the home church's stream
+    draw(el) {
+      const PL = [["youtube", "YouTube"], ["facebook", "Facebook"], ["zoom", "Zoom"]];
+      const word = x => x.status === "live" ? (x.viewers === null ? "Hidden" : "Live") : {offline: "Offline", not_configured: "Not set up", error: "Error"}[x.status] || "Off";
+      const pull = async () => {  // every 30 seconds while the widget is on screen
+        if (!el.isConnected) return clearInterval(t);
+        try {
+          if (S.session.expires_at - Date.now() < 60000) await refresh();
+          const r = await fetch("/app-live", {headers: {Authorization: "Bearer " + S.session.access_token}, cache: "no-store"});
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j.message || "The livestream numbers couldn't be loaded.");
+          const live = Object.values(j.platforms).some(x => x.status === "live"), h = j.history || [], top = Math.max(1, ...h.map(x => x.total));
+          el.innerHTML = `<div class="live-top"><span class="live-dot ${live ? "on" : ""}">${live ? "Live now" : "Not live right now"}</span><span class="gap" style="flex:1"></span>
+              <small>Updated ${new Date(j.updatedAt).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"})}</small></div>
+            <div class="live-nums"><div><b>${j.total}</b><small>watching now</small></div><div><b>${j.peak}</b><small>peak this service</small></div></div>
+            <div class="live-pl">${PL.map(([k, t]) => { const x = j.platforms[k]; return `<div class="${x.status === "live" ? "on" : ""}"><small>${t}</small>
+              <b>${x.status === "live" && x.viewers !== null ? x.viewers : "–"}</b><em>${word(x)}</em></div>`; }).join("")}</div>
+            ${h.length > 1 ? `<div class="live-spark" aria-hidden="true">${h.map(x => `<i style="height:${Math.max(3, x.total / top * 100)}%"></i>`).join("")}</div>` : ""}`;
+        } catch (e) { el.innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
+      };
+      el.innerHTML = `<p class="empty">Loading the livestream…</p>`;
+      const t = setInterval(pull, 30000); pull();
+    }},
   busiest: {name: "Biggest services", sub: "Recent services, the biggest one highlighted", size: "wide", icon: "bars", hue: 4,
     draw(el, p) {
       const rows = p.dates.slice(innerWidth < 640 ? -7 : -10).map(d => [d, Object.keys(p.byDate[d] || {}).length]);
@@ -1041,7 +1066,7 @@ function boardList(b) {
   let mine;
   if (b === "home") mine = raw && (raw.includes("h:") || !raw.includes("c:")) ? raw.filter(x => x !== "h:" && !x.startsWith("c:")) : null;  // older saves hold the Dashboard only
   else mine = raw && raw.includes("c:") ? raw.filter(x => x.startsWith("c:") && x !== "c:").map(x => x.slice(2)) : null;
-  return (mine || B.def()).filter(k => defs[dashKey(k)]);
+  return (mine || B.def()).filter(k => defs[dashKey(k)] && (!defs[dashKey(k)].only || defs[dashKey(k)].only()));  // some widgets are only for some people
 }
 async function saveBoard(b, list) {
   const home = b === "home" ? list : boardList("home"), church = b === "church" ? list : boardList("church");
@@ -1123,7 +1148,7 @@ function dragWidgets(grid, size, save) {
 // The Add widget popup: every widget not on this board, with its icon, what it shows, and Select.
 function addWidget(b) {
   document.querySelectorAll(".modal").forEach(m => m.remove());
-  const B = BOARDS[b], defs = B.defs(), have = boardList(b), left = Object.keys(defs).filter(k => !have.some(x => dashKey(x) === k));
+  const B = BOARDS[b], defs = B.defs(), have = boardList(b), left = Object.keys(defs).filter(k => !have.some(x => dashKey(x) === k) && (!defs[k].only || defs[k].only()));
   const d = document.createElement("div"); d.className = "modal";
   d.innerHTML = `<div class="sheet narrow" role="dialog" aria-modal="true" aria-label="Add widget">
     <div class="card-head"><h2>Add widget</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
