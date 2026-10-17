@@ -572,7 +572,7 @@ function pages() {  // the menu, in groups; what each role can actually load is 
 }
 // Settings each person picks for themselves: colour, theme, text size and so on. Kept on this phone or laptop, per person.
 const ACCENTS = [["#1f6fe5", "Blue"], ["#0e8a7c", "Teal"], ["#6250d6", "Violet"], ["#c8417a", "Pink"], ["#dc5f26", "Orange"], ["#2b9348", "Green"], ["#b8860b", "Gold"]];
-const LOOK0 = {accent: "", theme: "", text: "normal", motion: false, contrast: false, start: ""};
+const LOOK0 = {accent: "", theme: "", text: "normal", motion: false, contrast: false, muted: false, start: ""};
 const sysDark = matchMedia("(prefers-color-scheme: dark)");
 function look() { let v = {}; try { v = JSON.parse(localStorage.getItem("fcc-look:" + (S.me?.email || "")) || "{}"); } catch {} return {...LOOK0, ...v}; }
 function saveLook(ch) {
@@ -590,7 +590,7 @@ function applyLook(v = look()) {
   if (/^#[0-9a-f]{6}$/i.test(v.accent)) { d.style.setProperty("--accent", v.accent); d.style.setProperty("--accent-ink", inkOn(v.accent));
     d.style.setProperty("--accent-soft", `color-mix(in srgb, ${v.accent} 14%, var(--panel))`); }
   else ["--accent", "--accent-ink", "--accent-soft"].forEach(k => d.style.removeProperty(k));
-  d.dataset.text = v.text; d.classList.toggle("calm", !!v.motion); d.classList.toggle("strong", !!v.contrast);
+  d.dataset.text = v.text; d.classList.toggle("calm", !!v.motion); d.classList.toggle("strong", !!v.contrast); d.classList.toggle("muted", !!v.muted);
 }
 sysDark.addEventListener?.("change", () => { if (S.me && look().theme === "system") applyLook(); });
 function setMode(mode, remember) {
@@ -2464,6 +2464,7 @@ function settings(box) {
     <div class="card set-card"><div class="card-head"><h2>Accessibility</h2></div>
       ${row("Text size", "Makes the pages and pop-ups bigger.", `<div class="seg" role="group" aria-label="Text size">${[["normal", "Normal"], ["large", "Large"], ["larger", "Larger"]].map(([k, t]) =>
         `<button type="button" data-text-pick="${k}" aria-pressed="${v.text === k}" style="font-size:${{normal: 13.5, large: 15, larger: 16.5}[k]}px">${t}</button>`).join("")}</div>`)}
+      ${flip("set-muted", "Fewer colours", "Grey icons, cards and name badges for a calmer page. Your accent colour stays.", v.muted)}
       ${flip("set-contrast", "Stronger contrast", "Darker grey text and clearer lines.", v.contrast)}
       ${flip("set-motion", "Reduce motion", "Turns off sliding and fading.", v.motion)}</div>
     <div class="card set-card"><div class="card-head"><h2>Menu and start page</h2></div>
@@ -2479,6 +2480,7 @@ function settings(box) {
   box.querySelectorAll("[data-theme-pick]").forEach(b => b.onclick = () => {
     const t = b.dataset.themePick; saveLook({theme: t}); try { t === "system" ? localStorage.removeItem("fcc-mode") : localStorage.setItem("fcc-mode", t); } catch {} redo(); });
   box.querySelectorAll("[data-text-pick]").forEach(b => b.onclick = () => { saveLook({text: b.dataset.textPick}); redo(); });
+  $("#set-muted").onchange = e => saveLook({muted: e.target.checked});
   $("#set-contrast").onchange = e => saveLook({contrast: e.target.checked});
   $("#set-motion").onchange = e => saveLook({motion: e.target.checked});
   $("#set-start").onchange = e => { saveLook({start: e.target.value}); toast("Saved. You'll start there next time."); };
