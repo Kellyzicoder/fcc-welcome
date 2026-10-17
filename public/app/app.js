@@ -947,25 +947,49 @@ const WIDGETS = {
         <div class="split-bar">${parts.filter(([, k]) => c[k]).map(([t, k, h]) => `<i style="flex:${c[k]};background:var(--h${h})" title="${t}: ${c[k]}"></i>`).join("") || "<i></i>"}</div>
         <div class="split-rows">${parts.map(([t, k, h]) => `<div><span><i style="background:var(--h${h})"></i>${t} <em>(${c[k]})</em></span>${b ? `<small>${delta(c[k], b[k])} vs ${esc(nice(prev))}</small>` : ""}</div>`).join("")}</div>`;
     }},
-  live: {name: "Livestream", sub: "Watching now on YouTube, Facebook and Zoom", desc: "How many are watching the livestream right now, and the peak this service, from the church's live viewers dashboard.", size: "wide", icon: "live", hue: 5,
-    only: () => ["admin", "lead"].includes(S.me.role) && S.church === S.me.home,  // the live dashboard is the home church's stream
+  live: {name: "Livestream", sub: "Watching now on YouTube, Facebook and Zoom", desc: "How many are watching your church's livestream right now, and the peak this service. Other churches connect their YouTube channel with its link.", size: "wide", icon: "live", hue: 5,
+    only: () => ["admin", "lead"].includes(S.me.role),  // the home church uses the main live dashboard; other churches connect their YouTube channel
     draw(el) {
       const PL = [["youtube", "YouTube"], ["facebook", "Facebook"], ["zoom", "Zoom"]];
       const word = x => x.status === "live" ? (x.viewers === null ? "Hidden" : "Live") : {offline: "Offline", not_configured: "Not set up", error: "Error"}[x.status] || "Off";
+      const church = S.church, call = async (init = {}) => {
+        if (S.session.expires_at - Date.now() < 60000) await refresh();
+        const r = await fetch("/app-live" + (init.method ? "" : "?church=" + encodeURIComponent(church)), {cache: "no-store", ...init,
+          headers: {Authorization: "Bearer " + S.session.access_token, "Content-Type": "application/json"}});
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.message || "The livestream numbers couldn't be loaded.");
+        return j;
+      };
+      // Another church's admin connects their YouTube channel by pasting its link
+      const connect = (now = "") => {
+        el.innerHTML = `<form class="live-set"><p>Show <b>${esc(church)}</b>'s YouTube livestream here: paste your church's YouTube channel link.</p>
+          <div class="live-row"><input class="in" name="link" placeholder="youtube.com/@yourchurch" value="${esc(now)}" autocomplete="off" inputmode="url">
+          <button class="pill-btn primary">Connect</button></div>
+          <p class="note">This shows your YouTube viewers. Facebook and Zoom can be added later with the admin's help.</p>${now ? `<button type="button" class="link-btn" data-unlink>Disconnect this channel</button>` : ""}</form>`;
+        const f = el.querySelector("form"), go = async link => {
+          if (S.preview) return toast("Not saved: you're viewing as someone else, which is view only.");
+          f.querySelector("button.primary").disabled = true;
+          try { const j = await call({method: "POST", body: JSON.stringify({church, link})}); toast(j.channel ? `Connected: ${j.channel}.` : "Channel disconnected."); el.innerHTML = `<p class="empty">Loading the livestream…</p>`; pull(); }
+          catch (e) { toast(e.message); f.querySelector("button.primary").disabled = false; }
+        };
+        f.onsubmit = e => { e.preventDefault(); const v = f.link.value.trim(); if (v) go(v); };
+        el.querySelector("[data-unlink]")?.addEventListener("click", () => go(""));
+      };
       const pull = async () => {  // every 30 seconds while the widget is on screen
         if (!el.isConnected) return clearInterval(t);
+        if (el.querySelector(".live-set")) return;  // don't wipe a link someone is typing
         try {
-          if (S.session.expires_at - Date.now() < 60000) await refresh();
-          const r = await fetch("/app-live", {headers: {Authorization: "Bearer " + S.session.access_token}, cache: "no-store"});
-          const j = await r.json().catch(() => ({}));
-          if (!r.ok) throw new Error(j.message || "The livestream numbers couldn't be loaded.");
+          const j = await call();
+          if (j.setup) return connect();
           const live = Object.values(j.platforms).some(x => x.status === "live"), h = j.history || [], top = Math.max(1, ...h.map(x => x.total));
           el.innerHTML = `<div class="live-top"><span class="live-dot ${live ? "on" : ""}">${live ? "Live now" : "Not live right now"}</span><span class="gap" style="flex:1"></span>
               <small>Updated ${new Date(j.updatedAt).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"})}</small></div>
             <div class="live-nums"><div><b>${j.total}</b><small>watching now</small></div><div><b>${j.peak}</b><small>peak this service</small></div></div>
             <div class="live-pl">${PL.map(([k, t]) => { const x = j.platforms[k]; return `<div class="${x.status === "live" ? "on" : ""}"><small>${t}</small>
               <b>${x.status === "live" && x.viewers !== null ? x.viewers : "–"}</b><em>${word(x)}</em></div>`; }).join("")}</div>
-            ${h.length > 1 ? `<div class="live-spark" aria-hidden="true">${h.map(x => `<i style="height:${Math.max(3, x.total / top * 100)}%"></i>`).join("")}</div>` : ""}`;
+            ${h.length > 1 ? `<div class="live-spark" aria-hidden="true">${h.map(x => `<i style="height:${Math.max(3, x.total / top * 100)}%"></i>`).join("")}</div>` : ""}
+            ${j.channel ? `<div class="live-ch"><small>YouTube channel: <b>${esc(j.channel)}</b></small><button type="button" class="link-btn" data-change>Change</button></div>` : ""}`;
+          el.querySelector("[data-change]")?.addEventListener("click", () => connect(j.channel));
         } catch (e) { el.innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
       };
       el.innerHTML = `<p class="empty">Loading the livestream…</p>`;
