@@ -506,6 +506,7 @@ const ICON = {
   next: '<path d="M9 6l6 6-6 6"/>',
   grip: '<circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/>',
   dots: '<circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   bars: '<path d="M5 20V10M12 20V4M19 20v-7"/>',
@@ -986,8 +987,7 @@ function checkin(el) {
       <div class="card tile"><div class="label">Kids</div><div class="num" id="n-kid">0</div></div>
       <div class="card tile"><div class="label">Not yet</div><div class="num" id="n-not">0</div></div></div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span><button type="button" class="pill-btn sm" id="ci-lock">${svg("lock")}Save &amp; lock</button></div>
-      <div class="u-bar"><div class="rpills" role="tablist" aria-label="Show" id="ci-pills"></div>
-        <div class="u-tools"><input class="in" id="q" type="search" placeholder="Search names" value="${esc(S.q)}" aria-label="Search by name, phone or team" autocomplete="off"></div></div>
+      <label class="find-bar">${svg("search")}<input id="q" type="search" placeholder="Search by name, phone or team" value="${esc(S.q)}" aria-label="Search by name, phone or team" autocomplete="off"></label>
       <div class="rpills ci-teams" id="ci-teams" aria-label="Teams" hidden></div>
       <div class="bulk" id="ci-bulk" hidden style="position:static;box-shadow:none"><b id="ci-count"></b><span class="gap"></span><button type="button" class="pill-btn sm primary" id="ci-all">Tick all</button><button type="button" class="pill-btn sm" id="ci-none">Untick all</button></div>
       <div class="msg locked" id="ci-locked" hidden></div>
@@ -1008,23 +1008,24 @@ function checkin(el) {
   // team pills, each in its own colour (the same colour every time, from the team's name)
   const teamKeys = Object.keys(teams).sort(), teamBox = el.querySelector("#ci-teams");
   teamBox.hidden = !teamKeys.length;
-  const drawTeams = () => { teamBox.innerHTML = `<button type="button" class="rpill tint" data-team="" aria-pressed="${!S.ciRole}">All teams</button>` + teamKeys.map(k => { const h = hueOf(teams[k].label);
-    return `<button type="button" class="rpill tint" data-team="${esc(k)}" aria-pressed="${S.ciRole === k}" style="--rc:var(--h${h});--rb:var(--h${h}b);--rt:var(--h${h}t)"><i></i>${esc(teams[k].label)} <span>${teams[k].n}</span></button>`; }).join(""); };
-  teamBox.onclick = e => { const b = e.target.closest("[data-team]"); if (!b) return; S.ciRole = S.ciRole === b.dataset.team ? "" : b.dataset.team; S.ciPage = 1; armed = false; drawTeams(); draw(); };
+  // Everyone, then the five biggest teams (plus the one picked); "+ more" shows the rest
+  const drawTeams = () => {
+    const big = [...teamKeys].sort((a, b) => teams[b].n - teams[a].n || a.localeCompare(b)).slice(0, 5);
+    if (S.ciRole && !big.includes(S.ciRole)) big.push(S.ciRole);
+    const show = S.ciMore ? teamKeys : teamKeys.filter(k => big.includes(k)), more = teamKeys.length - show.length;
+    teamBox.innerHTML = `<button type="button" class="rpill tint" data-team="" aria-pressed="${!S.ciRole}">Everyone <span>${mine.length}</span></button>` + show.map(k => { const h = hueOf(teams[k].label);
+      return `<button type="button" class="rpill tint" data-team="${esc(k)}" aria-pressed="${S.ciRole === k}" style="--rc:var(--h${h});--rb:var(--h${h}b);--rt:var(--h${h}t)"><i></i>${esc(teams[k].label)} <span>${teams[k].n}</span></button>`; }).join("")
+      + (more ? `<button type="button" class="rpill more" data-more>+ ${more} more</button>` : S.ciMore && teamKeys.length > 5 ? `<button type="button" class="rpill more" data-more>Show less</button>` : ""); };
+  teamBox.onclick = e => { if (e.target.closest("[data-more]")) { S.ciMore = !S.ciMore; drawTeams(); return; }
+    const b = e.target.closest("[data-team]"); if (!b) return; S.ciRole = S.ciRole === b.dataset.team ? "" : b.dataset.team; S.ciPage = 1; armed = false; drawTeams(); draw(); };
   drawTeams();
-  const SHOWCI = {all: ["Everyone", 0, () => true], here: ["Here", 2, m => here[m.id]], not: ["Not yet", 3, m => !here[m.id]],
-    first: ["First-timers", 6, m => m.type === "first_timer"], visitor: ["Visitors", 4, m => m.type === "visitor"], kids: ["Kids", 5, m => isKid(m)]};
-  if (!SHOWCI[S.ciShow]) S.ciShow = "all";
-  el.querySelector("#ci-pills").onclick = e => { const b = e.target.closest("[data-cis]"); if (!b) return; S.ciShow = b.dataset.cis; S.ciPage = 1; armed = false; draw(); };
   const PER = 60;  // three columns of 20
   let armed = false, armedAll = false, busy = false;
   const narrowedTo = () => { const q = norm(S.q);  // team and search; the pills then pick within these
     return mine.filter(m => (!S.ciRole || rolesOf(m).some(r => norm(r) === S.ciRole)) && (!q || norm(m.full_name).includes(q) || norm(m.phone).includes(q) || rolesOf(m).some(r => norm(r).includes(q)))); };
-  const showing = () => narrowedTo().filter(SHOWCI[S.ciShow][2]);
+  const showing = () => narrowedTo();
   const draw = () => {
-    const base = narrowedTo(), shown = base.filter(SHOWCI[S.ciShow][2]), narrowed = !!(S.ciRole || norm(S.q) || S.ciShow !== "all"), ticked = shown.filter(m => here[m.id]).length;
-    el.querySelector("#ci-pills").innerHTML = Object.entries(SHOWCI).map(([k, [t, h, f]]) =>
-      `<button type="button" class="rpill tint" role="tab" data-cis="${k}" aria-selected="${S.ciShow === k}" ${h ? `style="--rc:var(--h${h});--rb:var(--h${h}b);--rt:var(--h${h}t)"` : ""}>${h ? "<i></i>" : ""}${t} <span>${base.filter(f).length}</span></button>`).join("");
+    const shown = narrowedTo(), narrowed = !!(S.ciRole || norm(S.q)), ticked = shown.filter(m => here[m.id]).length;
     const pages = Math.max(1, Math.ceil(shown.length / PER)); S.ciPage = Math.min(Math.max(1, S.ciPage || 1), pages);
     const page = shown.slice((S.ciPage - 1) * PER, S.ciPage * PER);
     const nums = [...new Set([1, S.ciPage - 1, S.ciPage, S.ciPage + 1, pages])].filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
@@ -1036,7 +1037,7 @@ function checkin(el) {
         ${nums.map((n, i) => (i && n - nums[i - 1] > 1 ? `<span class="muted">…</span>` : "") + `<button class="pg ${n === S.ciPage ? "on" : ""}" data-cpg="${n}">${n}</button>`).join("")}
         <button class="pg" data-cpg="${S.ciPage + 1}" ${S.ciPage === pages ? "disabled" : ""} aria-label="Next page">${svg("next")}</button></div>` : shown.length ? `<p class="note" style="margin:10px 2px 0">Showing ${shown.length} of ${mine.length}</p>` : "";
     el.querySelectorAll("[data-cpg]").forEach(b => b.onclick = () => { S.ciPage = +b.dataset.cpg; draw(); });
-    el.querySelector("#ci-title").textContent = S.ciRole ? teams[S.ciRole].label : S.ciShow !== "all" ? SHOWCI[S.ciShow][0] : "Names A to Z";
+    el.querySelector("#ci-title").textContent = S.ciRole ? teams[S.ciRole].label : "Names A to Z";
     // ticking a whole group is only offered once the list is narrowed to a team, a search or a pill, never for the whole church
     const bar = el.querySelector("#ci-bulk"); bar.hidden = !narrowed || !shown.length;
     el.querySelector("#ci-count").textContent = `${ticked} of ${shown.length} here`;
@@ -1756,20 +1757,49 @@ function pastors(el) {
       ${list.length ? "" : `<p class="empty">Nobody is assigned to ${esc(S.pastor)} yet.</p>`}
       </div>`
       : `<p class="empty">Nobody on this register yet.</p>`}
-    ${canEdit ? `<form class="card" id="plist" style="margin-top:14px"><div class="card-head"><h2>Pastor list for ${esc(S.church)}</h2></div>
-      <label class="f" for="pnames">Names, one per line</label>
-      <textarea class="in" id="pnames" rows="${Math.max(4, plist.length + 1)}" placeholder="e.g. Pastor Grace Mensah">${esc(plist.join("\n"))}</textarea>
-      <div class="row" style="margin-top:12px"><p class="note" style="margin:0">One name per line.</p>
-        <div style="flex:0 0 auto"><button class="pill-btn primary">Save list</button></div></div></form>` : ""}`;
-  const form = el.querySelector("#plist");
-  if (form) form.onsubmit = async e => {
-    e.preventDefault();
-    const seen = new Set(), out = el.querySelector("#pnames").value.split("\n").map(x => x.replace(/,/g, " ").trim().replace(/\s+/g, " ").slice(0, 80)).filter(x => x && !seen.has(norm(x)) && seen.add(norm(x)));
-    try {
-      await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key: "pastors:" + S.church, value: out.join("\n")}});
-      S.pastorList[S.church] = out; toast("Pastor list saved."); render();
-    } catch (err) { toast(/settings|policy|permission/i.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
-  };
+    ${canEdit ? `<div class="card plist" id="plist"><div class="pl-head"><span class="pl-ico">${svg("pastors")}</span><div><h2>Pastor list</h2><p>${esc(S.church)} · ${plist.length} ${plist.length === 1 ? "name" : "names"}</p></div><span class="gap"></span>
+        <button type="button" class="pill-btn sm primary" id="pl-add">${svg("plus")}Add pastor</button></div>
+      <label class="find-bar pl-find">${svg("search")}<input id="pl-q" type="search" placeholder="Search pastors by name" value="${esc(S.plQ || "")}" autocomplete="off" aria-label="Search pastors"></label>
+      <div class="pl-chips" id="pl-chips"></div><div id="pl-rows"></div></div>` : ""}`;
+  // The pastor list: search, title chips (Bishop, Reverend, Lady Pastor...), and a row for each name with how many people they have.
+  const listBox = el.querySelector("#plist");
+  if (listBox) {
+    const TITLES_ = ["Lady Pastor", "Bishop", "Reverend", "Apostle", "Prophet", "Evangelist", "Elder", "Deacon", "Pastor"];
+    const titleOf = n => TITLES_.find(t => norm(n).startsWith(norm(t) + " ")) || "Other";
+    const titles = [...new Set(plist.map(titleOf))].sort((a, b) => TITLES_.indexOf(a) - TITLES_.indexOf(b));
+    if (S.plT && !titles.includes(S.plT)) S.plT = "";
+    const save = async out => {
+      try { await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key: "pastors:" + S.church, value: out.join("\n")}}); }
+      catch (err) { throw new Error(/settings|policy|permission/i.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
+      S.pastorList[S.church] = out; render();
+    };
+    const clean = x => x.replace(/,/g, " ").trim().replace(/\s+/g, " ").slice(0, 80);
+    const drawList = () => {
+      const q = norm(S.plQ || ""), rows = plist.filter(n => (!S.plT || titleOf(n) === S.plT) && (!q || norm(n).includes(q)));
+      el.querySelector("#pl-chips").innerHTML = titles.length > 1 ? [["", "All"], ...titles.map(t => [t, t === "Other" ? "Other" : t])].map(([v, t]) =>
+        `<button type="button" class="pl-chip ${(S.plT || "") === v ? "on" : ""}" data-plt="${esc(v)}">${esc(t)}${v ? ` <span>${plist.filter(n => titleOf(n) === v).length}</span>` : ""}</button>`).join("") : "";
+      el.querySelector("#pl-rows").innerHTML = rows.length ? rows.map(n => { const g = groups[n] || [], h = hueOf(n);
+        return `<div class="pl-row ${n === S.pastor ? "sel" : ""}"><button type="button" class="pl-main" data-pl="${esc(n)}" title="See ${esc(n)}'s people">
+          <span class="pl-ava" style="background:var(--h${h}b);color:var(--h${h}t)">${esc(initials(n))}</span>
+          <span class="pl-txt"><b>${esc(n)}</b><small><span>${svg("people")}${g.length} ${g.length === 1 ? "person" : "people"}</span><span>${svg("checkin")}${g.filter(x => p.here[x.id]).length} came</span>${g.filter(x => x.level !== "ok").length ? `<span class="warn">${svg("followup")}${g.filter(x => x.level !== "ok").length} need a call</span>` : ""}</small></span></button>
+          <button type="button" class="icon-btn sm" data-pledit="${esc(n)}" aria-label="Rename or remove ${esc(n)}">${svg("edit")}</button>${svg("next")}</div>`; }).join("")
+        : `<p class="empty">${plist.length ? "No pastor matches that." : "No pastors on the list yet. Tap Add pastor."}</p>`;
+    };
+    listBox.onclick = e => {
+      const c = e.target.closest("[data-plt]"); if (c) { S.plT = c.dataset.plt; drawList(); return; }
+      const ed = e.target.closest("[data-pledit]");
+      if (ed) { const old = ed.dataset.pledit; return formDialog(`Change ${old}`, [{k: "name", label: "Name on the Pastors list", value: old, required: true, hint: "Renaming here changes the list only. People assigned under the old name keep it until you change them."}],
+        async v => { const n = clean(v.name); if (!n || n === old) return; if (plist.some(x => x !== old && norm(x) === norm(n))) throw new Error(`${n} is already on the list.`);
+          await save(plist.map(x => x === old ? n : x)); toast("Saved."); }, "Save",
+        {label: "Remove from list", confirm: "Tap again to remove", run: async () => { await save(plist.filter(x => x !== old)); toast(`${old} removed from the list.`); }}); }
+      const r = e.target.closest("[data-pl]"); if (r) { S.pastor = r.dataset.pl; S.pastorJump = true; render(); }
+    };
+    el.querySelector("#pl-q").oninput = e => { S.plQ = e.target.value; drawList(); };
+    el.querySelector("#pl-add").onclick = () => formDialog("Add a pastor", [{k: "name", label: "Full name with title", value: "", required: true, hint: "e.g. Pastor Grace Mensah, Lady Pastor Rita Kpodonu or Reverend Theodore Kpodonu"}],
+      async v => { const n = clean(v.name); if (!n) return; if (plist.some(x => norm(x) === norm(n))) throw new Error(`${n} is already on the list.`);
+        await save([...plist, n]); toast(`${n} added.`); }, "Add");
+    drawList();
+  }
   el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => editPerson(S.members.find(m => m.id === b.dataset.edit)));
   el.querySelectorAll("[data-pastor]").forEach(b => b.onclick = () => { S.pastor = b.dataset.pastor; S.pastorJump = true; render(); });
   if (S.pastorJump) { S.pastorJump = false; requestAnimationFrame(() => el.querySelector("#pastor-people")?.scrollIntoView({behavior: "smooth", block: "start"})); }  // straight to their people
