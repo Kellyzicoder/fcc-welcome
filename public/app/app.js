@@ -418,11 +418,15 @@ async function start() {
   S.me.base = S.me.role;
   S.canSwitch = !!(S.me.pastor && ["admin", "lead"].includes(S.me.role));
   try { if (S.canSwitch && localStorage.getItem("fcc-as:" + S.me.email) === "pastor") S.me.role = "pastor"; } catch {}
+  // An admin can look at the app as another role (e.g. an usher at one church) without a second email: see viewAs()
+  S.preview = null;
+  if (S.me.base === "admin") { let as = null; try { as = JSON.parse(localStorage.getItem("fcc-preview:" + S.me.email) || "null"); } catch {}
+    if (as && PREVIEW[as.role]) { S.preview = as; S.canSwitch = false; Object.assign(S.me, {role: as.role, church: as.church || null, pastor: as.role === "pastor" ? as.pastor : S.me.pastor, title: null}); } }
   S.view = S.me.role === "bishop" ? "overview" : S.view;
   if (S.me.role !== "bishop") {
     S.churches = (await api("churches?select=name,livestream&order=name")).map(c => c.name);
     S.church = S.me.role === "admin" ? (S.churches.includes(S.church) ? S.church : S.me.home) : S.me.church || S.me.home;
-    if (S.me.role === "pastor" && S.me.base === "admin") S.church = await pastorChurch();
+    if (S.me.role === "pastor" && S.me.base === "admin" && !S.preview) S.church = await pastorChurch();
     await load();
     S.pending = canApprove() ? await api("registrations?select=id&status=eq.pending").then(r => r.length).catch(() => 0) : 0;
   }
@@ -442,6 +446,28 @@ async function switchView(to) {
   await start();
   toast(to === "pastor" ? "Pastor view: just your own people." : `Back to ${baseName()} view.`);
 }
+// View as: the admin picks a role (and church, and pastor name for Pastor) and the whole app shows what that person would see.
+// Only the screens change: the admin is still signed in as themselves, so anything saved is saved for real.
+const PREVIEW = {team: "Team (usher)", lead: "Church admin", pastor: "Pastor", bishop: "Bishop"};
+function viewAs() {
+  const allP = [...new Set(Object.values(S.pastorList || {}).flat())];
+  formDialog("View the app as another role", [
+    {k: "role", label: "Role", type: "select", value: "team", options: Object.entries(PREVIEW)},
+    {k: "church", label: "Church", type: "select", value: S.church, options: S.churches.map(c => [c, c]), hint: "Not used for Bishop, who sees every church."},
+    {k: "pastor", label: "Pastor name (only for Pastor)", value: "", suggest: allP, hint: "As it is on the Pastors list. It decides whose people show."}],
+    async v => {
+      if (v.role === "pastor" && !v.pastor) throw new Error("Type a pastor's name as it is on the Pastors list.");
+      if (v.role === "pastor") { const hit = Object.entries(S.pastorList || {}).find(([, l]) => l.some(n => norm(n) === norm(v.pastor))); if (hit) v.church = hit[0]; }
+      try { localStorage.setItem("fcc-preview:" + S.me.email, JSON.stringify({role: v.role, church: v.role === "bishop" ? null : v.church, pastor: v.pastor || ""})); } catch {}
+      S.view = v.role === "bishop" ? "overview" : v.role === "pastor" ? "mine" : "dashboard"; S.hist = []; S.shown = "";
+      await start(); toast(`Now showing the app as ${PREVIEW[v.role]}. Tap Back to Admin at the top to return.`);
+    }, "Show me");
+}
+async function endPreview() {
+  try { localStorage.removeItem("fcc-preview:" + S.me.email); } catch {}
+  S.view = "dashboard"; S.hist = []; S.shown = ""; await start(); toast("Back to your Admin view.");
+}
+const previewName = () => S.preview ? `${PREVIEW[S.preview.role]}${S.preview.role === "pastor" ? " · " + S.preview.pastor : ""}${S.preview.church ? " · " + S.preview.church : ""}` : "";
 const switchLabel = () => S.me.role === "pastor" ? `Switch to ${baseName()} view` : "Switch to Pastor view";
 function fatal(text) { root.innerHTML = `<div class="center"><div class="login"><h1>Something went wrong</h1><p>${esc(text)}</p><button class="pill-btn block" onclick="location.reload()">Try again</button></div></div>`; }
 async function signOut() { try { await auth("logout", {}, S.session?.access_token); } catch {} store.set(null); S.me = null; loginView(); }
@@ -512,6 +538,7 @@ const ICON = {
   dots: '<circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
   panel: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>',
+  eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   bars: '<path d="M5 20V10M12 20V4M19 20v-7"/>',
@@ -568,8 +595,10 @@ function render() {
       ${groups.map(([h, items]) => (h ? `<h6>${h}</h6>` : "") + items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" title="${t}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}<span class="nl">${t}</span>${
         k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : ""}</button>`).join("")).join("")}
       ${S.me.role === "admin" ? `<h6>CHURCH</h6><button class="church on" data-view="overview" title="See every church and switch to another one"><i></i><span>${esc(S.church)}</span><em>Change</em></button>` : ""}
-      <div class="side-foot">${S.canSwitch ? `<button class="nav" data-switch title="${switchLabel()}">${svg("pastors")}<span class="nl">${switchLabel()}</span></button>` : ""}<button class="nav out" data-out title="Log out">${svg("out")}<span class="nl">Log out</span></button></div></aside>
-    <main class="main"><div class="top">${S.hist?.length ? `<button class="back" data-back>${svg("back")}Back</button>` : ""}<span class="gap"></span>
+      <div class="side-foot">${S.me.base === "admin" ? (S.preview ? `<button class="nav" data-unpreview title="Back to Admin">${svg("back")}<span class="nl">Back to Admin</span></button>`
+          : `<button class="nav" data-viewas title="View as another role">${svg("eye")}<span class="nl">View as another role</span></button>`) : ""}${S.canSwitch ? `<button class="nav" data-switch title="${switchLabel()}">${svg("pastors")}<span class="nl">${switchLabel()}</span></button>` : ""}<button class="nav out" data-out title="Log out">${svg("out")}<span class="nl">Log out</span></button></div></aside>
+    <main class="main">${S.preview ? `<div class="preview-bar">${svg("eye")}<span>Viewing as <b>${esc(previewName())}</b>. You're still signed in as you, so anything you change is saved for real.</span>
+        <button class="pill-btn sm" data-unpreview>Back to Admin</button></div>` : ""}<div class="top">${S.hist?.length ? `<button class="back" data-back>${svg("back")}Back</button>` : ""}<span class="gap"></span>
         <div class="mode" role="group" aria-label="Colour mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button></div>
         <button class="acct" data-view="account" title="Your account" aria-label="Your account"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${roleName(S.me)} · ${esc(where)}</small></span></button>
         <button class="icon-btn" data-out aria-label="Log out" title="Log out">${svg("out")}</button></div>
@@ -590,6 +619,8 @@ function render() {
   root.querySelectorAll("[data-view]").forEach(b => b.onclick = () => go(b.dataset.view));
   root.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => setMode(b.dataset.mode, true));
   root.querySelectorAll("[data-out]").forEach(b => b.onclick = signOut);
+  root.querySelectorAll("[data-viewas]").forEach(b => b.onclick = () => { menu(false); viewAs(); });
+  root.querySelectorAll("[data-unpreview]").forEach(b => b.onclick = endPreview);
   root.querySelectorAll("[data-switch]").forEach(b => b.onclick = () => switchView(S.me.role === "pastor" ? S.me.base : "pastor"));
   const view = document.getElementById("view");
   view.onclick = e => {
@@ -899,19 +930,33 @@ const WIDGETS = {
       donut(el.querySelector(".donut"), stands);
     }},
 };
-const dashKey = x => x.split("@")[0], dashSize = x => SIZES.some(s => s[0] === x.split("@")[1]) ? x.split("@")[1] : WIDGETS[dashKey(x)]?.size;
+// Two boards share each person's saved list: the Dashboard's widgets as "key", the All-churches page's as "c:key"
+// (either may end "@size"). "h:" and "c:" mark a board the person has set, so an emptied board stays empty.
+const BOARDS = {home: {defs: () => WIDGETS, def: () => DASH_DEFAULT, pre: "", mark: "h:", where: "dashboard"},
+                church: {defs: () => CWIDGETS, def: () => CDASH_DEFAULT, pre: "c:", mark: "c:", where: "page"}};
+const dashKey = x => x.split("@")[0];
+const sizeIn = (defs, x) => SIZES.some(s => s[0] === x.split("@")[1]) ? x.split("@")[1] : defs[dashKey(x)]?.size;
+const dashSize = x => sizeIn(WIDGETS, x);
 // Each person's widgets are saved in the database (so phone and laptop match), with this device as a fallback.
-async function loadDash() {
-  if (S.dash) return S.dash;
+async function loadPrefs() {
+  if (S.prefs !== undefined) return S.prefs;
   let list = null;
   try { const r = await api(`app_prefs?select=dash&email=eq.${encodeURIComponent(S.me.email)}`); list = r[0]?.dash || null; S.dashDb = true; } catch { S.dashDb = false; }
   if (!list) { try { list = JSON.parse(localStorage.getItem("fcc-dash:" + S.me.email) || "null"); } catch {} }
-  return S.dash = (Array.isArray(list) ? list : DASH_DEFAULT).filter(k => WIDGETS[dashKey(k)]);
+  return S.prefs = Array.isArray(list) ? list : null;
 }
-async function saveDash(list) {
-  S.dash = list;
-  try { localStorage.setItem("fcc-dash:" + S.me.email, JSON.stringify(list)); } catch {}
-  if (S.dashDb !== false) try { await api("app_prefs?on_conflict=email", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {email: S.me.email, dash: list}}); } catch { S.dashDb = false; }
+function boardList(b) {
+  const raw = S.prefs, B = BOARDS[b], defs = B.defs();
+  let mine;
+  if (b === "home") mine = raw && (raw.includes("h:") || !raw.includes("c:")) ? raw.filter(x => x !== "h:" && !x.startsWith("c:")) : null;  // older saves hold the Dashboard only
+  else mine = raw && raw.includes("c:") ? raw.filter(x => x.startsWith("c:") && x !== "c:").map(x => x.slice(2)) : null;
+  return (mine || B.def()).filter(k => defs[dashKey(k)]);
+}
+async function saveBoard(b, list) {
+  const home = b === "home" ? list : boardList("home"), church = b === "church" ? list : boardList("church");
+  const raw = S.prefs = [...home, "h:", ...church.map(k => "c:" + k), "c:"];
+  try { localStorage.setItem("fcc-dash:" + S.me.email, JSON.stringify(raw)); } catch {}
+  if (S.dashDb !== false) try { await api("app_prefs?on_conflict=email", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {email: S.me.email, dash: raw}}); } catch { S.dashDb = false; }
 }
 async function dashboard(el) {
   const p = picture();
@@ -919,47 +964,51 @@ async function dashboard(el) {
     `<button class="pill-btn" id="addw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">WhatsApp summary</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `<div class="wgrid" id="wgrid"></div>`;
   el.querySelector("#wa").onclick = () => waDialog("Summary for WhatsApp", o => !p.dates.includes(o.day) ? null : report(o.day !== p.last ? picture(o.day) : p, o), {names: true, link: true, follow: true, noEmoji: true, day: p.last || today(),
     fields: [["preacher", "Preacher name"], ["sermon", "Sermon title"], ["zoomA", "Zoom: adults", "num"], ["zoomK", "Zoom: children", "num"], ["yt", "YouTube", "num"], ["fb", "Facebook", "num"], ["converts", "New converts", "num"]]});
-  el.querySelector("#addw").onclick = () => addWidget();
+  el.querySelector("#addw").onclick = () => addWidget("home");
   el.querySelector("[data-go]").onclick = () => { S.view = "checkin"; render(); };
-  const list = await loadDash();
+  await loadPrefs();
   if (S.view !== "dashboard") return;
-  const grid = el.querySelector("#wgrid");
-  grid.innerHTML = list.length ? list.map((x, i) => { const k = dashKey(x), W = WIDGETS[k], sub = typeof W.sub === "function" ? W.sub(p) : W.sub, size = dashSize(x);
-    return `<section class="w w-${size} card" data-w="${k}" data-x="${esc(x)}" style="--wc:var(--h${W.hue});--wb:var(--h${W.hue}b)">
+  drawBoard(el.querySelector("#wgrid"), "home", p);
+}
+// Draws one board's widgets into grid: each a card with a drag handle, coloured icon, title, tools and a ⋯ menu.
+function drawBoard(grid, b, ctx) {
+  const defs = BOARDS[b].defs(), list = boardList(b), save = l => saveBoard(b, l), size = x => sizeIn(defs, x);
+  grid.innerHTML = list.length ? list.map((x, i) => { const k = dashKey(x), W = defs[k], sub = typeof W.sub === "function" ? W.sub(ctx) : W.sub, sz = size(x);
+    return `<section class="w w-${sz} card" data-w="${k}" data-x="${esc(x)}" style="--wc:var(--h${W.hue});--wb:var(--h${W.hue}b)">
       <header class="w-head"><button type="button" class="w-grip" aria-label="Drag ${esc(W.name)} to move it" title="Drag to move">${svg("grip")}</button>
         <span class="w-ico">${svg(W.icon)}</span><div class="w-tt"><h2>${esc(W.name)}</h2><p>${esc(sub)}</p></div><div class="w-tools"></div>
         <div class="w-menu"><button class="icon-btn sm w-dots" data-wm="${k}" aria-label="Options for ${esc(W.name)}" aria-haspopup="true">${svg("dots")}</button>
           <div class="w-pop" hidden>${i ? `<button data-up="${i}">Move up</button>` : ""}${i < list.length - 1 ? `<button data-down="${i}">Move down</button>` : ""}
-            <small>Size</small>${SIZES.map(([s, t]) => `<button data-size="${i}:${s}" class="${s === size ? "on" : ""}">${t}</button>`).join("")}
+            <small>Size</small>${SIZES.map(([s, t]) => `<button data-size="${i}:${s}" class="${s === sz ? "on" : ""}">${t}</button>`).join("")}
             <button class="danger" data-rm="${i}">Remove</button></div></div></header>
       <div class="w-body"></div></section>`; }).join("")
-    : `<div class="card"><p class="empty">Your dashboard is empty. Tap <b>Add widget</b> to choose what to see.</p></div>`;
+    : `<div class="card w-full"><p class="empty">Nothing here yet. Tap <b>Add widget</b> to choose what to see.</p></div>`;
   for (const x of list) {
     const k = dashKey(x), body = grid.querySelector(`[data-w="${k}"] .w-body`);
-    try { WIDGETS[k].draw(body, p); } catch (e) { body.innerHTML = `<p class="empty">This widget couldn't load.</p>`; }
+    try { defs[k].draw(body, ctx); } catch (e) { body.innerHTML = `<p class="empty">This widget couldn't load.</p>`; }
   }
-  grid.querySelectorAll("[data-wm]").forEach(b => b.onclick = e => { e.stopPropagation(); const pop = b.nextElementSibling, open = pop.hidden;
+  grid.querySelectorAll("[data-wm]").forEach(btn => btn.onclick = e => { e.stopPropagation(); const pop = btn.nextElementSibling, open = pop.hidden;
     grid.querySelectorAll(".w-pop").forEach(x => x.hidden = true); pop.hidden = !open; });
   document.addEventListener("click", () => grid.querySelectorAll(".w-pop").forEach(x => x.hidden = true), {once: true});
-  const move = (i, j) => { const l = [...list]; [l[i], l[j]] = [l[j], l[i]]; saveDash(l); render(); };
-  grid.querySelectorAll("[data-up]").forEach(b => b.onclick = () => move(+b.dataset.up, +b.dataset.up - 1));
-  grid.querySelectorAll("[data-down]").forEach(b => b.onclick = () => move(+b.dataset.down, +b.dataset.down + 1));
-  grid.querySelectorAll("[data-size]").forEach(b => b.onclick = () => { const [i, s] = b.dataset.size.split(":"), l = [...list], k = dashKey(l[i]);
-    l[i] = s === WIDGETS[k].size ? k : `${k}@${s}`; saveDash(l); render(); });
-  grid.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { const k = dashKey(list[+b.dataset.rm]); saveDash(list.filter((_, i) => i !== +b.dataset.rm));
-    toast(`${WIDGETS[k].name} removed. Add it back any time with Add widget.`); render(); });
-  grid.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { S.view = b.dataset.go; render(); });
-  dragWidgets(grid);
+  const move = (i, j) => { const l = [...list]; [l[i], l[j]] = [l[j], l[i]]; save(l); render(); };
+  grid.querySelectorAll("[data-up]").forEach(x => x.onclick = () => move(+x.dataset.up, +x.dataset.up - 1));
+  grid.querySelectorAll("[data-down]").forEach(x => x.onclick = () => move(+x.dataset.down, +x.dataset.down + 1));
+  grid.querySelectorAll("[data-size]").forEach(x => x.onclick = () => { const [i, s] = x.dataset.size.split(":"), l = [...list], k = dashKey(l[i]);
+    l[i] = s === defs[k].size ? k : `${k}@${s}`; save(l); render(); });
+  grid.querySelectorAll("[data-rm]").forEach(x => x.onclick = () => { const k = dashKey(list[+x.dataset.rm]); save(list.filter((_, i) => i !== +x.dataset.rm));
+    toast(`${defs[k].name} removed. Add it back any time with Add widget.`); render(); });
+  grid.querySelectorAll("[data-go]").forEach(x => x.onclick = () => { S.view = x.dataset.go; render(); });
+  dragWidgets(grid, size, save);
 }
 // Drag a widget by its handle (mouse or finger): the others make room as you go, and the new order is saved for you only.
-function dragWidgets(grid) {
+function dragWidgets(grid, size, save) {
   grid.querySelectorAll(".w-grip").forEach(h => h.onpointerdown = e => {
     if (e.button > 0) return;
     e.preventDefault();
-    const w = h.closest(".w"), r = w.getBoundingClientRect(), start = grid.querySelectorAll(".w").length && [...grid.querySelectorAll(".w")].map(x => x.dataset.x).join("|");
-    const ghost = w.cloneNode(true); ghost.classList.add("w-ghost"); Object.assign(ghost.style, {width: r.width + "px", height: r.height + "px", left: r.left + "px", top: r.top + "px"});
+    const w = h.closest(".w"), r = w.getBoundingClientRect(), start = [...grid.querySelectorAll(".w")].map(x => x.dataset.x).join("|");
+    const ghost = w.cloneNode(true); ghost.classList.add("w-ghost"); ghost.removeAttribute("data-w"); Object.assign(ghost.style, {width: r.width + "px", height: r.height + "px", left: r.left + "px", top: r.top + "px"});
     document.body.append(ghost); w.classList.add("w-hole");
-    const dx = e.clientX - r.left, dy = e.clientY - r.top;
+    const dx = e.clientX - r.left, dy = e.clientY - r.top, oneCol = () => getComputedStyle(grid).gridTemplateColumns.split(" ").length < 2;
     let scroller = 0;
     const at = ev => {
       ghost.style.left = ev.clientX - dx + "px"; ghost.style.top = ev.clientY - dy + "px";
@@ -968,37 +1017,36 @@ function dragWidgets(grid) {
       if (edge) scroller = setInterval(() => scrollBy(0, edge * 14), 16);
       ghost.hidden = true; const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".w"); ghost.hidden = false;
       if (!under || under === w || under.parentElement !== grid) return;
-      const u = under.getBoundingClientRect(), after = innerWidth < 900 || dashSize(under.dataset.x) === "full" ? ev.clientY > u.top + u.height / 2 : ev.clientX > u.left + u.width / 2;
+      const u = under.getBoundingClientRect(), after = oneCol() || size(under.dataset.x) === "full" ? ev.clientY > u.top + u.height / 2 : ev.clientX > u.left + u.width / 2;
       if (after ? under.nextElementSibling !== w : under.previousElementSibling !== w) grid.insertBefore(w, after ? under.nextElementSibling : under);
     };
     const end = () => {
       clearInterval(scroller); removeEventListener("pointermove", at); removeEventListener("pointerup", end); removeEventListener("pointercancel", end);
       ghost.remove(); w.classList.remove("w-hole");
       const order = [...grid.querySelectorAll(".w")].map(x => x.dataset.x);
-      if (order.join("|") !== start) { saveDash(order); toast("Layout saved. Only your dashboard changes."); render(); }
+      if (order.join("|") !== start) { save(order); toast("Layout saved. Only your view changes."); render(); }
     };
     addEventListener("pointermove", at); addEventListener("pointerup", end); addEventListener("pointercancel", end);
   });
 }
-// The Add widget popup: every widget not on the dashboard, with its icon, what it shows, and Select.
-function addWidget() {
+// The Add widget popup: every widget not on this board, with its icon, what it shows, and Select.
+function addWidget(b) {
   document.querySelectorAll(".modal").forEach(m => m.remove());
-  const have = S.dash || DASH_DEFAULT, left = Object.keys(WIDGETS).filter(k => !have.some(x => dashKey(x) === k));
+  const B = BOARDS[b], defs = B.defs(), have = boardList(b), left = Object.keys(defs).filter(k => !have.some(x => dashKey(x) === k));
   const d = document.createElement("div"); d.className = "modal";
   d.innerHTML = `<div class="sheet narrow" role="dialog" aria-modal="true" aria-label="Add widget">
     <div class="card-head"><h2>Add widget</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
-    ${left.length ? `<div class="wlist">${left.map(k => { const W = WIDGETS[k]; return `<div class="witem" style="--wc:var(--h${W.hue});--wb:var(--h${W.hue}b)"><div class="wico">${svg(W.icon)}</div><div class="wtxt"><b>${esc(W.name)}</b><p>${esc(W.desc || W.sub)}</p></div>
-      <button class="pill-btn primary sm" data-add="${k}">Select</button></div>`; }).join("")}</div>` : `<p class="empty">Every widget is already on your dashboard.</p>`}
-    <p class="note">Drag a widget by its handle to move it. Your layout is yours only: nobody else's dashboard changes.</p>
+    ${left.length ? `<div class="wlist">${left.map(k => { const W = defs[k]; return `<div class="witem" style="--wc:var(--h${W.hue});--wb:var(--h${W.hue}b)"><div class="wico">${svg(W.icon)}</div><div class="wtxt"><b>${esc(W.name)}</b><p>${esc(W.desc || W.sub)}</p></div>
+      <button class="pill-btn primary sm" data-add="${k}">Select</button></div>`; }).join("")}</div>` : `<p class="empty">Every widget is already on this ${B.where}.</p>`}
+    <p class="note">Drag a widget by its handle to move it. Your layout is yours only: nobody else's view changes.</p>
     <div class="modal-foot"><button type="button" class="pill-btn" data-reset>Back to the standard layout</button></div></div>`;
   document.body.append(d);
   const close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
   d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
   document.addEventListener("keydown", onKey);
-  d.querySelectorAll("[data-add]").forEach(b => b.onclick = () => { saveDash([...have, b.dataset.add]); close(); toast(`${WIDGETS[b.dataset.add].name} added at the bottom. Drag it to where you want it.`); S.view = "dashboard"; render(); });
-  d.querySelector("[data-reset]").onclick = () => { saveDash([...DASH_DEFAULT]); close(); toast("Back to the standard dashboard."); render(); };
+  d.querySelectorAll("[data-add]").forEach(x => x.onclick = async () => { await saveBoard(b, [...have, x.dataset.add]); close(); toast(`${defs[x.dataset.add].name} added at the bottom. Drag it to where you want it.`); render(); });
+  d.querySelector("[data-reset]").onclick = async () => { await saveBoard(b, [...B.def()]); close(); toast("Back to the standard layout."); render(); };
 }
-
 // ---------------------------------------------------------------- check-in
 async function log(kind, member_id, result = "done", detail = "") {
   try { await api("activity_log", {method: "POST", prefer: "return=minimal", body: {id: newId() + newId(), at: isoLocal(), kind, service_date: S.date,
@@ -1458,6 +1506,53 @@ function editPerson(m) {
 }
 
 // ---------------------------------------------------------------- all churches (numbers only) and admin
+// ---------------------------------------------------------------- All churches page: widgets (numbers only, no names)
+// c: rows (each church's numbers), pick (the churches being shown), series ([date, adults, kids, first-timers, visitors] per service), ...
+const CDASH_DEFAULT = ["numbers", "chart", "follow", "churches"];
+const CWIDGETS = {
+  numbers: {name: "Service numbers", sub: c => c.when, desc: "Present (with the change since last time), adults and kids, first-timers, and how many of the register came.", size: "full", icon: "checkin", hue: 1,
+    draw(el, c) {
+      if (!c.had && c.day) { el.innerHTML = `<p class="empty">No service was recorded ${S.bChurch ? "at " + esc(S.bChurch) : "at any church"} on ${esc(nice(c.day, true))}.</p>`; return; }
+      el.innerHTML = `<div class="ov">${[["Present", c.nowN, 5, c.delta === null ? "at the latest service" : c.delta === 0 ? "same as last time" : `${c.delta > 0 ? "▲" : "▼"} ${Math.abs(c.delta)} ${c.delta > 0 ? "more" : "fewer"} than last time`],
+        ["Adults · Kids", `${c.sum(c.pick, "adults")}<small> · ${c.sum(c.pick, "kids")}</small>`, 1, "adults and kids"], ["First-timers", c.sum(c.pick, "first_timers"), 3, "at the latest service"],
+        ["Came", c.rate + "%", 2, `of ${c.reg} on the register`]].map(([t, n, h, sub]) => `<div class="ov-cell"><b>${n}</b><span>${t}</span><small><i style="background:var(--h${h})"></i>${esc(sub)}</small></div>`).join("")}</div>`;
+    }},
+  chart: {name: "People present", sub: "Adults and kids at each service · tap a bar to see that day", size: "full", icon: "dashboard", hue: 1,
+    draw(el, c) {
+      el.closest(".w").querySelector(".w-tools").innerHTML = `<div class="legend"><span><i style="background:var(--adults)"></i>Adults</span><span><i style="background:var(--kids)"></i>Kids</span></div>`;
+      if (!c.trend) { el.innerHTML = `<p class="empty">Run the latest setup SQL in Supabase once to see this chart.</p>`; return; }
+      el.innerHTML = `<div class="chart"></div>`; chart(el.querySelector(".chart"), c.series.map(x => [x[0], x[1], x[2]]), c.pickDay);
+    }},
+  follow: {name: "Follow-up", sub: "Missing services · no names", size: "narrow", icon: "followup", hue: 3,
+    draw(el, c) {
+      if (!c.had && c.day) { el.innerHTML = `<p class="empty">No service that day.</p>`; return; }
+      el.innerHTML = c.fu.map(([f, t, n]) => `<div class="b-bar"><span><i class="b-key ${f}"></i>${esc(t)}</span><span class="b-track"><i class="${f}" style="width:${n ? Math.max(4, n / c.fuMax * 100) : 0}%"></i></span><b>${n}</b></div>`).join("");
+    }},
+  churches: {name: "Churches side by side", sub: "Tap one to open it", desc: "Present at each church's latest service, side by side.", size: "narrow", icon: "bars", hue: 4,
+    draw(el, c) {
+      const list = c.rows.filter(c.served), top = Math.max(1, ...list.map(r => r.present));
+      el.innerHTML = list.length ? `<div class="vbars">${list.map(r => `<button type="button" class="vbar ${r.church === S.bChurch || (!S.bChurch && r.present === top) ? "on" : ""}" data-cb="${esc(r.church)}" title="${esc(r.church)}: ${r.present}">
+        <b>${r.present}</b><span style="height:${Math.max(6, r.present / top * 100)}%"></span><small>${esc(r.church)}</small></button>`).join("")}</div>` : `<p class="empty">No services to compare.</p>`;
+      el.querySelectorAll("[data-cb]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.cb; render(); });
+    }},
+  split: {name: "Who came", sub: c => c.series.length ? `${nice(c.series.at(-1)[0], true)}` : "The latest service", desc: "Adults and kids at the latest service, and how many were first-timers or visitors.", size: "narrow", icon: "split", hue: 3,
+    draw(el, c) {
+      const x = c.series.at(-1);
+      if (!x) { el.innerHTML = `<p class="empty">No services recorded yet.</p>`; return; }
+      const [, ad, kd, ft, vi] = x, tot = ad + kd;
+      el.innerHTML = `<div class="split-top"><b>${tot}</b> present</div>
+        <div class="split-bar">${[[ad, 1], [kd, 2]].filter(([n]) => n).map(([n, h]) => `<i style="flex:${n};background:var(--h${h})"></i>`).join("") || "<i></i>"}</div>
+        <div class="split-rows">${[["Adults", ad, 1], ["Kids", kd, 2]].map(([t, n, h]) => `<div><span><i style="background:var(--h${h})"></i>${t}</span><em>${n}</em></div>`).join("")}</div>
+        <p class="note" style="margin:10px 2px 0">Of these, ${ft} ${ft === 1 ? "was a first-timer" : "were first-timers"} and ${vi} ${vi === 1 ? "a visitor" : "visitors"}.</p>`;
+    }},
+  firsts: {name: "First-timers per service", sub: "New faces at each recent service", size: "full", icon: "people", hue: 6,
+    draw(el, c) {
+      const rows = c.series.slice(innerWidth < 640 ? -7 : -12), top = Math.max(1, ...rows.map(x => x[3])), topDay = [...rows].reverse().find(x => x[3] === top)?.[0];
+      el.innerHTML = rows.length ? `<div class="vbars">${rows.map(x => `<button type="button" class="vbar ${x[0] === topDay ? "on" : ""}" data-fd="${x[0]}" title="${esc(nice(x[0], true))}: ${x[3]} first-timers, ${x[4]} visitors">
+        <b>${x[0] === topDay ? x[3] : ""}</b><span style="height:${Math.max(4, x[3] / top * 100)}%"></span><small>${esc(nice(x[0]))}</small></button>`).join("")}</div>` : `<p class="empty">No services recorded yet.</p>`;
+      el.querySelectorAll("[data-fd]").forEach(b => b.onclick = () => c.pickDay(b.dataset.fd));
+    }},
+};
 async function overview(el) {
   const sub = S.me.role === "admin" ? "Open a church to work in it" : "Numbers only";
   el.innerHTML = head("All churches", sub) + `<p class="empty">Loading…</p>`;
@@ -1523,24 +1618,14 @@ async function bishop(el, rows, text, newest) {
               ["blue", day ? "Missed that service" : "Missed the latest service", sum(pick, "missed_this")]];
   const fuMax = Math.max(1, ...fu.map(f => f[2]));
   const when = !latest ? "No services yet" : day && !had ? nice(day, true) : `${S.names?.[latest] || svcName(latest)} · ${nice(latest, true)}`;
-  el.innerHTML = head("All churches", admin ? "Pick a day and a church, or open a church to work in it" : "Numbers only", `<button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
+  el.innerHTML = head("All churches", admin ? "Pick a day and a church, or open a church to work in it" : "Numbers only", `<button class="pill-btn" id="addcw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
     <div class="bish">
       <div class="card b-cal" id="b-cal"></div>
       <nav class="card b-list" aria-label="Churches">${list}</nav>
       <section class="b-detail">
         <div class="b-title"><h2>${esc(S.bChurch || "All churches")}</h2><span class="muted">${esc(when)}</span>
           ${admin && S.bChurch ? `<span class="gap" style="flex:1"></span><button class="pill-btn primary sm" data-open="${esc(S.bChurch)}">Open ${esc(S.bChurch)}</button>` : ""}</div>
-        ${had || !day ? `<div class="tiles">
-          <div class="card tile"><div class="label">Present</div><div class="num">${nowN}${delta !== null && delta !== 0 ? `<small class="${delta > 0 ? "up" : "down"}">${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)}</small>` : ""}</div></div>
-          <div class="card tile"><div class="label">Adults · Kids</div><div class="num">${sum(pick, "adults")}<small>· ${sum(pick, "kids")}</small></div></div>
-          <div class="card tile"><div class="label">First-timers</div><div class="num">${sum(pick, "first_timers")}</div></div>
-          <div class="card tile"><div class="label">Came, of ${reg} on the register</div><div class="num">${rate}%</div></div></div>`
-        : `<div class="card" style="margin-bottom:14px"><p class="empty">No service was recorded ${S.bChurch ? "at " + esc(S.bChurch) : "at any church"} on ${esc(nice(day, true))}.</p></div>`}
-        <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>People present</h2><span class="gap"></span>
-            <div class="legend"><span><i style="background:var(--adults)"></i>Adults</span><span><i style="background:var(--kids)"></i>Kids</span></div></div>
-          <div class="chart" id="b-chart">${trend ? "" : `<p class="empty">Run the latest setup SQL in Supabase once to see this chart.</p>`}</div></div>
-        ${had || !day ? `<div class="card"><div class="card-head"><h2>Follow-up</h2><span class="gap"></span><span class="muted" style="font-size:13px">people, no names</span></div>
-          ${fu.map(([f, t, n]) => `<div class="b-bar"><span><i class="b-key ${f}"></i>${esc(t)}</span><span class="b-track"><i class="${f}" style="width:${n ? Math.max(4, n / fuMax * 100) : 0}%"></i></span><b>${n}</b></div>`).join("")}</div>` : ""}
+        <div class="wgrid c2" id="cgrid"></div>
       </section></div>`;
   // the month calendar: days with a service show how many came (for the chosen church, or all churches added up)
   const counts = {}; for (const d of days || []) if (!S.bChurch || d.church === S.bChurch) counts[d.service_date] = (counts[d.service_date] || 0) + d.present;
@@ -1566,7 +1651,10 @@ async function bishop(el, rows, text, newest) {
   const narrow = () => matchMedia("(max-width: 900px)").matches;  // on phones the dashboard sits above the calendar
   const pickDay = d => { S.bDay = d >= newest ? "" : d; S.bCal = d.slice(0, 7); S.bJump = narrow(); render(); };
   drawCal();
-  if (trend) chart(el.querySelector("#b-chart"), series.map(x => [x[0], x[1], x[2]]), pickDay);
+  await loadPrefs();
+  if (S.view !== "overview") return;
+  drawBoard(el.querySelector("#cgrid"), "church", {rows, pick, one, had, day, served, sum, series, trend, delta, nowN, reg, rate, fu, fuMax, when, pickDay});
+  el.querySelector("#addcw").onclick = () => addWidget("church");
   el.querySelectorAll("[data-b]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.b; S.bJump = narrow(); render(); });
   if (narrow()) { const on = el.querySelector(".b-item.on"), row = el.querySelector(".b-list"); if (on && row) row.scrollLeft = on.offsetLeft - (row.clientWidth - on.offsetWidth) / 2; }  // keep the chosen church in view in the row
   if (S.bJump) { S.bJump = false; el.querySelector(".b-list")?.scrollIntoView({behavior: "smooth", block: "start"}); }  // church row and dashboard in view
