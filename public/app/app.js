@@ -1360,13 +1360,6 @@ async function admin(el) {
         <div class="u-tools"><select class="in" id="u-ch" aria-label="Church"><option value="">All churches</option>${S.churches.map(c => `<option ${S.uCh === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
           <input class="in" id="u-q" type="search" placeholder="Search by name or email" value="${esc(S.uQ || "")}"></div></div>
       <div id="u-list"></div>
-      <form class="row" id="add-user" hidden style="margin:14px 0 4px;padding:14px;border-radius:14px;background:var(--soft)"><div><label class="f" for="u-email">Email</label><input class="in" id="u-email" type="email" required></div>
-        <div><label class="f" for="u-name">Name</label><input class="in" id="u-name"></div>
-        <div><label class="f" for="u-role">Role</label><select class="in" id="u-role">${ROLE_OPTS.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("")}</select></div>
-        <div id="u-pastor-wrap" hidden><label class="f" for="u-pastor">Their name on the Pastors list</label><input class="in" id="u-pastor" list="u-pastor-list" autocomplete="off" placeholder="e.g. Pastor Grace Mensah">
-          <datalist id="u-pastor-list">${pnames.map(n => `<option value="${esc(n)}">`).join("")}</datalist></div>
-        <div><label class="f" for="u-church">Church</label><select class="in" id="u-church">${S.churches.map(c => `<option>${esc(c)}</option>`).join("")}</select></div>
-        <div style="flex:0 0 auto"><button class="pill-btn primary">Add person</button></div></form>
       </div></section>`;
   el.querySelectorAll("[data-atab]").forEach(b => b.onclick = () => {
     S.adminTab = b.dataset.atab;
@@ -1416,33 +1409,60 @@ async function admin(el) {
     el.querySelectorAll("[data-ur]").forEach(x => x.setAttribute("aria-selected", x === b)); drawUsers(); });
   el.querySelector("#u-ch").onchange = e => { S.uCh = e.target.value; S.uPage = 1; drawUsers(); };
   el.querySelector("#u-q").oninput = e => { S.uQ = e.target.value; S.uPage = 1; drawUsers(); };
-  el.querySelector("#u-add-tg").onclick = () => { const f = el.querySelector("#add-user"); f.hidden = !f.hidden; if (!f.hidden) el.querySelector("#u-email").focus(); };
-  const uRole = el.querySelector("#u-role"), pw = el.querySelector("#u-pastor-wrap");
-  uRole.onchange = () => { pw.hidden = !["pastor", "admin", "lead"].includes(uRole.value); el.querySelector("#u-pastor").required = uRole.value === "pastor";
-    el.querySelector("#u-pastor").placeholder = uRole.value === "pastor" ? "e.g. Pastor Grace Mensah" : "Only if they are also a pastor"; };
-  uRole.onchange();
-  el.querySelector("#add-user").onsubmit = e => { e.preventDefault(); const role = el.querySelector("#u-role").value;
-    const wrong = emailProblem(el.querySelector("#u-email").value); if (wrong) return toast("Not added: " + wrong);
-    const pastor = ["pastor", "admin", "lead"].includes(role) ? el.querySelector("#u-pastor").value.trim().replace(/\s+/g, " ") : "";
-    if (role === "pastor" && !pastor) return toast("Not added: type their name as it is on the Pastors list.");
-    again(() => api("app_users?on_conflict=email", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {email: el.querySelector("#u-email").value.trim().toLowerCase(),
-      name: el.querySelector("#u-name").value.trim(), role, church: ["admin", "bishop"].includes(role) ? null : el.querySelector("#u-church").value,
-      ...(pastor ? {pastor} : {})}})); };
-  function change(email) {
-    const u = users.find(x => x.email === email);
-    formDialog(`Change ${u.name || u.email}`, [
-      {k: "name", label: "Name", value: u.name || "", hint: "The name shown in the app for this sign-in."},
-      {k: "role", label: "Role", value: u.role, type: "select", options: ROLE_OPTS},
-      {k: "church", label: "Church", value: u.church || S.churches[0], type: "select", options: S.churches.map(c => [c, c]), hint: "Not used for Admin or Bishop."},
-      {k: "pastor", label: "Their name on the Pastors list", value: u.pastor || "", suggest: pnames, hint: "For Pastor sign-ins: they see the people assigned to this name. For an Admin or Church admin who is also a pastor: lets them switch to Pastor view. Leave empty otherwise."},
-    ], async v => {
-      const church = ["admin", "bishop"].includes(v.role) ? null : v.church;
-      if (v.role === "pastor" && !v.pastor) throw new Error("Type their name as it is on the Pastors list.");
-      const rows = await api(`app_users?email=eq.${encodeURIComponent(u.email)}`, {method: "PATCH", prefer: "return=representation", body: {name: v.name.slice(0, 80) || null, role: v.role, church, ...(["pastor", "admin", "lead"].includes(v.role) || u.pastor ? {pastor: ["pastor", "admin", "lead"].includes(v.role) ? v.pastor || null : null} : {})}});
-      if (!rows?.length) throw new Error("Not saved. Check you are still signed in as an admin.");
-      log("role_change", "", "done", `${u.email}: ${v.name ? v.name + " · " : ""}${v.role}${church ? " · " + church : ""}`);
-      toast("Saved. They will see the change next time they open the app."); render();
-    });
+  el.querySelector("#u-add-tg").onclick = () => userDialog(null);
+  const change = email => userDialog(users.find(x => x.email === email));
+  // One popup to add someone or change them: main role, an optional second role (Pastor), and the pastor name when needed.
+  function userDialog(u) {
+    document.querySelectorAll(".modal").forEach(m => m.remove());
+    const two = r => ["admin", "lead"].includes(r), noChurch = r => ["admin", "bishop"].includes(r);
+    const role0 = u?.role || "team", second0 = u && two(u.role) && u.pastor ? "pastor" : "";
+    const d = document.createElement("div"); d.className = "modal";
+    d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="${u ? "Change sign-in" : "Add a person"}">
+      <div class="card-head"><h2>${u ? `Change ${esc(u.name || u.email)}` : "Add a person"}</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+      <div class="fields">
+        <div><label class="f" for="ud-email">Email</label><input class="in" id="ud-email" type="email" value="${esc(u?.email || "")}" ${u ? "readonly" : "required"} autocomplete="off" placeholder="name@example.com"></div>
+        <div><label class="f" for="ud-name">Name</label><input class="in" id="ud-name" maxlength="80" value="${esc(u?.name || "")}" autocomplete="off" placeholder="e.g. Grace Mensah"></div>
+        <div><label class="f" for="ud-role">Role 1 (main role)</label><select class="in" id="ud-role">${ROLE_OPTS.map(([v, t]) => `<option value="${v}" ${v === role0 ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></div>
+        <div id="ud-2-wrap"><label class="f" for="ud-2">Role 2</label><select class="in" id="ud-2"><option value="">None</option><option value="pastor" ${second0 ? "selected" : ""}>Pastor (can switch to Pastor view)</option></select></div>
+        <div id="ud-p-wrap"><label class="f" for="ud-p">Their name on the Pastors list</label><input class="in" id="ud-p" list="ud-p-list" autocomplete="off" value="${esc(u?.pastor || "")}" placeholder="e.g. Pastor Grace Mensah">
+          <datalist id="ud-p-list">${pnames.map(n => `<option value="${esc(n)}">`).join("")}</datalist>
+          <p class="note" style="margin:6px 2px 0">Must match the Pastors list exactly: it decides whose people they see.</p></div>
+        <div id="ud-c-wrap"><label class="f" for="ud-c">Church</label><select class="in" id="ud-c">${S.churches.map(c => `<option ${c === (u?.church || S.church) ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></div>
+      </div>
+      <div class="msg bad" id="ud-err" hidden></div>
+      <div class="modal-foot"><button type="button" class="pill-btn" data-x>Cancel</button><button class="pill-btn primary" id="ud-go">${u ? "Save" : "Add person"}</button></div></form>`;
+    document.body.append(d);
+    const $ = id => d.querySelector("#" + id), close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
+    d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
+    document.addEventListener("keydown", onKey);
+    const sync = () => {
+      const r = $("ud-role").value, needP = r === "pastor" || (two(r) && $("ud-2").value === "pastor");
+      $("ud-2-wrap").hidden = !two(r); $("ud-p-wrap").hidden = !needP; $("ud-p").required = needP; $("ud-c-wrap").hidden = noChurch(r);
+    };
+    $("ud-role").onchange = $("ud-2").onchange = sync; sync();
+    (u ? $("ud-name") : $("ud-email")).focus();
+    d.querySelector("form").onsubmit = async e => {
+      e.preventDefault();
+      const go = $("ud-go"), err = $("ud-err"), r = $("ud-role").value, needP = r === "pastor" || (two(r) && $("ud-2").value === "pastor");
+      const email = $("ud-email").value.trim().toLowerCase(), name = $("ud-name").value.trim().replace(/\s+/g, " ").slice(0, 80);
+      const pastor = needP ? $("ud-p").value.trim().replace(/\s+/g, " ") : "", church = noChurch(r) ? null : $("ud-c").value;
+      const fail = t => { err.textContent = t; err.hidden = false; go.disabled = false; };
+      if (!u) { const wrong = emailProblem(email); if (wrong) return fail(wrong); if (users.some(x => x.email === email)) return fail("That email can already sign in. Use Change on their row instead."); }
+      if (needP && !pastor) return fail("Type their name as it is on the Pastors list.");
+      go.disabled = true; err.hidden = true;
+      try {
+        if (u) {
+          const rows = await api(`app_users?email=eq.${encodeURIComponent(u.email)}`, {method: "PATCH", prefer: "return=representation", body: {name: name || null, role: r, church, pastor: pastor || null}});
+          if (!rows?.length) throw new Error("Not saved. Check you are still signed in as an admin.");
+          log("role_change", "", "done", `${u.email}: ${name ? name + " · " : ""}${r}${pastor && r !== "pastor" ? " + pastor" : ""}${church ? " · " + church : ""}`);
+          toast("Saved. They will see the change next time they open the app.");
+        } else {
+          await api("app_users", {method: "POST", prefer: "return=minimal", body: {email, name: name || null, role: r, church, ...(pastor ? {pastor} : {})}});
+          toast(`Added. ${name || email} can now sign in with ${email}.`);
+        }
+        close(); render();
+      } catch (ex) { fail(/duplicate|already exists|23505/i.test(ex.message) ? "That email can already sign in." : ex.message); }
+    };
   }
   drawUsers();
   const ib = el.querySelector("#inbox-all"); if (ib) ib.onclick = () => { S.inboxAll = !S.inboxAll; render(); };
