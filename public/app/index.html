@@ -282,7 +282,7 @@ html.strong[data-theme="dark"] {--ink-2: #d3dae4; --ink-3: #aab4c2; --line: #3e4
 .sheet.narrow {width: min(520px, 100%);} .fields {display: grid; gap: 14px;} .fields .f {display: block;}
 .pill-btn.sm {padding: 7px 12px; font-size: 13.5px;} .chip svg {width: 14px; height: 14px; margin-left: 8px; vertical-align: -2px; opacity: .6;}
 button.chip {cursor: pointer; font: inherit; font-weight: 500;} button.chip:not(.on):hover {border-color: var(--accent); color: var(--accent);}
-.modal-foot {display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px;} .modal-foot .pill-btn {justify-content: center; padding: 13px 16px;}
+.modal-foot {display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px;} .modal-foot.one {grid-template-columns: 1fr;} .modal-foot.one .pill-btn {white-space: nowrap;} .modal-foot .pill-btn {justify-content: center; padding: 13px 16px;}
 @media (max-width: 720px) { .modal {place-items: end center; padding: 12px 12px calc(12px + env(safe-area-inset-bottom));} .sheet {border-radius: 24px; padding: 18px 16px; max-height: calc(100dvh - 72px); overflow-y: auto;}
   .modal-grid {grid-template-columns: 1fr;} .preview {max-height: 34vh;} }
 @media (prefers-reduced-motion: reduce) { .switch i, .switch i::after {transition: none;} }
@@ -519,6 +519,7 @@ button.ov-cell {cursor: pointer;} button.ov-cell:hover {background: var(--soft);
 .seg button {display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; font: inherit; font-size: 13.5px; color: var(--ink-2); padding: 6px 10px; border-radius: 8px; cursor: pointer;}
 .seg button svg {width: 15px; height: 15px;} .seg button[aria-pressed="true"] {background: var(--soft); color: var(--ink); font-weight: 600;}
 .wlist {display: grid; gap: 10px; max-height: 60vh; overflow: auto;}
+@media (max-width: 720px) { .wlist {max-height: calc(100dvh - 330px);} }  /* phones: the list scrolls, the note and button below stay in view */
 .witem {display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 14px; align-items: center; border: 1px solid var(--line); border-radius: 16px; padding: 12px;
          width: 100%; background: var(--card); color: var(--ink); text-align: left; font: inherit; cursor: pointer;}
 .witem:hover, .witem:focus-visible {border-color: var(--wc, var(--accent)); outline: none;}
