@@ -714,7 +714,7 @@ function rowsHtml(list, cols) {
 // ---------------------------------------------------------------- dashboard: widgets each person can add, remove, drag and resize
 // Each widget: name, sub (line under the title), size (full = whole row, wide/narrow = left/right column), hue (its colour), draw(body, p).
 // A person's layout is a list like ["tiles", "trend@full"]: the key, and a size if they changed it. Nobody else's dashboard is touched.
-const DASH_DEFAULT = ["tiles", "stands", "people", "calendar", "followup"];
+const DASH_DEFAULT = ["people", "calendar", "tiles", "stands", "followup"];
 const SIZES = [["full", "Full width"], ["wide", "Large"], ["narrow", "Small"]];
 const sameDayBefore = (p, d) => [...p.dates].reverse().find(x => x < d && new Date(x + "T12:00:00").getDay() === new Date(d + "T12:00:00").getDay());
 function countsOn(p, d) {  // who was at one service: adults and kids exclude first-timers and visitors, so the parts add up
@@ -822,18 +822,55 @@ const WIDGETS = {
           <p class="note" style="margin:12px 0 0">Highest so far: <b>${best[1]}</b> at ${esc(svcName(best[0]))}, ${esc(nice(best[0], true))}.</p>` : `<p class="empty">No services recorded yet.</p>`;
       el.querySelectorAll("[data-day]").forEach(b => b.onclick = () => { S.date = b.dataset.day; S.view = "checkin"; render(); });
     }},
-  returning: {name: "Return rate", sub: "First-timers who came back within 4 weeks", size: "narrow", icon: "gauge", hue: 2,
+  returning: {name: "Return rate", sub: "First-timers, and how many came back within 4 weeks", size: "full", icon: "gauge", hue: 3,
     draw(el, p) {
-      const from = new Date(Date.now() - 182 * 864e5).toISOString().slice(0, 10), to = new Date(Date.now() - 28 * 864e5).toISOString().slice(0, 10);
-      const plus28 = d => new Date(new Date(d + "T12:00:00").getTime() + 28 * 864e5).toISOString().slice(0, 10);
-      const firsts = p.mine.filter(m => m.first_visit && m.first_visit >= from && m.first_visit <= to && m.type !== "visitor");
-      const back = firsts.filter(m => p.dates.some(d => d > m.first_visit && d <= plus28(m.first_visit) && p.byDate[d][m.id]));
-      const pct = firsts.length ? Math.round(back.length / firsts.length * 100) : 0, TARGET = 50, R = 70, segs = 30;
-      let arcs = ""; for (let i = 0; i < segs; i++) { const a = Math.PI * (1 - (i + .5) / segs), on = (i + .5) / segs * 100 <= pct;
-        arcs += `<line x1="${90 + Math.cos(a) * (R - 12)}" y1="${90 - Math.sin(a) * (R - 12)}" x2="${90 + Math.cos(a) * R}" y2="${90 - Math.sin(a) * R}" stroke="${on ? "var(--h2)" : "var(--line)"}" stroke-width="5" stroke-linecap="round"/>`; }
-      el.innerHTML = firsts.length ? `<div class="gauge"><svg viewBox="0 0 180 100" role="img" aria-label="${pct}% came back">${arcs}</svg><div class="gauge-num">${pct}%</div>
-          <div class="note" style="margin:0;text-align:center">${back.length} of ${firsts.length} first-timers in the last 6 months came back<br>${pct >= TARGET ? "On track for" : "Below"} the ${TARGET}% target</div></div>`
-        : `<p class="empty">No first-timers in the last 6 months yet (counting those who first came at least 4 weeks ago).</p>`;
+      // Each month (or week): first-timers whose first visit fell in it, and how many of them came back within 4 weeks.
+      const DAY = 864e5, iso = t => new Date(t).toISOString().slice(0, 10), at = d => new Date(d + "T12:00:00").getTime(), now = Date.now();
+      const view = S.rrView || "month", kind = S.rrKind || "line", w = el.closest(".w");
+      w.querySelector(".w-tools").innerHTML = `<select class="in sel" id="rr-view" aria-label="Time interval"><option value="month" ${view === "month" ? "selected" : ""}>Monthly</option><option value="week" ${view === "week" ? "selected" : ""}>Weekly</option></select>
+        <div class="seg" role="group" aria-label="Chart type"><button type="button" data-rk="line" aria-pressed="${kind === "line"}">${svg("trend")}Line</button><button type="button" data-rk="bar" aria-pressed="${kind === "bar"}">${svg("bars")}Bar</button></div>`;
+      w.querySelector("#rr-view").onchange = e => { S.rrView = e.target.value; WIDGETS.returning.draw(el, p); };
+      w.querySelectorAll("[data-rk]").forEach(b => b.onclick = () => { S.rrKind = b.dataset.rk; WIDGETS.returning.draw(el, p); });
+      const firsts = p.mine.filter(m => m.first_visit && m.type !== "visitor");
+      const cameBack = m => p.dates.some(d => d > m.first_visit && at(d) <= at(m.first_visit) + 28 * DAY && p.byDate[d][m.id]);
+      const periods = [];
+      if (view === "month") { const t = new Date(); for (let i = (innerWidth < 640 ? 5 : 7); i >= 0; i--) { const s = new Date(t.getFullYear(), t.getMonth() - i, 1), e = new Date(t.getFullYear(), t.getMonth() - i + 1, 0);
+        periods.push({from: `${s.getFullYear()}-${pad(s.getMonth() + 1)}-01`, to: `${e.getFullYear()}-${pad(e.getMonth() + 1)}-${pad(e.getDate())}`, lab: s.toLocaleDateString("en-NZ", {month: "short"}), long: s.toLocaleDateString("en-NZ", {month: "long", year: "numeric"})}); } }
+      else { const sun = new Date(); sun.setHours(12, 0, 0, 0); sun.setDate(sun.getDate() - sun.getDay());
+        for (let i = (innerWidth < 640 ? 7 : 11); i >= 0; i--) { const s = sun.getTime() - i * 7 * DAY; periods.push({from: iso(s), to: iso(s + 6 * DAY), lab: nice(iso(s)), long: `Week of ${nice(iso(s), true)}`}); } }
+      const rows = periods.map(x => { const f = firsts.filter(m => m.first_visit >= x.from && m.first_visit <= x.to);
+        return {...x, first: f.length, back: f.filter(cameBack).length, counting: at(x.to) + 28 * DAY > now}; });
+      const done = rows.filter(r => !r.counting), tf = done.reduce((n, r) => n + r.first, 0), tb = done.reduce((n, r) => n + r.back, 0), pct = tf ? Math.round(tb / tf * 100) : null;
+      const W = innerWidth < 640 ? 380 : 760, H = innerWidth < 640 ? 220 : 250, L = 30, B = 28, T = 16, n = rows.length, max = Math.max(4, Math.ceil(Math.max(...rows.map(r => r.first)) / 4) * 4);
+      const step = (W - L - 12) / n, x = i => L + step * i + step / 2, y = v => T + (H - T - B) * (1 - v / max);
+      let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="First-timers and how many came back, ${view === "month" ? "by month" : "by week"}"><defs><linearGradient id="rrg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" style="stop-color:var(--h3);stop-opacity:.28"/><stop offset="1" style="stop-color:var(--h3);stop-opacity:0"/></linearGradient></defs>`;
+      for (const t of [0, .25, .5, .75, 1].map(f => Math.round(max * f))) s += `<line class="gridline" x1="${L}" x2="${W}" y1="${y(t)}" y2="${y(t)}"/><text x="${L - 8}" y="${y(t) + 4}" text-anchor="end">${t}</text>`;
+      if (kind === "bar") {
+        const bw = Math.min(16, step * .28);
+        rows.forEach((r, i) => { s += `<rect x="${x(i) - bw - 1}" y="${y(r.first)}" width="${bw}" height="${y(0) - y(r.first)}" rx="3" fill="var(--line)"/>
+          <rect x="${x(i) + 1}" y="${y(r.back)}" width="${bw}" height="${y(0) - y(r.back)}" rx="3" fill="var(--h3)" ${r.counting ? 'opacity=".45"' : ""}/>`; });
+      } else {
+        const line = k => rows.map((r, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(r[k]).toFixed(1)}`).join(" ");
+        rows.forEach((r, i) => { const bh = (y(0) - y(r.first)) * .35; s += `<rect x="${x(i) - step * .3}" y="${y(0) - bh}" width="${step * .6}" height="${bh}" rx="3" fill="var(--soft)"/>`; });
+        s += `<path d="${line("back")} L${x(n - 1)},${y(0)} L${x(0)},${y(0)} Z" fill="url(#rrg)"/>`;
+        s += `<path d="${line("first")}" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-linejoin="round"/><path d="${line("back")}" fill="none" stroke="var(--h3)" stroke-width="2.5" stroke-linejoin="round"/>`;
+      }
+      const every = Math.ceil(n / (innerWidth < 640 ? 4 : 8));
+      rows.forEach((r, i) => { if ((n - 1 - i) % every === 0) s += `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(r.lab)}</text>`; });
+      s += `<line class="cursor" x1="0" x2="0" y1="${T}" y2="${y(0)}" stroke="var(--h3)" stroke-dasharray="4 4" opacity="0"/><circle class="dot" r="5" fill="var(--h3)" stroke="var(--card)" stroke-width="2" opacity="0"/>`;
+      el.innerHTML = `<div class="rr-top"><div><b>${pct === null ? "–" : pct + "%"}</b><span>came back within 4 weeks</span></div>
+          <div class="legend"><span><i style="background:var(--h3)"></i>Came back ${tb}</span><span><i style="background:var(--ink-3)"></i>First-timers ${tf}</span></div></div>
+        <div class="chart rr-chart"><div class="tip"></div>${s}</svg></div>
+        <p class="note" style="margin:8px 0 0">${pct === null ? "No first-timers in these " + (view === "month" ? "months" : "weeks") + " yet. " : ""}Target: half come back. The latest ${view === "month" ? "month is" : "few weeks are"} still counting, so ${view === "month" ? "it is" : "they are"} left out of the %.</p>`;
+      const box = el.querySelector(".rr-chart"), svgEl = box.querySelector("svg"), tip = box.querySelector(".tip"), cur = svgEl.querySelector(".cursor"), dot = svgEl.querySelector(".dot");
+      svgEl.onpointermove = svgEl.onpointerdown = e => {
+        const r = svgEl.getBoundingClientRect(), i = Math.max(0, Math.min(n - 1, Math.floor(((e.clientX - r.left) / r.width * W - L) / step))), row = rows[i], px = x(i);
+        cur.setAttribute("x1", px); cur.setAttribute("x2", px); cur.setAttribute("opacity", 1); dot.setAttribute("cx", px); dot.setAttribute("cy", y(row.back)); dot.setAttribute("opacity", kind === "line" ? 1 : 0);
+        tip.innerHTML = `<b>${esc(row.long)}</b><br><i style="background:var(--h3)"></i>Came back <b>${row.back}</b><br><i style="background:var(--ink-3)"></i>First-timers <b>${row.first}</b>${row.first ? `<br>${Math.round(row.back / row.first * 100)}%${row.counting ? " so far" : ""}` : ""}`;
+        tip.style.left = Math.max(80, Math.min(r.width - 80, px / W * r.width)) + "px"; tip.style.top = (y(row.first) / H * r.height) + "px"; tip.style.opacity = 1;
+      };
+      svgEl.onpointerleave = () => { tip.style.opacity = 0; cur.setAttribute("opacity", 0); dot.setAttribute("opacity", 0); };
     }},
   followup: {name: "Needs a follow-up call", sub: `Missed ${YELLOW_AT} or more Sundays in a row`, size: "full", icon: "followup", hue: 3,
     draw(el, p) {
