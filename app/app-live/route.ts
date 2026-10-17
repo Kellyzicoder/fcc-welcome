@@ -64,6 +64,19 @@ export async function GET(req: Request) {
   const w = await who(req, new URL(req.url).searchParams.get("church")?.trim() ?? "");
   if ("error" in w) return w.error;
 
+  // The saved services between two times (the summary asks about one day). Only the home church's dashboard keeps them
+  // (30 days); the app skips morning prayers and picks the day's service from this list.
+  const sp = new URL(req.url).searchParams, from = Number(sp.get("from")), to = Number(sp.get("to"));
+  if (from > 0 && to > from) {
+    if (w.c !== w.me.home) return Response.json({ church: w.c, services: null });
+    const r = await ask(`${d.base}/api/services?${d.q}from=${from}&to=${to}`);
+    const s = r?.ok ? await r.json().catch(() => null) : null;
+    if (!s || !Array.isArray(s.services)) return say("The live dashboard needs updating to list its services.", 502);
+    const n = (v: unknown) => Number(v) || 0;
+    return Response.json({ church: w.c, services: s.services.slice(0, 20).map((x: Record<string, unknown>) => ({ start: n(x.start), end: n(x.end),
+      total: n(x.total), youtube: n(x.youtube), facebook: n(x.facebook), zoom: n(x.zoom) })) }, { headers: { "cache-control": "no-store" } });
+  }
+
   // The home church: the full dashboard (YouTube, Facebook and Zoom)
   if (w.c === w.me.home) {
     const r = await ask(`${d.base}/api/stats?${d.q}`);
