@@ -349,7 +349,7 @@ const PW_RULES = [
 const pwProblem = (a, b) => (PW_RULES.find(([, , ok]) => !ok(a, b)) || [])[1] || "";
 // Wires a checklist (ticks) and green/red borders to two password boxes; the button only works when all rules pass.
 function pwChecks(box, p1, p2, go) {
-  box.innerHTML = `<li class="phrase" data-r="phrase"><i>${svg("checkin")}</i><span>Easiest: a phrase of 3 or more words, 16+ characters, like <b>sunday choir sings loud</b>. Then the three rules below aren't needed.</span></li>`
+  box.innerHTML = `<li class="phrase" data-r="phrase"><i>${svg("checkin")}</i><span>Easiest: a phrase of 3 or more words, 16+ characters, like <b>sunday choir sings loud</b>.</span></li>`
     + PW_RULES.map(([k, t]) => `<li data-r="${k}"><i>${svg("checkin")}</i>${esc(t)}</li>`).join("");
   const draw = () => {
     const a = p1.value, b = p2.value;
@@ -358,7 +358,7 @@ function pwChecks(box, p1, p2, go) {
       li.className = good ? "ok" : touched ? "bad" : "";
     });
     const ph = box.querySelector('[data-r="phrase"]'); ph.className = "phrase" + (isPhrase(a) ? " ok" : "");
-    ph.querySelector("span").innerHTML = isPhrase(a) ? "Passphrase: long enough, nothing else needed" : "Easiest: a phrase of 3 or more words, 16+ characters, like <b>sunday choir sings loud</b>. Then the three rules below aren't needed.";
+    ph.querySelector("span").innerHTML = isPhrase(a) ? "Passphrase: long enough, nothing else needed" : "Easiest: a phrase of 3 or more words, 16+ characters, like <b>sunday choir sings loud</b>.";
     for (const k of ["case", "num", "sym"]) box.querySelector(`[data-r="${k}"]`).classList.toggle("skip", isPhrase(a));
     const firstOk = PW_RULES.filter(([k]) => k !== "same").every(([, , ok]) => ok(a, b));
     p1.classList.toggle("ok", firstOk); p1.classList.toggle("bad", a.length > 0 && !firstOk);
