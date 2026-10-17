@@ -69,7 +69,7 @@ in `supabase/app_setup.sql` decides what comes back.
 4. **Vercel** → Settings → Environment Variables (type *Config*, not *Secret*):
    - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: Production = fcc-church, Preview = fcc-test
    - `BREVO_API_KEY`, `REPORT_SENDER`: server-only, for report and help emails
-   - `LIVE_STATS_URL`, `LIVE_KEY`: server-only, for the **Livestream** widget. `LIVE_STATS_URL` is the church-live-dashboard link without `?key=` (e.g. `https://live.<your-name>.workers.dev`); `LIVE_KEY` is that dashboard's `DASHBOARD_KEY`, if it has one. Without them the widget says the livestream isn't connected yet.
+   - `LIVE_STATS_URL`, `LIVE_KEY`: server-only, for the **Livestream** widget. `LIVE_STATS_URL` is the church-live-dashboard link without `?key=` (e.g. `https://live.<your-name>.workers.dev`); `LIVE_KEY` is that dashboard's `DASHBOARD_KEY`, if it has one. Without them the widget says the livestream isn't connected yet. Other churches don't need anything here: their church admin pastes the church's YouTube channel link in the widget itself (saved by `app_set_livestream`, read through the same dashboard's `/api/youtube`). Facebook and Zoom for other churches still need their own live dashboard.
 
 ## Working on it
 
