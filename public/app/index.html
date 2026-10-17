@@ -513,6 +513,23 @@ button.ov-cell {cursor: pointer;} button.ov-cell:hover {background: var(--soft);
 .pl-txt small span {display: inline-flex; align-items: center; gap: 5px;} .pl-txt small svg {width: 14px; height: 14px; color: var(--ink-3);}
 .pl-txt small .warn, .pl-txt small .warn svg {color: var(--h3t);}
 @media (max-width: 560px) { .pl-head {flex-wrap: wrap;} .pl-ava {width: 40px; height: 40px;} .pl-main {gap: 10px;} }
+/* Laptop menu: a button by the church name folds it to icons only (names show as tooltips) */
+.side-tg {margin-left: auto; border: 0; background: none; color: var(--ink-3); width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; cursor: pointer; flex: none;}
+.side-tg svg {width: 18px; height: 18px;} .side-tg:hover {background: var(--soft); color: var(--ink);}
+.brand-txt {min-width: 0;}
+@media (min-width: 901px) {
+  .shell {transition: grid-template-columns .2s ease;}
+  .shell.mini {grid-template-columns: 78px minmax(0, 1fr);}
+  .shell.mini .side {padding: 16px 10px; overflow-x: hidden;}
+  .shell.mini .brand {flex-direction: column; gap: 10px; padding: 4px 0 12px;}
+  .shell.mini .brand-txt, .shell.mini .nl, .shell.mini .church span, .shell.mini .church em {display: none;}
+  .shell.mini .side-tg {margin: 0;}
+  .shell.mini .side h6 {font-size: 0; height: 1px; background: var(--line); margin: 10px 10px;}
+  .shell.mini .nav {justify-content: center; padding: 11px 0; position: relative; gap: 0;}
+  .shell.mini .nav .count {position: absolute; top: 2px; right: 4px; margin: 0; font-size: 10px; padding: 0 5px;}
+  .shell.mini .church {justify-content: center; padding: 10px 0;}
+}
+@media (max-width: 900px) { .side-tg {display: none;} }
 /* Admin tabs */
 .atabs {display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); margin: 0 0 14px; overflow-x: auto; width: max-content; max-width: 100%;}
 .atabs button {border: 0; background: none; color: var(--ink-2); font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 10px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 7px;}
