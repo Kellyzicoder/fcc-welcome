@@ -446,8 +446,61 @@ async function start() {
     S.pending = canApprove() ? await api("registrations?select=id&status=eq.pending").then(r => r.length).catch(() => 0) : 0;
   }
   render();
-  if (S.via === "email") setTimeout(offerPassword, 600);  // just signed in with an email code or link
+  let seen = true; try { seen = !!localStorage.getItem("fcc-tour:" + S.me.email); } catch {}
+  if (!seen && !S.preview) setTimeout(tour, 500);  // first time on this phone or laptop: a short tour of where things are
+  else if (S.via === "email") setTimeout(offerPassword, 600);  // just signed in with an email code or link
   S.via = "";
+}
+// A short welcome tour: a few cards for this person's role on where to find things. Shown once per device; Help can show it again.
+function tour() {
+  const r = S.me.role, phone = matchMedia("(max-width: 1080px)").matches, Q = q => document.querySelector(q);
+  // the menu item for a page: in the side menu on laptops; on phones the bottom bar, or More when it isn't there
+  const nav = v => () => phone ? Q(`.dock [data-view="${v}"]`) || Q(".dock [data-menu]") : Q(`.side .nav[data-view="${v}"]`);
+  const more = v => phone && !Q(`.dock [data-view="${v}"]`) ? " Tap More to find it." : "";
+  const steps = [[null, "dashboard", 1, "Welcome to FCC Attendance", `Here's a quick look at where things are. It takes under a minute, and you can see it again any time from Help.`],
+    ...(r === "bishop" ? [[nav("overview"), "overview", 1, "All churches", "Every church's numbers in one place. Tap a church for its own dashboard, or a day in the calendar to look back."],
+                          [() => Q("#addw"), "plus", 4, "Make it yours", "Add widgets, drag them by the handle, or resize them from ⋯. Your layout is only yours."]]
+      : r === "pastor" ? [[nav("mine"), "mine", 1, "Home: your people", "Everyone assigned to you, who came, and who needs a call. Tap a name for their history."],
+                          [nav("checkin"), "checkin", 2, "Check-in", "Tick your people in at a service. Ushers see the ticks straight away." + more("checkin")]]
+      : [[nav("dashboard"), "dashboard", 1, "Dashboard", "How the last service went, at a glance. This is where the app opens."],
+         [nav("checkin"), "checkin", 2, "Check-in", "Tick people in as they arrive, or tap a team to tick a group. Press Save & lock when the service is done." + more("checkin")],
+         [nav("followup"), "followup", 3, "Follow-up", "Yellow and red show who has missed Sundays in a row, so pastors know who to call." + more("followup")],
+         [nav("people"), "people", 5, "Congregation", "Everyone on the register. Tap a name for their history, or edit their details." + more("people")],
+         [() => Q("#addw"), "plus", 4, "Your dashboard", "Add widgets, drag them by the handle, or resize them from ⋯. Your layout is only yours."]]),
+    [nav("help"), "help", 6, "Help", "Answers for your role, and Contact the admin if you're stuck." + more("help")],
+    [() => Q(".acct"), "person", 1, "Your account", "Tap your name for your details, password and settings like colours and text size."]];
+  let i = 0;
+  const cover = document.createElement("div"), spot = document.createElement("div"), d = document.createElement("div");
+  cover.className = "tour-cover"; spot.className = "tour-spot"; d.className = "tour-pop";
+  const done = () => { try { localStorage.setItem("fcc-tour:" + S.me.email, "1"); } catch {} [cover, spot, d].forEach(x => x.remove());
+      document.removeEventListener("keydown", onKey); removeEventListener("resize", place); },
+    onKey = e => { if (e.key === "Escape") done(); else if (e.key === "ArrowRight" && i < steps.length - 1) { i++; draw(); } else if (e.key === "ArrowLeft" && i) { i--; draw(); } };
+  // ring the menu item for this step and put the card beside it (or in the middle when there's nothing to point at)
+  function place() {
+    const el = steps[i][0]?.(), r = el && el.offsetParent !== null ? el.getBoundingClientRect() : null, W = innerWidth, H = innerHeight;
+    cover.classList.toggle("dim", !r); spot.hidden = !r; d.classList.toggle("mid", !r); d.style.cssText = "";
+    if (!r) return;
+    const pad = 6; Object.assign(spot.style, {left: r.left - pad + "px", top: r.top - pad + "px", width: r.width + pad * 2 + "px", height: r.height + pad * 2 + "px"});
+    const cw = d.offsetWidth, ch = d.offsetHeight, clampX = x => Math.max(12, Math.min(W - cw - 12, x)), clampY = y => Math.max(12, Math.min(H - ch - 12, y));
+    if (!phone && r.right < W * .4) { d.style.left = r.right + 18 + "px"; d.style.top = clampY(r.top + r.height / 2 - ch / 2) + "px"; d.dataset.arrow = "left"; }
+    else if (r.top > H / 2) { d.style.left = clampX(r.left + r.width / 2 - cw / 2) + "px"; d.style.top = r.top - ch - 18 + "px"; d.dataset.arrow = "down"; }
+    else { d.style.left = clampX(r.right - cw) + "px"; d.style.top = r.bottom + 18 + "px"; d.dataset.arrow = "up"; }
+  }
+  const draw = () => {
+    const [at, ic, h, t, x] = steps[i], last = i === steps.length - 1;
+    d.innerHTML = `<div role="dialog" aria-modal="true" aria-label="Welcome tour"><div class="tour-head"><span class="tour-ico" style="--wc:var(--h${h});--wb:var(--h${h}b)">${svg(ic)}</span>
+      <h2>${esc(t)}</h2></div><p>${esc(x)}</p>
+      <div class="tour-foot"><span class="tour-dots" aria-label="Step ${i + 1} of ${steps.length}">${steps.map((_, j) => `<i class="${j === i ? "on" : ""}"></i>`).join("")}</span>
+        ${last ? "" : `<button type="button" class="pill-btn sm" data-skip>Skip</button>`}
+        ${i ? `<button type="button" class="pill-btn sm" data-prev>Back</button>` : ""}<button type="button" class="pill-btn sm primary" data-next>${last ? "Got it" : "Next"}</button></div></div>`;
+    d.querySelector("[data-next]").onclick = () => last ? done() : (i++, draw());
+    d.querySelector("[data-prev]")?.addEventListener("click", () => { i--; draw(); });
+    d.querySelector("[data-skip]")?.addEventListener("click", done);
+    const el = at?.(); if (el) el.scrollIntoView({block: "nearest"});
+    place(); d.querySelector("[data-next]").focus({preventScroll: true});
+  };
+  document.querySelectorAll(".modal, .tour-cover, .tour-spot, .tour-pop").forEach(m => m.remove());
+  document.body.append(cover, spot, d); document.addEventListener("keydown", onKey); addEventListener("resize", place); draw();
 }
 // Which church's pastor list has this person's pastor name (for the main admin, who has no single church)
 async function pastorChurch() {
@@ -2224,6 +2277,7 @@ async function help(el) {
   el.innerHTML = `<div class="help">
     <div class="help-side"><div class="head"><div><h1>Help</h1></div></div>
       <p class="lede">Answers to common questions about the app, and a quick way to reach the admin.</p>
+      <button type="button" class="pill-btn sm" id="tour-again" style="margin:0 0 12px">${svg("eye")}Show the welcome tour again</button>
       <div class="help-chips" role="tablist" aria-label="Topics">${topics.map(([k, name]) =>
         `<button class="hchip" role="tab" data-ht="${k}" aria-selected="${k === S.helpTopic}">${esc(name)}</button>`).join("")}</div></div>
     <div class="help-main">
@@ -2241,6 +2295,7 @@ async function help(el) {
     if (open) { item.classList.add("open"); b.setAttribute("aria-expanded", true); item.querySelector(".acc-a").hidden = false; }
   });
   el.querySelector("#contact").onclick = () => contactDialog(topic[1]);
+  el.querySelector("#tour-again").onclick = tour;
 }
 
 // The message form: it goes to the main admin by email and into the Messages inbox on the Admin page.
