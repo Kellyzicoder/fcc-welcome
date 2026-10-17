@@ -449,7 +449,10 @@ td .x {border: 0; background: none; color: var(--red); font-weight: 600;}
 .pg svg {width: 16px; height: 16px;} .pg.on {border-color: var(--accent); color: var(--accent); background: var(--accent-soft);} .pg:disabled {opacity: .4; cursor: default;}
 @media (max-width: 900px) {
   .rpills {flex-wrap: nowrap; overflow-x: auto; width: 100%; padding-bottom: 4px;} .rpill {flex: none;}
-  .u-tools {flex-basis: 100%;} .u-tools select, .u-tools input {flex: 1 1 0;}
+  .u-tools {flex-basis: 100%; flex-wrap: wrap;}
+  .u-tools select, .u-tools select#sort, .u-tools select#teamF {flex: 1 1 calc(50% - 4px); min-width: 0; padding-right: 34px; text-overflow: ellipsis;}
+  .u-tools input, .u-tools .find-bar {flex: 1 1 100%; min-width: 0;}
+  .u-tools select:only-of-type {flex-basis: 100%;}
   .pager > .muted:first-child {flex-basis: 100%;}
 }
 /* Dashboard widgets: a white card each, with a coloured icon, title and line under it, then the content */
