@@ -583,7 +583,7 @@ function render() {
   S.goingBack = false; S.shown = S.view;
   const groups = pages(), who = S.me.name || S.me.email, allowed = [...groups.flatMap(g => g[1].map(x => x[0])), "account", ...(S.me.role === "bishop" ? [] : ["person"])];
   if (!allowed.includes(S.view)) S.view = allowed[0];
-  const short = {dashboard: "Home", overview: "Churches", people: "Congregation"};  // the bottom bar on phones: the four most-used pages, then More
+  const short = {dashboard: "Home", overview: "Churches", people: "People", followup: "Follow-up"};  // the bottom bar on phones: the four most-used pages, then More
   const dock = groups.flatMap(g => g[1]).filter(x => ["mine", "dashboard", "checkin", "followup", "people", "overview"].includes(x[0])).slice(0, 4).map(([k, t]) => [k, short[k] || t]);
   const go = to => { S.view = to; render(); };
   const where = S.me.role === "bishop" ? "All churches" : S.church;
