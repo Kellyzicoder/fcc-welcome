@@ -1126,9 +1126,12 @@ const WIDGETS = {
           const j = await call();
           if (j.setup) return connect();
           const live = Object.values(j.platforms).some(x => x.status === "live"), h = j.history || [], top = Math.max(1, ...h.map(x => x.total));
+          // "peak this service" is this stream's peak only: morning prayers (4:30 to 6:30 am) are their own, and nothing shows between services
+          const prayer = x => { const d = new Date(x), m = d.getHours() * 60 + d.getMinutes(); return m >= 270 && m < 390; };
+          const peakNow = live ? Math.max(j.total, ...h.filter(x => prayer(x.t) === prayer(Date.now())).map(x => x.total)) : null;
           el.innerHTML = `<div class="live-top"><span class="live-dot ${live ? "on" : ""}">${live ? "Live now" : "Not live right now"}</span><span class="gap" style="flex:1"></span>
               <small>Updated ${new Date(j.updatedAt).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"})}</small></div>
-            <div class="live-nums"><div><b>${j.total}</b><small>watching now</small></div><div><b>${j.peak}</b><small>peak this service</small></div></div>
+            <div class="live-nums"><div><b>${j.total}</b><small>watching now</small></div><div><b>${peakNow ?? "–"}</b><small>peak this service</small></div></div>
             <div class="live-pl">${PL.map(([k, t]) => { const x = j.platforms[k]; return `<div class="${x.status === "live" ? "on" : ""}"><small>${t}</small>
               <b>${x.status === "live" && x.viewers !== null ? x.viewers : "–"}</b><em>${word(x)}</em></div>`; }).join("")}</div>
             ${j.platforms.zoom.status === "live" ? `<p class="note" style="margin:10px 0 0">Zoom includes the host and co-host: take 2 off for the attendance count.</p>` : ""}
