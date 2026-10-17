@@ -431,8 +431,43 @@ async function start() {
     S.pending = canApprove() ? await api("registrations?select=id&status=eq.pending").then(r => r.length).catch(() => 0) : 0;
   }
   render();
-  if (S.via === "email") setTimeout(offerPassword, 600);  // just signed in with an email code or link
+  let seen = true; try { seen = !!localStorage.getItem("fcc-tour:" + S.me.email); } catch {}
+  if (!seen && !S.preview) setTimeout(tour, 500);  // first time on this phone or laptop: a short tour of where things are
+  else if (S.via === "email") setTimeout(offerPassword, 600);  // just signed in with an email code or link
   S.via = "";
+}
+// A short welcome tour: a few cards for this person's role on where to find things. Shown once per device; Help can show it again.
+function tour() {
+  const r = S.me.role, phone = matchMedia("(max-width: 1080px)").matches, menu = phone ? "the bar at the bottom (More opens the rest)" : "the menu on the left";
+  const steps = [["dashboard", 1, "Welcome to FCC Attendance", `Here's a quick look at where things are. It takes under a minute, and you can see it again any time from Help.`],
+    ...(r === "bishop" ? [["overview", 1, "All churches", "Every church's numbers in one place. Tap a church in the list for its own dashboard, or a day in the calendar to look back."],
+                          ["plus", 4, "Make it yours", "Add widget, drag them by the handle, or resize them from ⋯. Your layout is only yours."]]
+      : r === "pastor" ? [["mine", 1, "Home: your people", "Everyone assigned to you, who came, and who needs a call. Tap a name for their history."],
+                          ["checkin", 2, "Check-in", "Tick your people in at a service. Ushers see the ticks straight away."]]
+      : [["menu", 4, "Finding your way", `Your pages are in ${menu}. Dashboard, Check-in, Follow-up and Congregation are the ones you'll use most.`],
+         ["checkin", 2, "Check-in", "Tick people in as they arrive, or tap a team to tick a group. Press Save & lock when the service is done."],
+         ["followup", 3, "Follow-up", "Yellow and red show who has missed Sundays in a row, so pastors know who to call."],
+         ["plus", 4, "Your dashboard", "Add widget, drag them by the handle, or resize them from ⋯. Your layout is only yours."]]),
+    ["help", 6, "Help and your account", `Help has answers and Contact the admin. Your name, password and light or dark mode are under your account at the top${phone ? "" : " right"}.`]];
+  let i = 0;
+  const d = document.createElement("div"); d.className = "modal";
+  const done = () => { try { localStorage.setItem("fcc-tour:" + S.me.email, "1"); } catch {} d.remove(); document.removeEventListener("keydown", onKey); },
+    onKey = e => { if (e.key === "Escape") done(); else if (e.key === "ArrowRight" && i < steps.length - 1) { i++; draw(); } else if (e.key === "ArrowLeft" && i) { i--; draw(); } };
+  const draw = () => {
+    const [ic, h, t, x] = steps[i], last = i === steps.length - 1;
+    d.innerHTML = `<div class="sheet narrow tour" role="dialog" aria-modal="true" aria-label="Welcome tour">
+      <div class="tour-ico" style="--wc:var(--h${h});--wb:var(--h${h}b)">${svg(ic)}</div>
+      <h2>${esc(t)}</h2><p>${esc(x)}</p>
+      <div class="tour-dots" aria-label="Step ${i + 1} of ${steps.length}">${steps.map((_, j) => `<i class="${j === i ? "on" : ""}"></i>`).join("")}</div>
+      <div class="modal-foot">${last ? "" : `<button type="button" class="pill-btn" data-skip>Skip</button>`}<span class="gap" style="flex:1"></span>
+        ${i ? `<button type="button" class="pill-btn" data-prev>Back</button>` : ""}<button type="button" class="pill-btn primary" data-next>${last ? "Got it" : "Next"}</button></div></div>`;
+    d.querySelector("[data-next]").onclick = () => last ? done() : (i++, draw());
+    d.querySelector("[data-prev]")?.addEventListener("click", () => { i--; draw(); });
+    d.querySelector("[data-skip]")?.addEventListener("click", done);
+    d.querySelector("[data-next]").focus();
+  };
+  document.querySelectorAll(".modal").forEach(m => m.remove());
+  document.body.append(d); document.addEventListener("keydown", onKey); draw();
 }
 // Which church's pastor list has this person's pastor name (for the main admin, who has no single church)
 async function pastorChurch() {
@@ -2187,6 +2222,7 @@ async function help(el) {
   el.innerHTML = `<div class="help">
     <div class="help-side"><div class="head"><div><h1>Help</h1></div></div>
       <p class="lede">Answers to common questions about the app, and a quick way to reach the admin.</p>
+      <button type="button" class="pill-btn sm" id="tour-again" style="margin:0 0 12px">${svg("eye")}Show the welcome tour again</button>
       <div class="help-chips" role="tablist" aria-label="Topics">${topics.map(([k, name]) =>
         `<button class="hchip" role="tab" data-ht="${k}" aria-selected="${k === S.helpTopic}">${esc(name)}</button>`).join("")}</div></div>
     <div class="help-main">
@@ -2204,6 +2240,7 @@ async function help(el) {
     if (open) { item.classList.add("open"); b.setAttribute("aria-expanded", true); item.querySelector(".acc-a").hidden = false; }
   });
   el.querySelector("#contact").onclick = () => contactDialog(topic[1]);
+  el.querySelector("#tour-again").onclick = tour;
 }
 
 // The message form: it goes to the main admin by email and into the Messages inbox on the Admin page.
