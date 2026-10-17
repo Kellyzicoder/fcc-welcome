@@ -502,6 +502,19 @@ end $$;
 revoke all on function app_help_post(text, text) from public, anon;
 grant execute on function app_help_post(text, text) to authenticated;
 
+-- ---------------------------------------------------------------- Dashboard widgets: each person's own layout
+-- Which widgets someone has on their Dashboard, in order. Everyone can only see and change their own row.
+create table if not exists app_prefs (
+  email text primary key,
+  dash text[],
+  updated_at timestamptz not null default now()
+);
+alter table app_prefs enable row level security;
+drop policy if exists app_prefs_own on app_prefs;
+create policy app_prefs_own on app_prefs for all to authenticated
+  using (email = lower(auth.jwt() ->> 'email')) with check (email = lower(auth.jwt() ->> 'email'));
+grant select, insert, update on app_prefs to authenticated;
+
 -- ---------------------------------------------------------------- first church and first admin
 insert into churches (name) values (app_home_church()) on conflict do nothing;
 -- Then add yourself as the first admin (use your own email, lower case):
