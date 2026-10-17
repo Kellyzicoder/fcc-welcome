@@ -480,6 +480,32 @@ button.ov-cell {cursor: pointer;} button.ov-cell:hover {background: var(--soft);
 .rpill.tint:not([aria-pressed="true"]):not([aria-selected="true"]):hover {border-color: var(--rc, var(--ink-3));}
 [data-theme="dark"] .rpill.tint:not([style]) {color: var(--ink);} [data-theme="dark"] .rpill.tint[aria-selected="true"]:not([style]), [data-theme="dark"] .rpill.tint[aria-pressed="true"]:not([style]) {background: var(--ink); color: var(--page);}
 .ci-teams {margin: -4px 0 14px;}
+/* Search bar with an icon (Check-in, Pastor list) */
+.find-bar {display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 14px; padding: 0 14px; background: var(--card); margin: 4px 0 12px;}
+.find-bar svg {width: 18px; height: 18px; color: var(--ink-3); flex: none;}
+.find-bar input {flex: 1; min-width: 0; border: 0; background: none; font: inherit; color: var(--ink); padding: 12px 0; outline: none;}
+.find-bar:focus-within {border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);}
+.rpill.more {background: none; border: 1px dashed var(--line); color: var(--ink-2);} .rpill.more:hover {border-color: var(--ink-3); color: var(--ink);}
+/* Pastor list: header, search, title chips, then a row per pastor */
+.plist {margin-top: 14px; padding: 0; overflow: hidden;}
+.pl-head {display: flex; align-items: center; gap: 12px; padding: 16px 18px; background: var(--soft); border-bottom: 1px solid var(--line);}
+.pl-head h2 {margin: 0;} .pl-head p {margin: 2px 0 0; color: var(--ink-3); font-size: 13px;} .pl-head .gap {flex: 1;}
+.pl-ico {width: 38px; height: 38px; border-radius: 12px; background: var(--h4b); color: var(--h4); display: grid; place-items: center; flex: none;} .pl-ico svg {width: 19px; height: 19px;}
+.pl-find {margin: 14px 18px 0;}
+.pl-chips {display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 18px 14px; border-bottom: 1px solid var(--line);} .pl-chips:empty {display: none;}
+.pl-chip {border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 10px; padding: 7px 14px; font: inherit; font-weight: 500; font-size: 14px; cursor: pointer;}
+.pl-chip span {color: var(--ink-3); font-size: 12px; margin-left: 2px;} .pl-chip:hover {border-color: var(--ink-3);}
+.pl-chip.on {background: var(--accent); border-color: var(--accent); color: #fff;} .pl-chip.on span {color: rgba(255,255,255,.75);}
+#pl-rows {padding: 8px 10px 12px;} #pl-rows .empty {margin: 10px;}
+.pl-row {display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px; border-radius: 14px; color: var(--ink-3);}
+.pl-row:hover, .pl-row.sel {background: var(--soft);} .pl-row > svg {width: 18px; height: 18px; flex: none;}
+.pl-main {flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; border: 0; background: none; font: inherit; color: var(--ink); text-align: left; padding: 8px; cursor: pointer;}
+.pl-ava {width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; font-weight: 700; font-size: 15px; flex: none;}
+.pl-txt {min-width: 0;} .pl-txt b {display: block; font-size: 15.5px; font-weight: 600;}
+.pl-txt small {display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 3px; color: var(--ink-2); font-size: 13px;}
+.pl-txt small span {display: inline-flex; align-items: center; gap: 5px;} .pl-txt small svg {width: 14px; height: 14px; color: var(--ink-3);}
+.pl-txt small .warn, .pl-txt small .warn svg {color: var(--h3t);}
+@media (max-width: 560px) { .pl-head {flex-wrap: wrap;} .pl-ava {width: 40px; height: 40px;} .pl-main {gap: 10px;} }
 /* Admin tabs */
 .atabs {display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); margin: 0 0 14px; overflow-x: auto; width: max-content; max-width: 100%;}
 .atabs button {border: 0; background: none; color: var(--ink-2); font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 10px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 7px;}
