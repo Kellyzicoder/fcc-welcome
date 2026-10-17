@@ -283,7 +283,7 @@ html.strong[data-theme="dark"] {--ink-2: #d3dae4; --ink-3: #aab4c2; --line: #3e4
 .pill-btn.sm {padding: 7px 12px; font-size: 13.5px;} .chip svg {width: 14px; height: 14px; margin-left: 8px; vertical-align: -2px; opacity: .6;}
 button.chip {cursor: pointer; font: inherit; font-weight: 500;} button.chip:not(.on):hover {border-color: var(--accent); color: var(--accent);}
 .modal-foot {display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px;} .modal-foot .pill-btn {justify-content: center; padding: 13px 16px;}
-@media (max-width: 720px) { .modal {place-items: end center; padding: 0;} .sheet {border-radius: 24px 24px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); max-height: 92vh; overflow-y: auto;}
+@media (max-width: 720px) { .modal {place-items: end center; padding: 12px 12px calc(12px + env(safe-area-inset-bottom));} .sheet {border-radius: 24px; padding: 18px 16px; max-height: calc(100dvh - 72px); overflow-y: auto;}
   .modal-grid {grid-template-columns: 1fr;} .preview {max-height: 34vh;} }
 @media (prefers-reduced-motion: reduce) { .switch i, .switch i::after {transition: none;} }
 
@@ -519,13 +519,18 @@ button.ov-cell {cursor: pointer;} button.ov-cell:hover {background: var(--soft);
 .seg button {display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; font: inherit; font-size: 13.5px; color: var(--ink-2); padding: 6px 10px; border-radius: 8px; cursor: pointer;}
 .seg button svg {width: 15px; height: 15px;} .seg button[aria-pressed="true"] {background: var(--soft); color: var(--ink); font-weight: 600;}
 .wlist {display: grid; gap: 10px; max-height: 60vh; overflow: auto;}
-.witem {display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 14px; align-items: center; border: 1px solid var(--line); border-radius: 16px; padding: 12px;}
+.witem {display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 14px; align-items: center; border: 1px solid var(--line); border-radius: 16px; padding: 12px;
+         width: 100%; background: var(--card); color: var(--ink); text-align: left; font: inherit; cursor: pointer;}
+.witem:hover, .witem:focus-visible {border-color: var(--wc, var(--accent)); outline: none;}
+.wtxt b {display: block;} .wtxt > span {display: block; color: var(--ink-2); font-size: 13.5px; line-height: 1.45; margin-top: 3px;}
+.wadd {display: inline-flex; align-items: center; gap: 4px; padding: 6px 11px 6px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 600; white-space: nowrap;}
+.wadd svg {width: 15px; height: 15px;}
 .wico {width: 56px; height: 56px; border-radius: 14px; background: var(--wb, var(--accent-soft)); color: var(--wc, var(--accent)); display: grid; place-items: center;} .wico svg {width: 26px; height: 26px;}
 .wtxt b {display: block;} .wtxt p {margin: 3px 0 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.4;}
 @media (max-width: 900px) {
   .wgrid {grid-template-columns: minmax(0, 1fr);} .w-wide, .w-narrow {grid-column: 1 / -1;}
   .trend {grid-template-columns: minmax(0, 1fr);} .trend-head {border-right: 0; padding-right: 0;}
-  .vbars {gap: 6px;} .witem {grid-template-columns: 44px minmax(0, 1fr); } .witem .pill-btn {grid-column: 1 / -1;} .wico {width: 44px; height: 44px;}
+  .vbars {gap: 6px;} .witem {grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; padding: 12px 10px 12px 12px;} .wico {width: 44px; height: 44px;}
   .w-head {padding: 14px 14px 12px; gap: 10px;} .w-body {padding: 14px;} .ov {margin: -14px;} .ov-cell {padding: 14px;} .ov-cell b {font-size: 26px;}
   .w-tools {order: 5; flex-basis: 100%;} .w-tools .sel {flex: 1;}
 }
