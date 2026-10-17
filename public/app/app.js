@@ -151,6 +151,21 @@ function formDialog(title, fields, save, button = "Save", danger = null) {
   d.querySelector("input, select")?.focus();
 }
 
+// Where a finished summary can go. WhatsApp is always there on phones; Settings → Sharing summaries adds the others.
+const SHARE = [["instagram", "Instagram"], ["messenger", "Messenger"], ["telegram", "Telegram"], ["sms", "Text message"], ["email", "Email"]];
+const shareTo = () => { const v = look().share; return Array.isArray(v) ? v.filter(k => SHARE.some(s => s[0] === k)) : []; };
+function shareOut(k, msg, subject) {
+  const enc = encodeURIComponent(msg);
+  if (k === "native") return navigator.share({text: msg}).catch(() => {});
+  if (k === "telegram") return window.open("https://t.me/share/url?url=%20&text=" + enc, "_blank", "noopener");
+  if (k === "sms") { location.href = "sms:?&body=" + enc; return; }
+  if (k === "email") { location.href = "mailto:?subject=" + encodeURIComponent(subject) + "&body=" + enc; return; }
+  // Instagram and Messenger can't be handed text by a link: copy it, then open the app to paste it into a chat
+  navigator.clipboard?.writeText(msg).catch(() => {});
+  toast(`Copied. Paste it into a chat in ${k === "instagram" ? "Instagram" : "Messenger"}.`);
+  window.open(k === "instagram" ? "https://www.instagram.com/direct/inbox/" : "https://www.messenger.com/", "_blank", "noopener");
+}
+
 // A popup for a WhatsApp message: options on the left, a live preview on the right, then Copy.
 // build({names, link}) returns the text; opts says which options this message offers.
 function waDialog(title, build, opts = {}) {
@@ -158,6 +173,8 @@ function waDialog(title, build, opts = {}) {
   const st = {names: false, link: "", follow: false, day: opts.day || ""}, d = document.createElement("div");
   const memo = () => `fcc-wa:${S.church}:${st.day}`, recall = () => { try { return JSON.parse(localStorage.getItem(memo()) || "{}"); } catch { return {}; } };
   if (opts.fields) Object.assign(st, recall());
+  const hm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
+  const others = shareTo().filter(k => k !== "sms" || onPhone()), native = onPhone() && !!navigator.share;
   const toggle = (id, label, hint, on) => `<label class="switch"><span><b>${label}</b><small>${hint}</small></span><input type="checkbox" id="${id}" ${on ? "checked" : ""}><i></i></label>`;
   d.className = "modal";
   d.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}">
@@ -170,9 +187,12 @@ function waDialog(title, build, opts = {}) {
         ${opts.names ? toggle("m-names", "Include names", opts.fields ? "First-timers' names" : "Leave off for big group chats", false) : ""}
         ${opts.follow ? toggle("m-follow", "Include follow-up", "Who missed services, with numbers and names", false) : ""}
         ${opts.link ? `<div class="opt"><label class="f" for="m-link">Livestream link (optional)</label><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>` : ""}
+        ${opts.fields ? `<div class="draft-line"><span id="m-draft"></span><button type="button" class="link-btn" data-clear hidden>Start again</button></div>` : ""}
       </div>
       <div class="opt"><span class="f">Preview</span><pre class="preview" id="m-text" tabindex="0"></pre></div></div>
-    <div class="modal-foot"><button class="pill-btn" data-x>Close</button><button class="pill-btn ${onPhone() ? "" : "primary"}" id="m-copy">Copy</button>${onPhone() ? `<button class="pill-btn primary" id="m-send">Open in WhatsApp</button>` : ""}</div></div>`;
+    ${others.length || native ? `<div class="share-row"><small>Send to</small>${others.map(k => `<button type="button" class="chip" data-share="${k}">${SHARE.find(s => s[0] === k)[1]}</button>`).join("")}
+      ${native ? `<button type="button" class="chip" data-share="native">More apps…</button>` : ""}</div>` : ""}
+    <div class="modal-foot">${opts.fields ? `<button class="pill-btn" id="m-save">Save draft</button>` : `<button class="pill-btn" data-x>Close</button>`}<button class="pill-btn ${onPhone() ? "" : "primary"}" id="m-copy">Copy</button>${onPhone() ? `<button class="pill-btn primary" id="m-send">Open in WhatsApp</button>` : ""}</div></div>`;
   document.body.append(d);
   const text = d.querySelector("#m-text");
   let turn = 0;
@@ -183,18 +203,49 @@ function waDialog(title, build, opts = {}) {
     const none = out == null;
     text.textContent = none ? (text.dataset.why || `No summary for ${st.day ? nice(st.day, true) : "this day"}. No service was recorded.`) : out;
     delete text.dataset.why; text.classList.toggle("muted", none); copy.disabled = none; if (send) send.disabled = none;
+    d.querySelectorAll("[data-share]").forEach(b => b.disabled = none);
   };
+  // Drafts: what's typed is kept for this church and day, so it can be closed, checked and finished later
+  const drafted = () => { const box = d.querySelector("#m-draft"); if (!box) return;
+    box.textContent = st._at ? `Draft saved at ${hm(st._at)}. Close and come back any time.` : "";
+    d.querySelector("[data-clear]").hidden = !st._at; };
+  const keepDraft = () => { st._at = Date.now();
+    try { localStorage.setItem(memo(), JSON.stringify({...Object.fromEntries((opts.fields || []).map(([k]) => [k, st[k] || ""])), _at: st._at})); } catch {} drafted(); };
   const close = () => { d.remove(); document.removeEventListener("keydown", esc2); }, esc2 = e => { if (e.key === "Escape") close(); };
   d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
   document.addEventListener("keydown", esc2);
-  d.querySelectorAll("[data-field]").forEach(i => i.oninput = () => { st[i.dataset.field] = i.value.trim();
-    try { localStorage.setItem(memo(), JSON.stringify(Object.fromEntries((opts.fields || []).map(([k]) => [k, st[k] || ""])))); } catch {} draw(); });
+  d.querySelectorAll("[data-field]").forEach(i => i.oninput = () => { st[i.dataset.field] = i.value.trim(); keepDraft(); draw(); });
+  const saveBtn = d.querySelector("#m-save"); if (saveBtn) saveBtn.onclick = () => { keepDraft(); toast("Draft saved. Open the summary again any time to finish it."); };
+  d.querySelector("[data-clear]")?.addEventListener("click", () => { try { localStorage.removeItem(memo()); } catch {}
+    for (const [k] of opts.fields) { st[k] = ""; const i = d.querySelector("#m-" + k); if (i) i.value = ""; } st._at = 0; drafted(); draw(); });
+  d.querySelectorAll("[data-share]").forEach(b => b.onclick = () => shareOut(b.dataset.share, text.textContent, title));
+  drafted();
+  // Livestream numbers for this service: shown as a note to copy from, or filled in for you (Settings → Sharing summaries)
+  const liveNote = async () => {
+    d.querySelector(".live-note")?.remove();
+    if (!opts.fields?.some(f => f[0] === "yt") || !["admin", "lead"].includes(S.me.role) || st.day !== today() || !S.session) return;
+    try {
+      const r = await fetch("/app-live?church=" + encodeURIComponent(S.church), {cache: "no-store", headers: {Authorization: "Bearer " + S.session.access_token}});
+      const j = r.ok ? await r.json() : null; if (!j || j.setup || !d.isConnected) return;
+      const pk = j.peaks || {}, num = k => typeof pk[k] === "number" && pk[k] > 0 ? pk[k] : null;
+      const got = {yt: num("youtube"), fb: num("facebook"), zoomA: num("zoom")};
+      if (!Object.values(got).some(v => v !== null)) return;
+      const box = document.createElement("div"); box.className = "live-note";
+      const fill = () => { for (const [k, v] of Object.entries(got)) if (v !== null && !st[k]) { st[k] = String(v); const i = d.querySelector("#m-" + k); if (i) i.value = v; } keepDraft(); draw(); };
+      box.innerHTML = `<b>${svg("live")}Livestream peaks today</b><span>YouTube ${got.yt ?? "–"} · Facebook ${got.fb ?? "–"} · Zoom ${got.zoomA ?? "–"}</span>
+        <small>Zoom is everyone in the meeting: split adults and children yourself.</small><button type="button" class="link-btn">Fill in the empty boxes</button>`;
+      box.querySelector("button").onclick = () => { fill(); toast("Filled in from the livestream. Check them before sending."); };
+      d.querySelector(".fields-grid")?.before(box);
+      if (look().liveFill) { fill(); box.querySelector("button").textContent = "Filled in for you"; }
+    } catch {}
+  };
+  liveNote();
   const fol = d.querySelector("#m-follow"); if (fol) fol.onchange = e => { st.follow = e.target.checked; draw(); };
   const emo = d.querySelector("#m-emoji"); if (emo) emo.onchange = e => { S.emoji = e.target.checked; try { localStorage.setItem("fcc-emoji", S.emoji ? "on" : "off"); } catch {} draw(); };
   const names = d.querySelector("#m-names"), link = d.querySelector("#m-link"), day = d.querySelector("#m-day");
   if (day) day.onchange = e => { st.day = e.target.value || opts.day; if (!e.target.value) e.target.value = opts.day;
-    if (opts.fields) { const r = recall(); for (const [k] of opts.fields) { st[k] = r[k] || ""; const i = d.querySelector("#m-" + k); if (i) i.value = st[k]; } }  // each day keeps its own online numbers
-    draw(); };
+    if (opts.fields) { const r = recall(); for (const [k] of opts.fields) { st[k] = r[k] || ""; const i = d.querySelector("#m-" + k); if (i) i.value = st[k]; } st._at = r._at || 0; drafted(); }  // each day keeps its own online numbers
+    liveNote(); draw(); };
   if (names) names.onchange = e => { st.names = e.target.checked; draw(); };
   if (link) link.oninput = e => { st.link = e.target.value.trim(); draw(); };
   // opens WhatsApp with exactly what the preview shows (emojis, names and link as chosen); the person picks the chat and sends
@@ -640,7 +691,7 @@ function pages() {  // the menu, in groups; what each role can actually load is 
 }
 // Settings each person picks for themselves: colour, theme, text size and so on. Kept on this phone or laptop, per person.
 const ACCENTS = [["#1f6fe5", "Blue"], ["#0e8a7c", "Teal"], ["#6250d6", "Violet"], ["#c8417a", "Pink"], ["#dc5f26", "Orange"], ["#2b9348", "Green"], ["#b8860b", "Gold"]];
-const LOOK0 = {accent: "", theme: "", text: "normal", motion: false, contrast: false, muted: false, start: ""};
+const LOOK0 = {accent: "", theme: "", text: "normal", motion: false, contrast: false, muted: false, start: "", share: [], liveFill: false};
 const sysDark = matchMedia("(prefers-color-scheme: dark)");
 function look() { let v = {}; try { v = JSON.parse(localStorage.getItem("fcc-look:" + (S.me?.email || "")) || "{}"); } catch {} return {...LOOK0, ...v}; }
 function saveLook(ch) {
@@ -2556,7 +2607,11 @@ function settings(box) {
         `<option value="${k}" ${v.start === k ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`)}
       <div class="set-wide">${flip("set-mini", "Icons-only menu", "On laptops, show the side menu as icons only.", S.mini)}</div>
       ${flip("set-emoji", "Emojis in shared messages", "Adds emojis to the WhatsApp summaries you copy.", S.emoji)}
-      <div class="set-row"><span class="gap" style="flex:1"></span><button type="button" class="pill-btn" data-look-reset>Reset to default</button></div></div>`;
+      <div class="set-row"><span class="gap" style="flex:1"></span><button type="button" class="pill-btn" data-look-reset>Reset to default</button></div></div>
+    <div class="card set-card"><div class="card-head"><h2>Sharing summaries</h2></div>
+      ${row("Send to", "Extra places to send a summary, next to WhatsApp and Copy.", `<div class="chips" role="group" aria-label="Send to">${SHARE.map(([k, t]) =>
+        `<button type="button" class="chip" data-share-pick="${k}" aria-pressed="${shareTo().includes(k)}">${t}</button>`).join("")}</div>`)}
+      ${["admin", "lead"].includes(S.me.role) ? flip("set-livefill", "Fill in livestream numbers", "In the service summary, fill YouTube, Facebook and Zoom from the livestream's peaks for today.", !!v.liveFill) : ""}</div>`;
   const redo = () => settings(box), $ = q => box.querySelector(q);
   box.querySelectorAll("[data-accent]").forEach(b => b.onclick = () => { saveLook({accent: b.dataset.accent === ACCENTS[0][0] ? "" : b.dataset.accent}); redo(); });
   $("#acc-own").onchange = e => { saveLook({accent: e.target.value}); redo(); };
@@ -2567,6 +2622,9 @@ function settings(box) {
   $("#set-muted").onchange = e => saveLook({muted: e.target.checked});
   $("#set-contrast").onchange = e => saveLook({contrast: e.target.checked});
   $("#set-motion").onchange = e => saveLook({motion: e.target.checked});
+  box.querySelectorAll("[data-share-pick]").forEach(b => b.onclick = () => { const k = b.dataset.sharePick, now = shareTo();
+    saveLook({share: now.includes(k) ? now.filter(x => x !== k) : [...now, k]}); redo(); });
+  $("#set-livefill")?.addEventListener("change", e => saveLook({liveFill: e.target.checked}));
   $("#set-start").onchange = e => { saveLook({start: e.target.value}); toast("Saved. You'll start there next time."); };
   $("#set-mini").onchange = e => { S.mini = e.target.checked; try { localStorage.setItem("fcc-mini", S.mini ? "1" : "0"); } catch {}
     document.querySelector(".shell")?.classList.toggle("mini", S.mini); };
