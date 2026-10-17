@@ -15,7 +15,7 @@ with the [FCC Attendance Tracker](https://fcc-attendance.streamlit.app) (Streaml
 |---|---|---|
 | Phone app | `public/app/` | Plain HTML + JavaScript, no build step. Installable with *Add to Home Screen*. |
 | Welcome form | `app/page.tsx`, `app/WelcomeForm.tsx`, `app/registration.ts` | First-timers fill it in (e.g. from a QR code). Sign-ups wait as *pending* until a leader approves them. |
-| Server routes | `app/app-config`, `app/app-send`, `app/app-help` | Public Supabase settings for the app; sending the attendance report email; Help → Contact the admin. |
+| Server routes | `app/app-config`, `app/app-send`, `app/app-help`, `app/app-live` | Public Supabase settings for the app; sending the attendance report email; Help → Contact the admin; livestream viewer counts for the Livestream widget. |
 | Database rules | `supabase/app_setup.sql` | Tables, helper functions and Row Level Security. Safe to run again. |
 | Test database | `supabase/test_1_tables.sql`, `supabase/test_2_sample_data.sql` | A separate Supabase project with made-up people, used by Vercel previews. |
 | Guide | `docs/FCC-Attendance-Guide.pdf` | How it fits together, design decisions, common fixes. |
@@ -51,6 +51,7 @@ in `supabase/app_setup.sql` decides what comes back.
 - Only Supabase's **publishable** key is used in the browser. Never put the **secret / service_role** key in this
   project or in Vercel.
 - `BREVO_API_KEY` and `REPORT_SENDER` are server-only Vercel settings, used by `app-send` and `app-help`.
+- `LIVE_STATS_URL` and `LIVE_KEY` are server-only Vercel settings, used by `app-live`. The phone only ever gets the viewer counts, never the live dashboard's password.
 - Never commit real names, phone numbers or emails. Add the first admin by typing the one-line `insert` at the
   bottom of `app_setup.sql` into the Supabase SQL editor.
 - The welcome form can only *insert pending* sign-ups; it can't read anything. A honeypot field drops most bots,
@@ -68,6 +69,7 @@ in `supabase/app_setup.sql` decides what comes back.
 4. **Vercel** → Settings → Environment Variables (type *Config*, not *Secret*):
    - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: Production = fcc-church, Preview = fcc-test
    - `BREVO_API_KEY`, `REPORT_SENDER`: server-only, for report and help emails
+   - `LIVE_STATS_URL`, `LIVE_KEY`: server-only, for the **Livestream** widget. `LIVE_STATS_URL` is the church-live-dashboard link without `?key=` (e.g. `https://live.<your-name>.workers.dev`); `LIVE_KEY` is that dashboard's `DASHBOARD_KEY`, if it has one. Without them the widget says the livestream isn't connected yet.
 
 ## Working on it
 
