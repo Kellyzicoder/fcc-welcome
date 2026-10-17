@@ -987,8 +987,8 @@ function checkin(el) {
       <div class="card tile"><div class="label">Not yet</div><div class="num" id="n-not">0</div></div></div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span><button type="button" class="pill-btn sm" id="ci-lock">${svg("lock")}Save &amp; lock</button></div>
       <div class="u-bar"><div class="rpills" role="tablist" aria-label="Show" id="ci-pills"></div>
-        <div class="u-tools"><select class="in" id="ci-team" aria-label="Team" hidden></select>
-          <input class="in" id="q" type="search" placeholder="Search names" value="${esc(S.q)}" aria-label="Search by name, phone or team" autocomplete="off"></div></div>
+        <div class="u-tools"><input class="in" id="q" type="search" placeholder="Search names" value="${esc(S.q)}" aria-label="Search by name, phone or team" autocomplete="off"></div></div>
+      <div class="rpills ci-teams" id="ci-teams" aria-label="Teams" hidden></div>
       <div class="bulk" id="ci-bulk" hidden style="position:static;box-shadow:none"><b id="ci-count"></b><span class="gap"></span><button type="button" class="pill-btn sm primary" id="ci-all">Tick all</button><button type="button" class="pill-btn sm" id="ci-none">Untick all</button></div>
       <div class="msg locked" id="ci-locked" hidden></div>
       <div id="names"></div><div id="ci-pager"></div>
@@ -1005,15 +1005,18 @@ function checkin(el) {
   const teams = {};  // each role in this church with how many people have it
   for (const m of mine) for (const r of new Set(rolesOf(m).map(norm))) (teams[r] ??= {label: rolesOf(m).find(x => norm(x) === r), n: 0}).n++;
   if (S.ciRole && !teams[S.ciRole]) S.ciRole = "";
-  const teamKeys = Object.keys(teams).sort(), teamSel = el.querySelector("#ci-team");
-  teamSel.hidden = !teamKeys.length;
-  teamSel.innerHTML = `<option value="">All teams</option>` + teamKeys.map(k => `<option value="${esc(k)}" ${S.ciRole === k ? "selected" : ""}>${esc(teams[k].label)} · ${teams[k].n}</option>`).join("");
-  teamSel.onchange = () => { S.ciRole = teamSel.value; S.ciPage = 1; armed = false; draw(); };
+  // team pills, each in its own colour (the same colour every time, from the team's name)
+  const teamKeys = Object.keys(teams).sort(), teamBox = el.querySelector("#ci-teams");
+  teamBox.hidden = !teamKeys.length;
+  const drawTeams = () => { teamBox.innerHTML = `<button type="button" class="rpill tint" data-team="" aria-pressed="${!S.ciRole}">All teams</button>` + teamKeys.map(k => { const h = hueOf(teams[k].label);
+    return `<button type="button" class="rpill tint" data-team="${esc(k)}" aria-pressed="${S.ciRole === k}" style="--rc:var(--h${h});--rb:var(--h${h}b);--rt:var(--h${h}t)"><i></i>${esc(teams[k].label)} <span>${teams[k].n}</span></button>`; }).join(""); };
+  teamBox.onclick = e => { const b = e.target.closest("[data-team]"); if (!b) return; S.ciRole = S.ciRole === b.dataset.team ? "" : b.dataset.team; S.ciPage = 1; armed = false; drawTeams(); draw(); };
+  drawTeams();
   const SHOWCI = {all: ["Everyone", 0, () => true], here: ["Here", 2, m => here[m.id]], not: ["Not yet", 3, m => !here[m.id]],
     first: ["First-timers", 6, m => m.type === "first_timer"], visitor: ["Visitors", 4, m => m.type === "visitor"], kids: ["Kids", 5, m => isKid(m)]};
   if (!SHOWCI[S.ciShow]) S.ciShow = "all";
   el.querySelector("#ci-pills").onclick = e => { const b = e.target.closest("[data-cis]"); if (!b) return; S.ciShow = b.dataset.cis; S.ciPage = 1; armed = false; draw(); };
-  const PER = 25;
+  const PER = 60;  // three columns of 20
   let armed = false, armedAll = false, busy = false;
   const narrowedTo = () => { const q = norm(S.q);  // team and search; the pills then pick within these
     return mine.filter(m => (!S.ciRole || rolesOf(m).some(r => norm(r) === S.ciRole)) && (!q || norm(m.full_name).includes(q) || norm(m.phone).includes(q) || rolesOf(m).some(r => norm(r).includes(q)))); };
@@ -1021,16 +1024,12 @@ function checkin(el) {
   const draw = () => {
     const base = narrowedTo(), shown = base.filter(SHOWCI[S.ciShow][2]), narrowed = !!(S.ciRole || norm(S.q) || S.ciShow !== "all"), ticked = shown.filter(m => here[m.id]).length;
     el.querySelector("#ci-pills").innerHTML = Object.entries(SHOWCI).map(([k, [t, h, f]]) =>
-      `<button type="button" class="rpill" role="tab" data-cis="${k}" aria-selected="${S.ciShow === k}" ${h ? `style="--rc:var(--h${h})"` : ""}>${h ? "<i></i>" : ""}${t} <span>${base.filter(f).length}</span></button>`).join("");
+      `<button type="button" class="rpill tint" role="tab" data-cis="${k}" aria-selected="${S.ciShow === k}" ${h ? `style="--rc:var(--h${h});--rb:var(--h${h}b);--rt:var(--h${h}t)"` : ""}>${h ? "<i></i>" : ""}${t} <span>${base.filter(f).length}</span></button>`).join("");
     const pages = Math.max(1, Math.ceil(shown.length / PER)); S.ciPage = Math.min(Math.max(1, S.ciPage || 1), pages);
     const page = shown.slice((S.ciPage - 1) * PER, S.ciPage * PER);
     const nums = [...new Set([1, S.ciPage - 1, S.ciPage, S.ciPage + 1, pages])].filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
-    box.innerHTML = shown.length ? `<div class="scroll"><table class="utable ci-table"><thead><tr><th class="tick"><span class="sr">Here</span></th><th>Name</th><th class="hide-sm">Type</th><th class="hide-sm">Teams</th><th class="hide-sm">Status</th></tr></thead><tbody>
-      ${page.map(m => `<tr class="ci-row ${here[m.id] ? "on" : ""}" data-row="${esc(m.id)}"><td class="tick"><input type="checkbox" data-id="${esc(m.id)}" aria-label="${esc(m.full_name)} is here" ${here[m.id] ? "checked" : ""} ${lock ? "disabled" : ""}></td>
-        <td><div class="who-cell"><span class="ava" ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span><span><b>${esc(m.full_name)}</b><small>${esc([m.phone, isKid(m) ? "Child" : ""].filter(Boolean).join(" · "))}</small></span></div></td>
-        <td class="hide-sm">${m.type === "first_timer" ? `<span class="rbadge r-pastor">First-timer</span>` : m.type === "visitor" ? `<span class="rbadge r-bishop">Visitor</span>` : `<span class="muted">Member</span>`}</td>
-        <td class="hide-sm">${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("") || `<span class="muted">–</span>`}</td>
-        <td class="hide-sm">${here[m.id] ? `<span class="badge ok">Here${here[m.id].length > 15 ? " · " + esc(here[m.id].slice(11, 16)) : ""}</span>` : `<span class="muted">Not yet</span>`}</td></tr>`).join("")}</tbody></table></div>`
+    box.innerHTML = shown.length ? `<div class="names">${page.map(m => `<label class="name ${here[m.id] ? "on" : ""}"><input type="checkbox" data-id="${esc(m.id)}" ${here[m.id] ? "checked" : ""} ${lock ? "disabled" : ""}>
+        <span class="nava" ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span><span class="nn">${esc(m.full_name)}</span><small>${[m.type === "first_timer" ? "first-timer" : m.type === "visitor" ? "visitor" : "", isKid(m) ? "child" : ""].filter(Boolean).map(esc).join(" · ")}</small></label>`).join("")}</div>`
       : `<p class="empty">${norm(S.q) ? "Nobody matches that search." : "Nobody here. Try another filter or team."}</p>`;
     el.querySelector("#ci-pager").innerHTML = pages > 1 ? `<div class="pager"><span class="muted">Page ${S.ciPage} of ${pages} · ${shown.length} people</span><span class="gap"></span>
         <button class="pg" data-cpg="${S.ciPage - 1}" ${S.ciPage === 1 ? "disabled" : ""} aria-label="Previous page">${svg("prev")}</button>
@@ -1052,9 +1051,6 @@ function checkin(el) {
     el.querySelector("#n-in").textContent = ids.length; el.querySelector("#n-ad").textContent = ids.length - kids;
     el.querySelector("#n-kid").textContent = kids; el.querySelector("#n-not").textContent = mine.length - ids.length;
   };
-  // tapping anywhere on a row ticks it, like tapping its box
-  box.onclick = e => { if (e.target.closest("input, a, button")) return; const tr = e.target.closest("[data-row]"); if (!tr) return;
-    const c = tr.querySelector("input[data-id]"); if (c.disabled) return toast("This service is locked. Unlock it to make changes."); c.checked = !c.checked; c.dispatchEvent(new Event("change", {bubbles: true})); };
   const pull = async () => {
     const rows = await api(`attendance?select=member_id,checked_at&service_date=eq.${S.date}`).catch(() => null);
     readLock();

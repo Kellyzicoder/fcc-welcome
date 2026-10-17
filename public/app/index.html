@@ -461,14 +461,25 @@ button.ov-cell {cursor: pointer;} button.ov-cell:hover {background: var(--soft);
 .nav:not(.on) svg {color: var(--nc, currentColor);}
 .tiles > .tile .label::before {content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; background: var(--h1); vertical-align: 1px;}
 .tiles > .tile:nth-child(2) .label::before {background: var(--h4);} .tiles > .tile:nth-child(3) .label::before {background: var(--h2);} .tiles > .tile:nth-child(4) .label::before {background: var(--h3);}
-.tiles > .tile {border-top: 3px solid transparent;}
-.tiles > .tile:nth-child(1) {border-top-color: var(--h1);} .tiles > .tile:nth-child(2) {border-top-color: var(--h4);} .tiles > .tile:nth-child(3) {border-top-color: var(--h2);} .tiles > .tile:nth-child(4) {border-top-color: var(--h3);}
+.tiles > .tile {--tc: var(--h1); border: 1px solid color-mix(in srgb, var(--tc) 38%, transparent);}
+.tiles > .tile:nth-child(2) {--tc: var(--h4);} .tiles > .tile:nth-child(3) {--tc: var(--h2);} .tiles > .tile:nth-child(4) {--tc: var(--h3);}
 @media (max-width: 560px) { .hico {width: 40px; height: 40px;} }
 /* Check-in table: tap a row to tick it; ticked rows turn soft green */
 .sr {position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;}
 .ci-row {cursor: pointer;} .ci-row:hover td {background: var(--soft);} .ci-row.on td {background: var(--h2b);}
 .ci-row.on td:first-child {box-shadow: inset 3px 0 0 var(--h2);} .ci-table .tick input {width: 20px; height: 20px; accent-color: var(--h2);}
 .ci-table td {padding-top: 9px; padding-bottom: 9px;}
+/* Check-in names: three columns of name cards with a colour circle; ticked cards turn soft green. Pills in soft colour. */
+.names .name {padding: 8px 12px 8px 10px;} .name .nava {width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 11.5px; font-weight: 700; flex: none;}
+.name .nn {flex: 0 1 auto; min-width: 0; max-width: 62%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500;}
+.name.on {background: var(--h2b); border-color: color-mix(in srgb, var(--h2) 45%, transparent);} .name input {accent-color: var(--h2);}
+.rpill.tint {background: var(--rb, var(--soft)); border-color: transparent; color: var(--rt, var(--ink));}
+.rpill.tint span {color: inherit; opacity: .7;}
+.rpill.tint[aria-selected="true"], .rpill.tint[aria-pressed="true"] {background: var(--rc, var(--ink)); color: #fff; box-shadow: none;}
+.rpill.tint[aria-selected="true"] i, .rpill.tint[aria-pressed="true"] i {background: #fff;}
+.rpill.tint:not([aria-pressed="true"]):not([aria-selected="true"]):hover {border-color: var(--rc, var(--ink-3));}
+[data-theme="dark"] .rpill.tint:not([style]) {color: var(--ink);} [data-theme="dark"] .rpill.tint[aria-selected="true"]:not([style]), [data-theme="dark"] .rpill.tint[aria-pressed="true"]:not([style]) {background: var(--ink); color: var(--page);}
+.ci-teams {margin: -4px 0 14px;}
 /* Admin tabs */
 .atabs {display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); margin: 0 0 14px; overflow-x: auto; width: max-content; max-width: 100%;}
 .atabs button {border: 0; background: none; color: var(--ink-2); font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 10px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 7px;}
