@@ -172,7 +172,14 @@ function waDialog(title, build, opts = {}) {
   document.querySelectorAll(".modal").forEach(m => m.remove());
   const st = {names: false, link: "", follow: false, day: opts.day || ""}, d = document.createElement("div");
   const memo = () => `fcc-wa:${S.church}:${st.day}`, recall = () => { try { return JSON.parse(localStorage.getItem(memo()) || "{}"); } catch { return {}; } };
-  if (opts.fields) Object.assign(st, recall());
+  // A day with more than one service: the boxes come once per service (preacher, Zoom, YouTube... for each),
+  // and the message keeps the services apart. It's switched on by the person, or already on when Check-in split the day.
+  const FKEY = /^(preacher|sermon|zoomA|zoomK|yt|fb|converts)(_\d)?$/;
+  const loadDraft = () => { for (const k of Object.keys(st)) if (FKEY.test(k)) delete st[k]; const r = recall();
+    Object.assign(st, Object.fromEntries(Object.entries(r).filter(([k]) => FKEY.test(k))), {_at: r._at || 0,
+      multi: r.multi ?? partsOf(st.day).length > 1, count: Math.min(3, Math.max(2, r.count || partsOf(st.day).length || 2))}); };
+  if (opts.fields) loadDraft();
+  let liveStarts = [];  // start times of the day's livestreamed services, for naming the boxes
   const hm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
   const others = shareTo().filter(k => k !== "sms" || onPhone()), native = onPhone() && !!navigator.share;
   const toggle = (id, label, hint, on) => `<label class="switch"><span><b>${label}</b><small>${hint}</small></span><input type="checkbox" id="${id}" ${on ? "checked" : ""}><i></i></label>`;
@@ -181,8 +188,7 @@ function waDialog(title, build, opts = {}) {
     <div class="card-head"><h2>${esc(title)}</h2><span class="gap"></span><button class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
     <div class="modal-grid"><div class="opts">
         ${opts.day ? `<div class="opt"><label class="f" for="m-day">Service date</label><input class="in" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}
-        ${opts.fields ? `<div class="opt fields-grid">${opts.fields.map(([k, label, kind]) => `<div class="${kind === "num" ? "" : "wide"}"><label class="f" for="m-${k}">${label}</label>
-          <input class="in" id="m-${k}" data-field="${k}" ${kind === "num" ? `type="number" inputmode="numeric" min="0" placeholder="0"` : `maxlength="80"`} value="${esc(st[k] ?? "")}"></div>`).join("")}</div>` : ""}
+        ${opts.fields ? `${toggle("m-multi", "More than one service today", "Fill in each service on its own; the message keeps them apart", st.multi)}<div id="m-fields"></div>` : ""}
         ${opts.noEmoji ? "" : toggle("m-emoji", "Emojis", "Turn off for a plain-text message", S.emoji)}
         ${opts.names ? toggle("m-names", "Include names", opts.fields ? "First-timers' names" : "Leave off for big group chats", false) : ""}
         ${opts.follow ? toggle("m-follow", "Include follow-up", "Who missed services, with numbers and names", false) : ""}
@@ -210,18 +216,32 @@ function waDialog(title, build, opts = {}) {
     box.textContent = st._at ? `Draft saved at ${hm(st._at)}. Close and come back any time.` : "";
     d.querySelector("[data-clear]").hidden = !st._at; };
   const keepDraft = () => { st._at = Date.now();
-    try { localStorage.setItem(memo(), JSON.stringify({...Object.fromEntries((opts.fields || []).map(([k]) => [k, st[k] || ""])), _at: st._at})); } catch {} drafted(); };
+    try { localStorage.setItem(memo(), JSON.stringify({...Object.fromEntries(Object.entries(st).filter(([k, v]) => FKEY.test(k) && v)), multi: st.multi, count: st.count, _at: st._at})); } catch {} drafted(); };
+  // the boxes: one set, or one set per service
+  const groupName = i => partsOf(st.day)[i - 1]?.name || (liveStarts[i - 1] ? `${hm(liveStarts[i - 1])} service` : `Service ${i}`);
+  const drawFields = () => {
+    const box = d.querySelector("#m-fields"); if (!box) return;
+    st.groups = Array.from({length: st.count}, (_, j) => groupName(j + 1));  // the services' names, for the message
+    const set = (sfx, head) => `<div class="opt fields-grid">${head || ""}${opts.fields.map(([k, label, kind]) => `<div class="${kind === "num" ? "" : "wide"}"><label class="f" for="m-${k}${sfx}">${label}</label>
+      <input class="in" id="m-${k}${sfx}" data-field="${k}${sfx}" ${kind === "num" ? `type="number" inputmode="numeric" min="0" placeholder="0"` : `maxlength="80"`} value="${esc(st[k + sfx] ?? "")}"></div>`).join("")}</div>`;
+    box.innerHTML = !st.multi ? set("") : Array.from({length: st.count}, (_, j) => set("_" + (j + 1), `<b class="wide svc-head">${esc(groupName(j + 1))}</b>`)).join("")
+      + `<div class="svc-more">${st.count < 3 ? `<button type="button" class="link-btn" data-svc-add>+ Add a third service</button>` : `<button type="button" class="link-btn" data-svc-less>Only two services</button>`}</div>`;
+    box.querySelectorAll("[data-field]").forEach(i => i.oninput = () => { st[i.dataset.field] = i.value.trim(); keepDraft(); draw(); });
+    box.querySelector("[data-svc-add]")?.addEventListener("click", () => { st.count = 3; keepDraft(); drawFields(); liveNote(); draw(); });
+    box.querySelector("[data-svc-less]")?.addEventListener("click", () => { st.count = 2; keepDraft(); drawFields(); liveNote(); draw(); });
+  };
+  drawFields();
+  d.querySelector("#m-multi")?.addEventListener("change", e => { st.multi = e.target.checked; keepDraft(); drawFields(); liveNote(); draw(); });
   const close = () => { d.remove(); document.removeEventListener("keydown", esc2); }, esc2 = e => { if (e.key === "Escape") close(); };
   d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
   document.addEventListener("keydown", esc2);
-  d.querySelectorAll("[data-field]").forEach(i => i.oninput = () => { st[i.dataset.field] = i.value.trim(); keepDraft(); draw(); });
   const saveBtn = d.querySelector("#m-save"); if (saveBtn) saveBtn.onclick = () => { keepDraft(); toast("Draft saved. Open the summary again any time to finish it."); };
   d.querySelector("[data-clear]")?.addEventListener("click", () => { try { localStorage.removeItem(memo()); } catch {}
-    for (const [k] of opts.fields) { st[k] = ""; const i = d.querySelector("#m-" + k); if (i) i.value = ""; } st._at = 0; drafted(); draw(); });
+    for (const k of Object.keys(st)) if (FKEY.test(k)) delete st[k]; st._at = 0; drawFields(); drafted(); draw(); });
   d.querySelectorAll("[data-share]").forEach(b => b.onclick = () => shareOut(b.dataset.share, text.textContent, title));
   drafted();
-  // Livestream numbers for this service: shown as a note to copy from, or filled in for you (Settings → Sharing summaries)
-  // Livestream numbers for the chosen day's service. Morning prayers (streams that start between 4:30 and 6:30 am) aren't counted.
+  // Livestream numbers for the chosen day's services. Morning prayers (streams that start between 4:30 and 6:30 am) aren't counted,
+  // and Zoom has 2 taken off each service for the host and co-host. They're shown as a note, or filled in for you (Settings → Sharing summaries).
   const prayers = t => { const x = new Date(t), m = x.getHours() * 60 + x.getMinutes(); return m >= 270 && m < 390; };
   const liveNote = async () => {
     d.querySelector(".live-note")?.remove();
@@ -230,24 +250,36 @@ function waDialog(title, build, opts = {}) {
     const get = async q => { const r = await fetch("/app-live?church=" + encodeURIComponent(S.church) + q, {cache: "no-store",
       headers: {Authorization: "Bearer " + S.session.access_token}}); return r.ok ? r.json() : null; };
     try {
-      let svc = null;
+      let list = [];
       const s = await get(`&from=${from}&to=${to}`);
-      if (s?.services) svc = s.services.filter(x => !prayers(x.start)).sort((a, b) => b.total - a.total)[0] || null;  // the day's biggest service
+      if (s?.services) list = s.services.filter(x => !prayers(x.start)).sort((a, b) => a.start - b.start);  // the day's services, in order
       else if (day === today()) {  // a church without saved services (its own YouTube channel): today's recent counts
         const j = await get(""); const h = (j?.history || []).filter(x => x.t >= from && !prayers(x.t) && x.total > 0);
-        if (h.length) svc = {start: h[0].t, youtube: Math.max(...h.map(x => x.total)), facebook: 0, zoom: 0};
+        if (h.length) list = [{start: h[0].t, total: Math.max(...h.map(x => x.total)), youtube: Math.max(...h.map(x => x.total)), facebook: 0, zoom: 0}];
       }
-      if (!svc || !d.isConnected || st.day !== day) return;
-      const got = {yt: svc.youtube > 0 ? svc.youtube : null, fb: svc.facebook > 0 ? svc.facebook : null, zoomA: svc.zoom > 2 ? svc.zoom - 2 : null};
-      if (!Object.values(got).some(v => v !== null)) return;
+      list = list.filter(x => x.youtube > 0 || x.facebook > 0 || x.zoom > 2);
+      if (!list.length || !d.isConnected || st.day !== day) return;
+      liveStarts = list.map(x => x.start);
+      if (st.multi) { const keep = document.activeElement?.dataset?.field; drawFields(); if (keep) d.querySelector(`[data-field="${keep}"]`)?.focus(); }
+      const nums = x => ({yt: x.youtube > 0 ? x.youtube : null, fb: x.facebook > 0 ? x.facebook : null, zoomA: x.zoom > 2 ? x.zoom - 2 : null});
+      const line = x => { const n = nums(x); return `YouTube ${n.yt ?? "–"} · Facebook ${n.fb ?? "–"} · Zoom ${n.zoomA ?? "–"}`; };
+      const put = (got, sfx) => { for (const [k, v] of Object.entries(got)) if (v !== null && !st[k + sfx]) { st[k + sfx] = String(v); const i = d.querySelector(`#m-${k}${sfx}`); if (i) i.value = v; } };
+      const fill = () => { if (st.multi) list.slice(0, st.count).forEach((x, i) => put(nums(x), "_" + (i + 1)));
+        else put(nums(list.length === 1 ? list[0] : [...list].sort((a, b) => b.total - a.total)[0]), ""); keepDraft(); draw(); };
       const box = document.createElement("div"); box.className = "live-note";
-      const fill = () => { for (const [k, v] of Object.entries(got)) if (v !== null && !st[k]) { st[k] = String(v); const i = d.querySelector("#m-" + k); if (i) i.value = v; } keepDraft(); draw(); };
-      box.innerHTML = `<b>${svg("live")}Livestream peaks${svc.start ? `, service from ${hm(svc.start)}` : ""}</b><span>YouTube ${got.yt ?? "–"} · Facebook ${got.fb ?? "–"} · Zoom ${got.zoomA ?? "–"}</span>
-        ${svc.zoom ? `<small>Zoom: ${svc.zoom} in the meeting, minus 2 for the host and co-host. Split adults and children yourself.</small>` : ""}
-        <small>Morning prayers (5 to 6 am) aren't counted.</small><button type="button" class="link-btn">Fill in the empty boxes</button>`;
-      box.querySelector("button").onclick = () => { fill(); toast("Filled in from the livestream. Check them before sending."); };
-      d.querySelector(".fields-grid")?.before(box);
-      if (look().liveFill) { fill(); box.querySelector("button").textContent = "Filled in for you"; }
+      const zoomNote = `<small>Zoom has 2 taken off ${list.length > 1 ? "each service " : ""}for the host and co-host. Split adults and children yourself. Morning prayers (5 to 6 am) aren't counted.</small>`;
+      if (!st.multi && list.length > 1) {  // the livestream saw more than one service, but the boxes are for one: ask
+        box.innerHTML = `<b>${svg("live")}The livestream had ${list.length} services today</b>${list.map(x => `<span>${hm(x.start)}: ${line(x)}</span>`).join("")}
+          ${zoomNote}<button type="button" class="link-btn" data-multi-on>Yes, fill in each service</button>`;
+        box.querySelector("[data-multi-on]").onclick = () => { st.multi = true; st.count = Math.min(3, Math.max(2, list.length)); const m = d.querySelector("#m-multi"); if (m) m.checked = true;
+          drawFields(); fill(); liveNote(); toast("Each service has its own boxes now, filled in from the livestream. Check them before sending."); };
+      } else {
+        box.innerHTML = `<b>${svg("live")}Livestream peaks</b>${(st.multi ? list.slice(0, st.count) : list.slice(0, 1)).map((x, i) => `<span>${st.multi ? esc(groupName(i + 1)) : hm(x.start) + " service"}: ${line(x)}</span>`).join("")}
+          ${zoomNote}<button type="button" class="link-btn" data-fill>Fill in the empty boxes</button>`;
+        box.querySelector("[data-fill]").onclick = () => { fill(); toast("Filled in from the livestream. Check them before sending."); };
+        if (look().liveFill) { fill(); box.querySelector("[data-fill]").textContent = "Filled in for you"; }
+      }
+      d.querySelector("#m-fields")?.before(box);
     } catch {}
   };
   liveNote();
@@ -255,7 +287,7 @@ function waDialog(title, build, opts = {}) {
   const emo = d.querySelector("#m-emoji"); if (emo) emo.onchange = e => { S.emoji = e.target.checked; try { localStorage.setItem("fcc-emoji", S.emoji ? "on" : "off"); } catch {} draw(); };
   const names = d.querySelector("#m-names"), link = d.querySelector("#m-link"), day = d.querySelector("#m-day");
   if (day) day.onchange = e => { st.day = e.target.value || opts.day; if (!e.target.value) e.target.value = opts.day;
-    if (opts.fields) { const r = recall(); for (const [k] of opts.fields) { st[k] = r[k] || ""; const i = d.querySelector("#m-" + k); if (i) i.value = st[k]; } st._at = r._at || 0; drafted(); }  // each day keeps its own online numbers
+    if (opts.fields) { loadDraft(); liveStarts = []; const m = d.querySelector("#m-multi"); if (m) m.checked = st.multi; drawFields(); drafted(); }  // each day keeps its own online numbers
     liveNote(); draw(); };
   if (names) names.onchange = e => { st.names = e.target.checked; draw(); };
   if (link) link.oninput = e => { st.link = e.target.value.trim(); draw(); };
@@ -821,7 +853,41 @@ const badge = f => `<span class="badge ${f}">${FLAG[f]}</span>`;
 // The church's standard attendance message. No emojis. Online numbers, preacher and sermon are typed in the popup;
 // adults and children "Attending" come from the ticks. Follow-up is added only when asked for.
 const dmy = d => d.split("-").reverse().join("/");
+// Which of this church's people came to one of a day's services (Check-in split the day into services).
+function membersAt(p, d, part) {
+  const day = p.byDate[d] || {}, ids = new Set(S.pticks.filter(t => t.service_date === d && t.part === part && day[t.member_id]).map(t => t.member_id));
+  return p.mine.filter(m => ids.has(m.id));
+}
+// The standard message for a day with more than one service: each service on its own, then the whole day (each person once).
+function reportMulti(p, o) {
+  const day = p.last, n = o.count || 2, parts = partsOf(day), num = k => Math.max(0, parseInt(o[k], 10) || 0);
+  const sum = k => Array.from({length: n}, (_, j) => num(`${k}_${j + 1}`)).reduce((a, b) => a + b, 0);
+  const out = [`${svcName(day).toUpperCase()} ATTENDANCE (${n} SERVICES)`, "", `DAY - ${new Date(day + "T12:00:00").toLocaleDateString("en-NZ", {weekday: "long"}).toUpperCase()}`, "",
+    `DATE - ${dmy(day)}`, "", `BRANCH/MISSION - ${S.church}`, ""];
+  for (let i = 1; i <= n; i++) {
+    const part = parts[i - 1], ppl = part ? membersAt(p, day, part.part) : null, kidsIn = ppl ? ppl.filter(isKid).length : 0, adultsIn = ppl ? ppl.length - kidsIn : 0;
+    out.push(`— ${(part?.name || o.groups?.[i - 1] || `Service ${i}`).toUpperCase()} —`, `PREACHER NAME - ${o["preacher_" + i] || ""}`, `SERMON TITLE: ${o["sermon_" + i] || ""}`, "",
+      `*ADULTS - ${adultsIn + num("zoomA_" + i) + num("yt_" + i) + num("fb_" + i)}`, ...(ppl ? [`[Attending: Adults - ${adultsIn}]`] : []),
+      `[Zoom: Adults - ${num("zoomA_" + i)}]`, `[Youtube -  ${num("yt_" + i)}]`, `[Facebook -  ${num("fb_" + i)}]`, "",
+      `*CHILDREN - ${kidsIn + num("zoomK_" + i)}`, ...(ppl ? [`[Attending - ${kidsIn}]`] : []), `[Zoom - ${num("zoomK_" + i)}]`, "", `New Converts - ${num("converts_" + i)}`, "");
+  }
+  const kidsIn = p.kids, adultsIn = p.present.length - kidsIn, online = sum("zoomA") + sum("yt") + sum("fb");
+  const firsts = p.present.filter(m => m.type === "first_timer");
+  out.push("— WHOLE DAY (each person counted once) —", `*ADULTS - ${adultsIn + online}`, `[Attending: Adults - ${adultsIn}]`, `[Online - ${online}]`, "",
+    `*CHILDREN - ${kidsIn + sum("zoomK")}`, `[Attending - ${kidsIn}]`, `[Zoom - ${sum("zoomK")}]`, "",
+    `First timers - ${firsts.length}`, ...(o.names && firsts.length ? [firsts.map(m => m.full_name).join(", ")] : []), "",
+    `Visitors - ${p.visitors}`, ...(o.names && p.visitors ? [p.present.filter(m => m.type === "visitor").map(m => m.full_name).join(", ")] : []), "",
+    `New Converts - ${sum("converts")}`);
+  if (o.follow) {
+    const f = lv => p.people.filter(x => x.level === lv);
+    out.push("", "FOLLOW-UP", `Missed ${RED_AT}+ in a row - ${f("red").length}`, ...(f("red").length ? [f("red").map(x => x.full_name).join(", ")] : []),
+      `Missed ${YELLOW_AT}-${RED_AT - 1} in a row - ${f("yellow").length}`, ...(f("yellow").length ? [f("yellow").map(x => x.full_name).join(", ")] : []));
+  }
+  if (o.link) out.push("", `Livestream: ${o.link}`);
+  return out.join("\n").trim();
+}
 function report(p, o = {}) {
+  if (o.multi) return reportMulti(p, o);
   const day = p.last, kidsIn = p.kids, adultsIn = p.present.length - kidsIn, n = k => Math.max(0, parseInt(o[k], 10) || 0);
   const adults = adultsIn + n("zoomA") + n("yt") + n("fb"), kids = kidsIn + n("zoomK");
   const firsts = p.present.filter(m => m.type === "first_timer");
