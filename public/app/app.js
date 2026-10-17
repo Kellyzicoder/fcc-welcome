@@ -505,6 +505,12 @@ const ICON = {
   prev: '<path d="M15 6l-6 6 6 6"/>',
   next: '<path d="M9 6l6 6-6 6"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  bars: '<path d="M5 20V10M12 20V4M19 20v-7"/>',
+  trend: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+  gauge: '<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l4-5"/>',
+  compare: '<path d="M7 4v16M7 4l-3 3M7 4l3 3M17 20V4M17 20l-3-3M17 20l3-3"/>',
+  split: '<rect x="3" y="9" width="18" height="6" rx="3"/><path d="M10 9v6M15 9v6"/>',
   pastors: '<circle cx="9" cy="8" r="3.5"/><path d="M2 21a7 7 0 0 1 14 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a7 7 0 0 1 4 6.5"/>',
   person: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   signups: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h5"/>',
@@ -698,36 +704,186 @@ function rowsHtml(list, cols) {
   return list.map(p => `<tr><td>${whoBtn(p)}</td><td>${badge(p.flag)}</td><td>${p.missed}</td>
     <td class="muted hide-sm">${esc(nice(p.seen))}</td>${cols ? `<td class="muted hide-sm">${esc(p.pastor || "")}</td>` : ""}<td class="muted">${esc(p.phone || "")}</td></tr>`).join("");
 }
-function dashboard(el) {
-  const p = picture(), kidIds = new Set(p.mine.filter(isKid).map(m => m.id));
-  const series = p.dates.map(d => { const ids = Object.keys(p.byDate[d]), k = ids.filter(i => kidIds.has(i)).length; return [d, ids.length - k, k]; });
-  const need = p.people.filter(x => x.level !== "ok");
-  const stands = [["ok", "came this service"], ["blue", "missed this service"], ["yellow", `missed ${YELLOW_AT}–${RED_AT - 1} in a row`], ["red", `missed ${RED_AT} or more`]].map(([f, t]) => [f, t, p.count(f)]);
+// ---------------------------------------------------------------- dashboard: widgets each person can add, remove and move
+// Each widget: name, short description for the Add widget popup, size (full = whole row, wide/narrow = left/right column), draw(card, p).
+const DASH_DEFAULT = ["tiles", "people", "calendar", "followup", "stands"];
+const sameDayBefore = (p, d) => [...p.dates].reverse().find(x => x < d && new Date(x + "T12:00:00").getDay() === new Date(d + "T12:00:00").getDay());
+function countsOn(p, d) {  // present, adults, kids, first-timers (first visit that day) at one service
+  const ids = Object.keys(p.byDate[d] || {}), by = Object.fromEntries(p.mine.map(m => [m.id, m]));
+  const kids = ids.filter(i => by[i] && isKid(by[i])).length, first = ids.filter(i => by[i]?.type === "first_timer").length;
+  return {present: ids.length, adults: ids.length - kids, kids, first, visitors: ids.filter(i => by[i]?.type === "visitor").length};
+}
+const WIDGETS = {
+  tiles: {name: "This service", desc: "Present, adults, kids and first-timers at the latest service.", size: "full", icon: "checkin",
+    draw(el, p) {
+      el.classList.add("bare");
+      el.innerHTML = `<div class="tiles" style="margin:0">
+        <div class="card tile" tabindex="0" style="cursor:pointer"><div class="label">This service</div><div class="num">${p.present.length}<small>present</small></div></div>
+        <div class="card tile" tabindex="0" style="cursor:pointer"><div class="label">Adults</div><div class="num">${p.present.length - p.kids}</div></div>
+        <div class="card tile" tabindex="0" style="cursor:pointer"><div class="label">Kids</div><div class="num">${p.kids}</div></div>
+        <div class="card tile" tabindex="0" style="cursor:pointer"><div class="label">First-timers</div><div class="num">${p.first}${p.visitors ? `<small>+ ${p.visitors} ${p.visitors === 1 ? "visitor" : "visitors"}</small>` : ""}</div></div></div>`;
+      el.querySelectorAll(".tile").forEach(t => { t.title = "Open Check-in for this service";
+        t.onclick = t.onkeydown = e => { if (e.type === "keydown" && e.key !== "Enter") return; S.date = p.last || today(); S.view = "checkin"; render(); }; });
+    }},
+  compare: {name: "Compared with last time", desc: "Each number against the previous service on the same day (Sunday with Sunday, midweek with midweek), as more or fewer people.", size: "full", icon: "compare",
+    draw(el, p) {
+      el.classList.add("bare");
+      const prev = p.last && sameDayBefore(p, p.last);
+      if (!prev) { el.innerHTML = `<div class="card"><h2 style="margin:0 0 6px">Compared with last time</h2><p class="empty" style="margin:0">Needs two services on the same day of the week first.</p></div>`; return; }
+      const a = countsOn(p, p.last), b = countsOn(p, prev);
+      const diff = (x, y) => x === y ? `<span class="delta same">Same as ${esc(nice(prev))}</span>` : `<span class="delta ${x > y ? "up" : "down"}">${x > y ? "▲" : "▼"} ${Math.abs(x - y)} ${x > y ? "more" : "fewer"}</span>`;
+      el.innerHTML = `<div class="tiles" style="margin:0">${[["Present", "present"], ["Adults", "adults"], ["Kids", "kids"], ["First-timers", "first"]].map(([t, k]) =>
+        `<div class="card tile"><div class="label">${t}</div><div class="num">${a[k]}</div>${diff(a[k], b[k])}<div class="note" style="margin:6px 0 0">${b[k]} on ${esc(nice(prev))}</div></div>`).join("")}</div>`;
+    }},
+  people: {name: "People present", desc: "Adults and kids at each recent service. Tap a bar to open that day's Check-in.", size: "wide", icon: "dashboard",
+    draw(el, p) {
+      const kidIds = new Set(p.mine.filter(isKid).map(m => m.id));
+      const series = p.dates.map(d => { const ids = Object.keys(p.byDate[d]), k = ids.filter(i => kidIds.has(i)).length; return [d, ids.length - k, k]; });
+      el.innerHTML = `<div class="card-head"><h2>People present</h2><span class="gap"></span>
+        <div class="legend"><span><i style="background:var(--adults)"></i>Adults</span><span><i style="background:var(--kids)"></i>Kids</span></div></div><div class="chart"></div>`;
+      chart(el.querySelector(".chart"), series);
+    }},
+  calendar: {name: "Calendar", desc: "A month of services with how many came. Tap a day to open it.", size: "narrow", icon: "followup", draw(el, p) { calendar(el, p); }},
+  trend: {name: "Attendance trend", desc: "Sunday attendance over the last 10 weeks, against the 10 weeks before (dotted).", size: "full", icon: "trend",
+    draw(el, p) {
+      const suns = p.dates.filter(isSunday), now = suns.slice(-10), before = suns.slice(-20, -10), val = d => d ? Object.keys(p.byDate[d] || {}).length : null;
+      const lastV = val(now.at(-1)), avg = xs => xs.length ? Math.round(xs.reduce((n, d) => n + val(d), 0) / xs.length) : 0, aNow = avg(now), aBefore = avg(before);
+      el.innerHTML = `<div class="trend"><div class="trend-head"><h2>Attendance trend</h2>
+          <div class="big">${lastV ?? "–"}</div><div class="note" style="margin:0">${now.length ? `last Sunday · ${esc(nice(now.at(-1)))}` : "No Sunday services yet"}</div>
+          ${before.length ? `<span class="delta ${aNow >= aBefore ? "up" : "down"}" style="margin-top:10px">Average ${aNow} a Sunday, ${aNow === aBefore ? "same as" : `${Math.abs(aNow - aBefore)} ${aNow > aBefore ? "more" : "fewer"} than`} the 10 weeks before</span>` : ""}
+          <div class="legend" style="margin-top:12px"><span><i style="background:var(--accent)"></i>Last 10 Sundays</span>${before.length ? `<span><i style="background:var(--ink-3)"></i>10 before</span>` : ""}</div></div>
+        <div class="chart tline"></div></div>`;
+      const box = el.querySelector(".tline");
+      if (!now.length) { box.innerHTML = `<p class="empty">No Sunday services recorded yet.</p>`; return; }
+      const W = 640, H = 220, L = 30, B = 26, T = 14, n = Math.max(now.length, before.length, 2), all = [...now, ...before].map(val), max = Math.max(10, Math.ceil(Math.max(...all) / 10) * 10);
+      const x = i => L + (W - L - 10) * i / (n - 1), y = v => T + (H - T - B) * (1 - v / max);
+      const line = ds => ds.map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(val(d)).toFixed(1)}`).join(" ");
+      let svgs = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Sunday attendance, last 10 weeks against the 10 before">`;
+      for (const t of [0, .5, 1].map(f => Math.round(max * f))) svgs += `<line class="gridline" x1="${L}" x2="${W}" y1="${y(t)}" y2="${y(t)}"/><text x="${L - 8}" y="${y(t) + 4}" text-anchor="end">${t}</text>`;
+      svgs += `<path d="${line(now)} L${x(now.length - 1)},${y(0)} L${x(0)},${y(0)} Z" fill="var(--accent)" opacity=".08"/>`;
+      if (before.length) svgs += `<path d="${line(before)}" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-dasharray="5 5"/>`;
+      svgs += `<path d="${line(now)}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>`;
+      now.forEach((d, i) => { svgs += `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${i % 2 && n > 6 ? "" : esc(nice(d))}</text>`; });
+      svgs += `<line class="cursor" x1="0" x2="0" y1="${T}" y2="${y(0)}" stroke="var(--ink-3)" stroke-dasharray="3 3" opacity="0"/><circle class="dot" r="5" fill="var(--accent)" stroke="var(--panel)" stroke-width="2" opacity="0"/>`;
+      box.innerHTML = `<div class="tip"></div>${svgs}</svg>`;
+      const svg = box.querySelector("svg"), tip = box.querySelector(".tip"), cur = svg.querySelector(".cursor"), dot = svg.querySelector(".dot");
+      const show = e => {
+        const r = svg.getBoundingClientRect(), fx = (e.clientX - r.left) / r.width * W, i = Math.max(0, Math.min(now.length - 1, Math.round((fx - L) / ((W - L - 10) / (n - 1)))));
+        const v = val(now[i]), b = before[i] ? val(before[i]) : null, px = x(i);
+        cur.setAttribute("x1", px); cur.setAttribute("x2", px); cur.setAttribute("opacity", 1); dot.setAttribute("cx", px); dot.setAttribute("cy", y(v)); dot.setAttribute("opacity", 1);
+        tip.innerHTML = `<b>${esc(nice(now[i], true))}</b><br><i style="background:var(--accent)"></i>${v} present${b !== null ? `<br><i style="background:var(--ink-3)"></i>${b} on ${esc(nice(before[i]))}` : ""}`;
+        tip.style.left = Math.max(80, Math.min(r.width - 80, px / W * r.width)) + "px"; tip.style.top = (y(v) / H * r.height) + "px"; tip.style.opacity = 1;
+      };
+      svg.onpointermove = svg.onpointerdown = show;
+      svg.onpointerleave = () => { tip.style.opacity = 0; cur.setAttribute("opacity", 0); dot.setAttribute("opacity", 0); };
+    }},
+  split: {name: "Who came", desc: "The latest service split into adults, kids and first-timers.", size: "narrow", icon: "split",
+    draw(el, p) {
+      const c = p.last ? countsOn(p, p.last) : {present: 0, adults: 0, kids: 0, first: 0};
+      const parts = [["Adults", c.adults - c.first, "var(--adults)"], ["Kids", c.kids, "var(--kids)"], ["First-timers", c.first, "#e08a00"]].filter(x => x[1] > 0 || !c.present);
+      el.innerHTML = `<div class="card-head"><h2>Who came</h2><span class="gap"></span><span class="note" style="margin:0">${p.last ? esc(nice(p.last)) : ""}</span></div>
+        ${c.present ? `<div class="split-bar">${parts.map(([t, n, col]) => `<i style="flex:${n};background:${col}" title="${t}: ${n}"></i>`).join("")}</div>
+        <div class="split-rows">${parts.map(([t, n, col]) => `<div><span><i style="background:${col}"></i>${t}</span><b>${n}</b><small>${Math.round(n / c.present * 100)}%</small></div>`).join("")}</div>`
+        : `<p class="empty">No service recorded yet.</p>`}`;
+    }},
+  busiest: {name: "Biggest services", desc: "Recent services side by side, with the biggest one highlighted, and the highest number so far.", size: "wide", icon: "bars",
+    draw(el, p) {
+      const rows = p.dates.slice(innerWidth < 640 ? -7 : -10).map(d => [d, Object.keys(p.byDate[d] || {}).length]);
+      const best = p.dates.reduce((b, d) => { const v = Object.keys(p.byDate[d] || {}).length; return v > b[1] ? [d, v] : b; }, ["", 0]);
+      const top = Math.max(1, ...rows.map(r => r[1])), topDay = [...rows].reverse().find(r => r[1] === top)?.[0];  // the latest of any tie
+      el.innerHTML = `<div class="card-head"><h2>Biggest services</h2></div>
+        ${rows.length ? `<div class="vbars">${rows.map(([d, v]) => `<button type="button" class="vbar ${d === topDay ? "on" : ""}" data-day="${d}" title="${esc(svcName(d))} · ${esc(nice(d, true))}: ${v}">
+          <b>${d === topDay ? v : ""}</b><span style="height:${Math.max(6, v / top * 100)}%"></span><small>${esc(nice(d))}</small></button>`).join("")}</div>
+          <p class="note" style="margin:12px 0 0">Highest so far: <b>${best[1]}</b> at ${esc(svcName(best[0]))}, ${esc(nice(best[0], true))}.</p>` : `<p class="empty">No services recorded yet.</p>`}`;
+      el.querySelectorAll("[data-day]").forEach(b => b.onclick = () => { S.date = b.dataset.day; S.view = "checkin"; render(); });
+    }},
+  returning: {name: "Return rate", desc: "Of first-timers in the last 6 months, how many came back within 4 weeks of their first visit.", size: "narrow", icon: "gauge",
+    draw(el, p) {
+      const from = new Date(Date.now() - 182 * 864e5).toISOString().slice(0, 10), to = new Date(Date.now() - 28 * 864e5).toISOString().slice(0, 10);
+      const plus28 = d => new Date(new Date(d + "T12:00:00").getTime() + 28 * 864e5).toISOString().slice(0, 10);
+      const firsts = p.mine.filter(m => m.first_visit && m.first_visit >= from && m.first_visit <= to && m.type !== "visitor");
+      const back = firsts.filter(m => p.dates.some(d => d > m.first_visit && d <= plus28(m.first_visit) && p.byDate[d][m.id]));
+      const pct = firsts.length ? Math.round(back.length / firsts.length * 100) : 0, TARGET = 50;
+      const R = 70, C = Math.PI * R, segs = 30;
+      let arcs = ""; for (let i = 0; i < segs; i++) { const a = Math.PI * (1 - (i + .5) / segs), on = (i + .5) / segs * 100 <= pct;
+        arcs += `<line x1="${90 + Math.cos(a) * (R - 12)}" y1="${90 - Math.sin(a) * (R - 12)}" x2="${90 + Math.cos(a) * R}" y2="${90 - Math.sin(a) * R}" stroke="${on ? "var(--ok)" : "var(--line)"}" stroke-width="5" stroke-linecap="round"/>`; }
+      el.innerHTML = `<div class="card-head"><h2>Return rate</h2></div>
+        ${firsts.length ? `<div class="gauge"><svg viewBox="0 0 180 100" role="img" aria-label="${pct}% came back">${arcs}</svg><div class="gauge-num">${pct}%</div>
+          <div class="note" style="margin:0;text-align:center">${back.length} of ${firsts.length} first-timers came back within 4 weeks<br>${pct >= TARGET ? "On track" : "Below"} the ${TARGET}% target</div></div>`
+          : `<p class="empty">No first-timers in the last 6 months yet (counting those who first came at least 4 weeks ago).</p>`}`;
+    }},
+  followup: {name: "Needs a follow-up call", desc: `People who missed ${YELLOW_AT} or more Sundays in a row.`, size: "wide", icon: "followup",
+    draw(el, p) {
+      const need = p.people.filter(x => x.level !== "ok");
+      el.innerHTML = `<div class="card-head"><h2>Needs a follow-up call</h2><span class="gap"></span><button class="pill-btn" data-go="followup">See all ${need.length}</button></div>
+        ${need.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th>Phone</th></tr></thead>
+        <tbody>${rowsHtml(need.slice(0, 6))}</tbody></table></div>` : `<p class="empty">Nobody has missed ${YELLOW_AT} or more services in a row.</p>`}`;
+    }},
+  stands: {name: "Where everyone stands", desc: "How many came, missed once, or need a call.", size: "narrow", icon: "people",
+    draw(el, p) {
+      const stands = [["ok", "came this service"], ["blue", "missed this service"], ["yellow", `missed ${YELLOW_AT}–${RED_AT - 1} in a row`], ["red", `missed ${RED_AT} or more`]].map(([f, t]) => [f, t, p.count(f)]);
+      el.innerHTML = `<div class="card-head"><h2>Where everyone stands</h2></div><div class="stand"><div class="donut"></div><div class="stand-rows">
+        ${stands.map(([f, t, n]) => `<div class="status-row">${badge(f)}<span class="txt"><small>${t}</small></span><b>${n}</b></div>`).join("")}</div></div>`;
+      donut(el.querySelector(".donut"), stands);
+    }},
+};
+// Each person's widgets are saved in the database (so phone and laptop match), with this device as a fallback.
+async function loadDash() {
+  if (S.dash) return S.dash;
+  let list = null;
+  try { const r = await api(`app_prefs?select=dash&email=eq.${encodeURIComponent(S.me.email)}`); list = r[0]?.dash || null; S.dashDb = true; } catch { S.dashDb = false; }
+  if (!list) { try { list = JSON.parse(localStorage.getItem("fcc-dash:" + S.me.email) || "null"); } catch {} }
+  return S.dash = (Array.isArray(list) ? list : DASH_DEFAULT).filter(k => WIDGETS[k]);
+}
+async function saveDash(list) {
+  S.dash = list;
+  try { localStorage.setItem("fcc-dash:" + S.me.email, JSON.stringify(list)); } catch {}
+  if (S.dashDb !== false) try { await api("app_prefs?on_conflict=email", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {email: S.me.email, dash: list}}); } catch { S.dashDb = false; }
+}
+async function dashboard(el) {
+  const p = picture();
   el.innerHTML = head("Dashboard", p.last ? `${esc(S.names[p.last] || "Service")} · ${esc(nice(p.last, true))}` : "No services recorded yet",
-    `<button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `
-    <div class="tiles">
-      <div class="card tile"><div class="label">This service</div><div class="num">${p.present.length}<small>present</small></div></div>
-      <div class="card tile"><div class="label">Adults</div><div class="num">${p.present.length - p.kids}</div></div>
-      <div class="card tile"><div class="label">Kids</div><div class="num">${p.kids}</div></div>
-      <div class="card tile"><div class="label">First-timers</div><div class="num">${p.first}${p.visitors ? `<small>+ ${p.visitors} ${p.visitors === 1 ? "visitor" : "visitors"}</small>` : ""}</div></div></div>
-    <div class="grid-2"><div class="card"><div class="card-head"><h2>People present</h2><span class="gap"></span>
-        <div class="legend"><span><i style="background:var(--adults)"></i>Adults</span><span><i style="background:var(--kids)"></i>Kids</span></div></div>
-        <div class="chart" id="chart"></div></div>
-      <div class="card" id="cal"></div></div>
-    <div class="grid-2"><div class="card"><div class="card-head"><h2>Needs a follow-up call</h2><span class="gap"></span><button class="pill-btn" data-go="followup">See all ${need.length}</button></div>
-      ${need.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th>Phone</th></tr></thead>
-        <tbody>${rowsHtml(need.slice(0, 6))}</tbody></table></div>` : `<p class="empty">Nobody has missed ${YELLOW_AT} or more services in a row.</p>`}</div>
-      <div class="card"><div class="card-head"><h2>Where everyone stands</h2></div>
-        <div class="stand"><div class="donut" id="donut"></div><div class="stand-rows">
-        ${stands.map(([f, t, n]) => `<div class="status-row">${badge(f)}<span class="txt"><small>${t}</small></span><b>${n}</b></div>`).join("")}</div></div></div></div>`;
-  donut(el.querySelector("#donut"), stands);
-  calendar(el.querySelector("#cal"), p);
-  chart(el.querySelector("#chart"), series);
+    `<button class="pill-btn" id="addw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `<div class="wgrid" id="wgrid"></div>`;
   el.querySelector("#wa").onclick = () => waDialog("Summary for WhatsApp", o => !p.dates.includes(o.day) ? null : report(o.day !== p.last ? picture(o.day) : p, o), {names: true, link: true, follow: true, noEmoji: true, day: p.last || today(),
     fields: [["preacher", "Preacher name"], ["sermon", "Sermon title"], ["zoomA", "Zoom: adults", "num"], ["zoomK", "Zoom: children", "num"], ["yt", "YouTube", "num"], ["fb", "Facebook", "num"], ["converts", "New converts", "num"]]});
+  el.querySelector("#addw").onclick = () => addWidget();
+  const list = await loadDash();
+  if (S.view !== "dashboard") return;
+  const grid = el.querySelector("#wgrid");
+  grid.innerHTML = list.length ? list.map((k, i) => `<section class="w w-${WIDGETS[k].size} ${["tiles", "compare"].includes(k) ? "" : "card"}" data-w="${k}">
+      <div class="w-menu"><button class="icon-btn sm" data-wm="${k}" aria-label="Options for ${esc(WIDGETS[k].name)}" aria-haspopup="true">${svg("more")}</button>
+        <div class="w-pop" hidden>${i ? `<button data-up="${i}">Move up</button>` : ""}${i < list.length - 1 ? `<button data-down="${i}">Move down</button>` : ""}<button class="danger" data-rm="${k}">Remove</button></div></div>
+      <div class="w-body"></div></section>`).join("")
+    : `<div class="card"><p class="empty">Your dashboard is empty. Tap <b>Add widget</b> to choose what to see.</p></div>`;
+  for (const k of list) {
+    const body = grid.querySelector(`[data-w="${k}"] .w-body`);
+    try { WIDGETS[k].draw(body, p); } catch (e) { body.innerHTML = `<p class="empty">This widget couldn't load.</p>`; }
+  }
+  grid.querySelectorAll("[data-wm]").forEach(b => b.onclick = e => { e.stopPropagation(); const pop = b.nextElementSibling, open = pop.hidden;
+    grid.querySelectorAll(".w-pop").forEach(x => x.hidden = true); pop.hidden = !open; });
+  document.addEventListener("click", () => grid.querySelectorAll(".w-pop").forEach(x => x.hidden = true), {once: true});
+  const move = (i, j) => { const l = [...list]; [l[i], l[j]] = [l[j], l[i]]; saveDash(l); render(); };
+  grid.querySelectorAll("[data-up]").forEach(b => b.onclick = () => move(+b.dataset.up, +b.dataset.up - 1));
+  grid.querySelectorAll("[data-down]").forEach(b => b.onclick = () => move(+b.dataset.down, +b.dataset.down + 1));
+  grid.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { saveDash(list.filter(k => k !== b.dataset.rm)); toast(`${WIDGETS[b.dataset.rm].name} removed. Add it back any time with Add widget.`); render(); });
   el.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { S.view = b.dataset.go; render(); });
-  el.querySelectorAll(".tiles .tile").forEach(t => { t.classList.add("link"); t.tabIndex = 0; t.title = "Open Check-in for this service";
-    t.onclick = t.onkeydown = e => { if (e.type === "keydown" && e.key !== "Enter") return; S.date = p.last || today(); S.view = "checkin"; render(); }; });
+}
+// The Add widget popup: every widget not on the dashboard, with a picture-style icon, what it shows, and Select.
+function addWidget() {
+  document.querySelectorAll(".modal").forEach(m => m.remove());
+  const have = S.dash || DASH_DEFAULT, left = Object.keys(WIDGETS).filter(k => !have.includes(k));
+  const d = document.createElement("div"); d.className = "modal";
+  d.innerHTML = `<div class="sheet narrow" role="dialog" aria-modal="true" aria-label="Add widget">
+    <div class="card-head"><h2>Add widget</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+    ${left.length ? `<div class="wlist">${left.map(k => `<div class="witem"><div class="wico">${svg(WIDGETS[k].icon)}</div><div class="wtxt"><b>${esc(WIDGETS[k].name)}</b><p>${esc(WIDGETS[k].desc)}</p></div>
+      <button class="pill-btn primary sm" data-add="${k}">Select</button></div>`).join("")}</div>` : `<p class="empty">Every widget is already on your dashboard.</p>`}
+    <div class="modal-foot"><button type="button" class="pill-btn" data-reset>Back to the standard layout</button></div></div>`;
+  document.body.append(d);
+  const close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
+  d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
+  document.addEventListener("keydown", onKey);
+  d.querySelectorAll("[data-add]").forEach(b => b.onclick = () => { saveDash([...have, b.dataset.add]); close(); toast(`${WIDGETS[b.dataset.add].name} added at the bottom. Use ⋯ to move it.`); S.view = "dashboard"; render(); });
+  d.querySelector("[data-reset]").onclick = () => { saveDash([...DASH_DEFAULT]); close(); toast("Back to the standard dashboard."); render(); };
 }
 
 // ---------------------------------------------------------------- check-in
