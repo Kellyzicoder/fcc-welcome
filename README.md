@@ -35,7 +35,7 @@ in `supabase/app_setup.sql` decides what comes back.
 
 ### Features
 
-- Sign in with an emailed code or a password (10+ characters, capital and small letters, a number and a symbol)
+- Sign in with an emailed code or a password: either a passphrase (3+ words, 16+ characters, e.g. "sunday choir sings loud") or 10+ characters with capital and small letters, a number and a symbol. The browser offers to save it.
 - Check-in with search, lock and unlock, and adding people without a phone number
 - Congregation list with bulk edits, visitor / first-timer / member types and assigned pastors
 - Follow-up: yellow and red flags for people missing services in a row (visitors are never flagged)
@@ -55,7 +55,7 @@ in `supabase/app_setup.sql` decides what comes back.
   bottom of `app_setup.sql` into the Supabase SQL editor.
 - The welcome form can only *insert pending* sign-ups; it can't read anything. A honeypot field drops most bots,
   and a per-submission id stops duplicates on retry.
-- Password rules are set in Supabase too (Authentication → Email), so they hold even outside the app.
+- Supabase checks passwords too (Authentication → Sign In / Providers → Email): minimum length **10** and password requirements **No required characters**, so passphrases work; the app asks for the capital, number and symbol whenever the password isn't a passphrase.
 
 ## Setup
 
