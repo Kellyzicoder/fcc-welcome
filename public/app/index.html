@@ -530,6 +530,15 @@ button.ov-cell {cursor: pointer;} button.ov-cell:hover {background: var(--soft);
   .shell.mini .church {justify-content: center; padding: 10px 0;}
 }
 @media (max-width: 900px) { .side-tg {display: none;} }
+/* View as another role: a coloured bar across the top while an admin looks at the app as someone else */
+.preview-bar {display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 22px; background: var(--h6b); color: var(--h6t); border-bottom: 1px solid color-mix(in srgb, var(--h6) 40%, transparent); font-size: 14px;}
+.preview-bar svg {width: 18px; height: 18px; flex: none;} .preview-bar span {flex: 1; min-width: 200px;} .preview-bar b {color: var(--ink);}
+/* All-churches page widgets: two columns beside the church list (Large and Full use the whole width) */
+.wgrid.c2 {grid-template-columns: repeat(2, minmax(0, 1fr));} .wgrid.c2 .w-wide, .wgrid.c2 .w-full {grid-column: 1 / -1;} .wgrid.c2 .w-narrow {grid-column: span 1;}
+.ov.ov4 {grid-template-columns: repeat(4, minmax(0, 1fr));} .ov.ov4 .ov-cell {border-bottom: 0; border-right: 1px solid var(--line);} .ov.ov4 .ov-cell:last-child {border-right: 0;}
+.ov-cell b small {display: inline; font-size: 18px; color: var(--ink-3); font-weight: 600; margin: 0;}
+@media (max-width: 1100px) { .ov.ov4 {grid-template-columns: 1fr 1fr;} .ov.ov4 .ov-cell:nth-child(-n+2) {border-bottom: 1px solid var(--line);} .ov.ov4 .ov-cell:nth-child(2) {border-right: 0;} }
+@media (max-width: 900px) { .wgrid.c2 {grid-template-columns: minmax(0, 1fr);} .wgrid.c2 .w-narrow {grid-column: 1 / -1;} }
 /* Admin tabs */
 .atabs {display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); margin: 0 0 14px; overflow-x: auto; width: max-content; max-width: 100%;}
 .atabs button {border: 0; background: none; color: var(--ink-2); font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 10px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 7px;}
