@@ -457,6 +457,22 @@ grant execute on function app_db_size() to authenticated;
 revoke all on function app_rename_church(text, text) from public, anon;
 grant execute on function app_rename_church(text, text) to authenticated;
 
+-- Livestream widget: a church's own YouTube channel, kept in churches.livestream as {"yt": channel id, "name": channel name}.
+-- The app's server route (app/app-live) looks the channel up first, then saves it through this function.
+-- The admin can set any church's; a church admin only their own church's. An empty link removes it.
+create or replace function app_set_livestream(c text, link text) returns text
+language plpgsql security definer set search_path = public as $$
+declare ch text := trim(coalesce(c, '')); v text := nullif(trim(coalesce(link, '')), '');
+begin
+  if not (app_role() = 'admin' or (app_role() = 'lead' and app_church() = ch)) then raise exception 'not allowed'; end if;
+  if not exists (select 1 from churches where name = ch) then raise exception 'there is no church called %', ch; end if;
+  if length(v) > 500 then raise exception 'that link is too long'; end if;
+  update churches set livestream = v where name = ch;
+  return v;
+end $$;
+revoke all on function app_set_livestream(text, text) from public, anon;
+grant execute on function app_set_livestream(text, text) to authenticated;
+
 revoke all on function app_approve_signup(uuid, text, boolean, text), app_reject_signup(uuid, text), app_set_my_name(text) from public, anon;
 grant execute on function app_pastor_name(), app_is_mine(text, text) to authenticated;
 grant execute on function app_last_seen(), app_set_my_name(text), app_can_approve(), app_who(),
