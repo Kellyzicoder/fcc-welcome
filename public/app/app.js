@@ -255,8 +255,8 @@ function loginView(message, bad) {
     <h1>Sign in</h1>
     <div class="seg2" role="tablist" aria-label="How to sign in"><button type="button" role="tab" data-m="code">Email code</button><button type="button" role="tab" data-m="pw">Password</button></div>
     <p id="how"></p>
-    <label class="f" for="email">Email</label><input class="in" id="email" type="email" inputmode="email" autocapitalize="none" autocomplete="email" required>
-    <div id="pw" hidden><label class="f" for="password">Password</label><input class="in" id="password" type="password" autocomplete="current-password"></div>
+    <label class="f" for="email">Email</label><input class="in" id="email" name="username" type="email" inputmode="email" autocapitalize="none" autocomplete="username" required>
+    <div id="pw" hidden><label class="f" for="password">Password</label><input class="in" id="password" name="password" type="password" autocomplete="current-password"></div>
     <div id="code" hidden><label class="f" for="token">Code from the email</label><input class="in" id="token" inputmode="numeric" autocomplete="one-time-code"></div>
     <button class="pill-btn primary block" id="go"></button>
     <button type="button" class="pill-btn block resend" id="resend" hidden disabled></button>
@@ -321,7 +321,8 @@ function loginView(message, bad) {
     if (wrong) { f.querySelectorAll(".msg").forEach(m => m.remove()); f.insertAdjacentHTML("beforeend", `<div class="msg bad">${esc(wrong)}</div>`); return; }
     go.disabled = true;
     try {
-      if (mode === "pw") { keep(await auth("token?grant_type=password", {email, password: f.querySelector("#password").value})); S.via = "password"; try { localStorage.setItem("fcc-pw", email); } catch {} }
+      if (mode === "pw") { const password = f.querySelector("#password").value; keep(await auth("token?grant_type=password", {email, password})); S.via = "password"; try { localStorage.setItem("fcc-pw", email); } catch {}
+        rememberPassword(email, password); }
       else if (sent && f.querySelector("#token").value.trim()) { keep(await auth("verify", {type: "email", email, token: f.querySelector("#token").value.trim()})); S.via = "email"; }
       else if (sent && email === sentTo) { go.disabled = false; f.querySelector("#token").focus(); return say("Type the code from the email first, or tap Resend code.", true); }
       else { await sendCode(email); go.disabled = false; return; }
@@ -335,23 +336,30 @@ function loginView(message, bad) {
 
 // Save a new password for the signed-in person (Supabase keeps it; the app only remembers which email has one).
 // Password rules: shown as a live checklist under the two boxes, and checked again before saving.
+// A passphrase (3 or more words, 16+ characters, e.g. "sunday choir sings loud") is long enough on its own and easier to type,
+// so it doesn't need the capital, number and symbol. Supabase must then be set to "No required characters" (see README).
+const isPhrase = a => a.trim().length >= 16 && a.trim().split(/\s+/).length >= 3;
 const PW_RULES = [
   ["len", "At least 10 characters", (a) => a.length >= 10],
-  ["case", "A capital and a small letter", (a) => /[A-Z]/.test(a) && /[a-z]/.test(a)],
-  ["num", "At least one number", (a) => /\d/.test(a)],
-  ["sym", "At least one symbol, like ! # @ or ?", (a) => /[!@#$%^&*()_+\-=\[\]{};':"\\|<>?,.\/`~]/.test(a)],  // the same symbols Supabase accepts
+  ["case", "A capital and a small letter", (a) => isPhrase(a) || (/[A-Z]/.test(a) && /[a-z]/.test(a))],
+  ["num", "At least one number", (a) => isPhrase(a) || /\d/.test(a)],
+  ["sym", "At least one symbol, like ! # @ or ?", (a) => isPhrase(a) || /[!@#$%^&*()_+\-=\[\]{};':"\\|<>?,.\/`~]/.test(a)],  // the same symbols Supabase accepts
   ["same", "Both passwords match", (a, b) => a.length > 0 && a === b],
 ];
 const pwProblem = (a, b) => (PW_RULES.find(([, , ok]) => !ok(a, b)) || [])[1] || "";
 // Wires a checklist (ticks) and green/red borders to two password boxes; the button only works when all rules pass.
 function pwChecks(box, p1, p2, go) {
-  box.innerHTML = PW_RULES.map(([k, t]) => `<li data-r="${k}"><i>${svg("checkin")}</i>${esc(t)}</li>`).join("");
+  box.innerHTML = `<li class="phrase" data-r="phrase"><i>${svg("checkin")}</i><span>Easiest: a phrase of 3 or more words, 16+ characters, like <b>sunday choir sings loud</b>. Then the three rules below aren't needed.</span></li>`
+    + PW_RULES.map(([k, t]) => `<li data-r="${k}"><i>${svg("checkin")}</i>${esc(t)}</li>`).join("");
   const draw = () => {
     const a = p1.value, b = p2.value;
     PW_RULES.forEach(([k, , ok]) => {
       const li = box.querySelector(`[data-r="${k}"]`), good = ok(a, b), touched = k === "same" ? b.length > 0 : a.length > 0;
       li.className = good ? "ok" : touched ? "bad" : "";
     });
+    const ph = box.querySelector('[data-r="phrase"]'); ph.className = "phrase" + (isPhrase(a) ? " ok" : "");
+    ph.querySelector("span").innerHTML = isPhrase(a) ? "Passphrase: long enough, nothing else needed" : "Easiest: a phrase of 3 or more words, 16+ characters, like <b>sunday choir sings loud</b>. Then the three rules below aren't needed.";
+    for (const k of ["case", "num", "sym"]) box.querySelector(`[data-r="${k}"]`).classList.toggle("skip", isPhrase(a));
     const firstOk = PW_RULES.filter(([k]) => k !== "same").every(([, , ok]) => ok(a, b));
     p1.classList.toggle("ok", firstOk); p1.classList.toggle("bad", a.length > 0 && !firstOk);
     p2.classList.toggle("ok", b.length > 0 && a === b && firstOk); p2.classList.toggle("bad", b.length > 0 && a !== b);
@@ -366,8 +374,14 @@ async function savePassword(a, b) {
   const r = await fetch(S.cfg.url + "/auth/v1/user", {method: "PUT", body: JSON.stringify({password: a}),
     headers: {apikey: S.cfg.key, "Content-Type": "application/json", Authorization: "Bearer " + S.session.access_token}});
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.msg || j.error_description || j.message || "The password was not accepted.");
+  if (!r.ok) { const m = j.msg || j.error_description || j.message || "";
+    throw new Error(/at least one character|weak|requirements/i.test(m) && isPhrase(a) ? "Passphrases aren't switched on yet. Use a capital, small letter, number and symbol for now, or ask the admin to allow passphrases." : m || "The password was not accepted."); }
   try { localStorage.setItem("fcc-pw", S.me.email); } catch {}
+  rememberPassword(S.me.email, a);
+}
+// Ask the browser to save the password (Chrome, Edge and Android show their own "Save password?"; iPhone offers it from the form).
+async function rememberPassword(email, password) {
+  try { if (window.PasswordCredential && navigator.credentials?.store) await navigator.credentials.store(new PasswordCredential({id: email, password, name: S.me?.name || email})); } catch {}
 }
 // After signing in with an email code or link: offer a password for next time, unless they have one or said no for good.
 function offerPassword() {
