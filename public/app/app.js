@@ -1332,12 +1332,16 @@ async function admin(el) {
       <form class="row" id="add-church"><div><label class="f" for="c-name">New church</label><input class="in" id="c-name" placeholder="e.g. Melbourne" required></div>
         <div style="flex:0 0 auto"><button class="pill-btn primary">Add church</button></div></form></div></section>
     <section ${tab("names")}>
-    <div class="card"><div class="card-head"><h2>People who can sign in</h2></div>
-      <div class="scroll"><table><thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Church</th><th></th></tr></thead><tbody>
-      ${users.map(u => `<tr><td>${esc(u.email)}</td><td class="muted">${esc(u.name || "")}</td><td>${ROLE[u.role]}${u.role === "pastor" ? `<br><small class="muted">${esc(u.pastor || "No pastor name yet")}</small>` : u.pastor && ["admin", "lead"].includes(u.role) ? `<br><small class="muted">Also pastor: ${esc(u.pastor)}</small>` : ""}</td><td class="muted">${esc(u.church || "All churches")}</td>
-        <td style="white-space:nowrap">${u.email === S.me.email ? `<span class="muted">You</span>` : `<button class="pill-btn sm" data-chg="${esc(u.email)}">${svg("edit")}Change</button> <button class="x" data-del="${esc(u.email)}">Remove</button>`}</td></tr>`).join("")}</tbody></table></div>
-      
-      <form class="row" id="add-user" style="margin-top:14px"><div><label class="f" for="u-email">Email</label><input class="in" id="u-email" type="email" required></div>
+    <div class="tiles">${[["Total sign-ins", users.length, "Across all churches"], ["Church admins", users.filter(u => u.role === "lead").length, "Run a church"],
+        ["Team", users.filter(u => u.role === "team").length, "Ushers ticking people in"], ["Pastors", users.filter(u => u.role === "pastor" || u.pastor).length, "Including admins who pastor"]]
+        .map(([t, n, sub]) => `<div class="card tile"><div class="label">${t}</div><div class="num">${String(n).padStart(2, "0")}</div><div class="note" style="margin:4px 0 0">${sub}</div></div>`).join("")}</div>
+    <div class="card"><div class="card-head"><h2>People who can sign in</h2><span class="gap"></span><button type="button" class="pill-btn primary sm" id="u-add-tg">+ Add person</button></div>
+      <div class="u-bar"><div class="rpills" role="tablist" aria-label="Filter by role">${[["", "All"], ["admin", "Admin"], ["bishop", "Bishop"], ["lead", "Church admin"], ["team", "Team"], ["pastor", "Pastor"]]
+          .map(([k, t]) => `<button type="button" class="rpill ${k ? "r-" + k : ""}" role="tab" data-ur="${k}" aria-selected="${(S.uRole || "") === k}">${k ? "<i></i>" : ""}${t} <span>${k ? users.filter(u => u.role === k).length : users.length}</span></button>`).join("")}</div>
+        <div class="u-tools"><select class="in" id="u-ch" aria-label="Church"><option value="">All churches</option>${S.churches.map(c => `<option ${S.uCh === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
+          <input class="in" id="u-q" type="search" placeholder="Search by name or email" value="${esc(S.uQ || "")}"></div></div>
+      <div id="u-list"></div>
+      <form class="row" id="add-user" hidden style="margin:14px 0 4px;padding:14px;border-radius:14px;background:var(--soft)"><div><label class="f" for="u-email">Email</label><input class="in" id="u-email" type="email" required></div>
         <div><label class="f" for="u-name">Name</label><input class="in" id="u-name"></div>
         <div><label class="f" for="u-role">Role</label><select class="in" id="u-role">${ROLE_OPTS.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("")}</select></div>
         <div id="u-pastor-wrap" hidden><label class="f" for="u-pastor">Their name on the Pastors list</label><input class="in" id="u-pastor" list="u-pastor-list" autocomplete="off" placeholder="e.g. Pastor Grace Mensah">
@@ -1364,6 +1368,36 @@ async function admin(el) {
     }, "Rename"));
   el.querySelector("#add-church").onsubmit = e => { e.preventDefault(); const name = el.querySelector("#c-name").value.trim().replace(/\s+/g, " ");
     again(() => api("churches", {method: "POST", prefer: "return=minimal", body: {name}})); };
+  // Sign-ins: role pills, church picker, search and 10 per page
+  const PER = 10, roleCls = r => "r-" + r;
+  const drawUsers = () => {
+    const q = norm(S.uQ || ""), list = users.filter(u => (!S.uRole || u.role === S.uRole) && (!S.uCh || u.church === S.uCh)
+      && (!q || norm(u.name).includes(q) || norm(u.email).includes(q) || norm(u.pastor).includes(q)))
+      .sort((a, b) => norm(a.name || a.email).localeCompare(norm(b.name || b.email)));
+    const pages = Math.max(1, Math.ceil(list.length / PER)); S.uPage = Math.min(Math.max(1, S.uPage || 1), pages);
+    const shown = list.slice((S.uPage - 1) * PER, S.uPage * PER);
+    const nums = [...new Set([1, S.uPage - 1, S.uPage, S.uPage + 1, pages])].filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
+    el.querySelector("#u-list").innerHTML = !list.length ? `<p class="empty">Nobody matches. Try another role, church or name.</p>` : `
+      <div class="scroll"><table class="utable"><thead><tr><th>Name</th><th>Role</th><th>Church</th><th class="hide-sm">Pastor name</th><th></th></tr></thead><tbody>
+      ${shown.map(u => `<tr><td><div class="who-cell"><span class="ava">${esc(initials(u.name || u.email))}</span><span><b>${esc(u.name || u.email.split("@")[0])}</b><small>${esc(u.email)}</small></span></div></td>
+        <td><span class="rbadge ${roleCls(u.role)}">${ROLE[u.role]}</span>${u.pastor && u.role !== "pastor" ? ` <span class="rbadge r-pastor">+ Pastor</span>` : ""}</td>
+        <td class="muted">${esc(u.church || "All churches")}</td><td class="muted hide-sm">${esc(u.pastor || (u.role === "pastor" ? "Not set yet" : ""))}</td>
+        <td style="white-space:nowrap;text-align:right">${u.email === S.me.email ? `<span class="muted">You</span>` : `<button class="pill-btn sm" data-chg="${esc(u.email)}">${svg("edit")}Change</button> <button class="x" data-del="${esc(u.email)}">Remove</button>`}</td></tr>`).join("")}</tbody></table></div>
+      ${pages > 1 ? `<div class="pager"><span class="muted">Page ${S.uPage} of ${pages} · ${list.length} people</span><span class="gap"></span>
+        <button class="pg" data-pg="${S.uPage - 1}" ${S.uPage === 1 ? "disabled" : ""} aria-label="Previous page">${svg("prev")}</button>
+        ${nums.map((n, i) => (i && n - nums[i - 1] > 1 ? `<span class="muted">…</span>` : "") + `<button class="pg ${n === S.uPage ? "on" : ""}" data-pg="${n}">${n}</button>`).join("")}
+        <button class="pg" data-pg="${S.uPage + 1}" ${S.uPage === pages ? "disabled" : ""} aria-label="Next page">${svg("next")}</button></div>` : ""}`;
+    el.querySelectorAll("#u-list [data-pg]").forEach(b => b.onclick = () => { S.uPage = +b.dataset.pg; drawUsers(); });
+    el.querySelectorAll("#u-list [data-chg]").forEach(b => b.onclick = () => change(b.dataset.chg));
+    el.querySelectorAll("#u-list [data-del]").forEach(b => { let armed = false; b.onclick = () => {
+      if (!armed) { armed = true; b.textContent = "Tap again to remove"; setTimeout(() => { armed = false; b.textContent = "Remove"; }, 4000); return; }
+      again(() => api(`app_users?email=eq.${encodeURIComponent(b.dataset.del)}`, {method: "DELETE", prefer: "return=minimal"})); }; });
+  };
+  el.querySelectorAll("[data-ur]").forEach(b => b.onclick = () => { S.uRole = b.dataset.ur; S.uPage = 1;
+    el.querySelectorAll("[data-ur]").forEach(x => x.setAttribute("aria-selected", x === b)); drawUsers(); });
+  el.querySelector("#u-ch").onchange = e => { S.uCh = e.target.value; S.uPage = 1; drawUsers(); };
+  el.querySelector("#u-q").oninput = e => { S.uQ = e.target.value; S.uPage = 1; drawUsers(); };
+  el.querySelector("#u-add-tg").onclick = () => { const f = el.querySelector("#add-user"); f.hidden = !f.hidden; if (!f.hidden) el.querySelector("#u-email").focus(); };
   const uRole = el.querySelector("#u-role"), pw = el.querySelector("#u-pastor-wrap");
   uRole.onchange = () => { pw.hidden = !["pastor", "admin", "lead"].includes(uRole.value); el.querySelector("#u-pastor").required = uRole.value === "pastor";
     el.querySelector("#u-pastor").placeholder = uRole.value === "pastor" ? "e.g. Pastor Grace Mensah" : "Only if they are also a pastor"; };
@@ -1375,8 +1409,8 @@ async function admin(el) {
     again(() => api("app_users?on_conflict=email", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {email: el.querySelector("#u-email").value.trim().toLowerCase(),
       name: el.querySelector("#u-name").value.trim(), role, church: ["admin", "bishop"].includes(role) ? null : el.querySelector("#u-church").value,
       ...(pastor ? {pastor} : {})}})); };
-  el.querySelectorAll("[data-chg]").forEach(b => b.onclick = () => {
-    const u = users.find(x => x.email === b.dataset.chg);
+  function change(email) {
+    const u = users.find(x => x.email === email);
     formDialog(`Change ${u.name || u.email}`, [
       {k: "name", label: "Name", value: u.name || "", hint: "The name shown in the app for this sign-in."},
       {k: "role", label: "Role", value: u.role, type: "select", options: ROLE_OPTS},
@@ -1390,7 +1424,8 @@ async function admin(el) {
       log("role_change", "", "done", `${u.email}: ${v.name ? v.name + " · " : ""}${v.role}${church ? " · " + church : ""}`);
       toast("Saved. They will see the change next time they open the app."); render();
     });
-  });
+  }
+  drawUsers();
   const ib = el.querySelector("#inbox-all"); if (ib) ib.onclick = () => { S.inboxAll = !S.inboxAll; render(); };
   el.querySelectorAll("[data-done]").forEach(b => b.onclick = async () => {
     try { await api(`help_messages?id=eq.${b.dataset.done}`, {method: "PATCH", prefer: "return=minimal", body: {done: b.dataset.v === "true"}}); render(); }
@@ -1399,7 +1434,6 @@ async function admin(el) {
     if (!armed) { armed = true; b.textContent = "Tap again to delete"; setTimeout(() => { armed = false; b.textContent = "Delete"; }, 4000); return; }
     try { await api(`help_messages?id=eq.${b.dataset.mdel}`, {method: "DELETE", prefer: "return=minimal"}); toast("Deleted."); render(); }
     catch (err) { toast("Not deleted: " + err.message); } }; });
-  el.querySelectorAll("[data-del]").forEach(b => b.onclick = () => again(() => api(`app_users?email=eq.${encodeURIComponent(b.dataset.del)}`, {method: "DELETE", prefer: "return=minimal"})));
 }
 
 // ---------------------------------------------------------------- a pastor's home: only their own people
