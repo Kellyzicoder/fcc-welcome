@@ -27,6 +27,9 @@ create table if not exists app_users (
 alter table app_users drop constraint if exists app_users_role_check;
 alter table app_users add constraint app_users_role_check check (role in ('admin', 'bishop', 'lead', 'team', 'pastor'));
 alter table app_users add column if not exists pastor text;
+-- A lead pastor is a church admin with this title (they also get the Pastor view); Role 3 is a spare role saved for later.
+alter table app_users add column if not exists title text;
+alter table app_users add column if not exists role3 text;
 
 alter table members add column if not exists church text;
 alter table members add column if not exists age_group text;
@@ -63,7 +66,7 @@ $$ select coalesce(app_role() = 'pastor' and coalesce(nullif(trim(ch), ''), app_
 
 create or replace function app_me() returns json language sql stable security definer set search_path = public as
 $$ select json_build_object('email', lower(auth.jwt() ->> 'email'), 'role', u.role, 'church', u.church, 'name', u.name,
-                            'home', app_home_church(), 'pastor', u.pastor)
+                            'home', app_home_church(), 'pastor', u.pastor, 'title', u.title, 'role3', u.role3)
    from (select 1) one left join app_users u on u.email = lower(auth.jwt() ->> 'email') $$;
 
 -- ---------------------------------------------------------------- rules (Row Level Security)
@@ -260,7 +263,7 @@ $$ select coalesce(app_role() = 'admin' or (app_role() = 'lead' and app_church()
 
 create or replace function app_who() returns text language sql stable security definer set search_path = public as
 $$ select left(coalesce(nullif(trim(u.name), ''), u.email) || ' (' ||
-          case u.role when 'admin' then 'Admin' when 'lead' then 'Church admin' when 'bishop' then 'Bishop' when 'pastor' then 'Pastor' else 'Team' end || ')', 80)
+          case u.role when 'admin' then 'Admin' when 'lead' then case when u.title = 'Lead pastor' then 'Lead pastor' else 'Church admin' end when 'bishop' then 'Bishop' when 'pastor' then 'Pastor' else 'Team' end || ')', 80)
    from app_users u where u.email = lower(auth.jwt() ->> 'email') $$;
 
 drop policy if exists "app: see sign-ups" on registrations;
