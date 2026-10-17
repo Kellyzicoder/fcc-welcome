@@ -1948,21 +1948,11 @@ function pastors(el) {
 // ---------------------------------------------------------------- one person: every day they came
 async function person(el) {
   const p = picture(), mine = p.mine.slice().sort(byName), m = mine.find(x => x.id === S.person);
-  const top = head(m ? esc(m.full_name) : "Person", esc(S.church), m ? `<button class="pill-btn" id="dl">Download</button>` : "") + `
-    <div class="card" style="margin-bottom:14px"><label class="f" for="who">Search for a person</label>
-      <input class="in" id="who" type="search" autocomplete="off" placeholder="Type a name…" value="${esc(S.pq)}"><div class="found" id="found"></div></div>`;
-  const bind = () => {
-    const box = el.querySelector("#who"), found = el.querySelector("#found");
-    const draw = () => {
-      const q = norm(S.pq), hits = q ? mine.filter(x => norm(x.full_name).includes(q)) : [];
-      found.innerHTML = !q ? "" : hits.length ? hits.slice(0, 8).map(x => `<button class="who" data-person="${esc(x.id)}"><span>${esc(initials(x.full_name))}</span>${esc(x.full_name)}</button>`).join("")
-        + (hits.length > 8 ? `<p class="note" style="margin:6px 2px 0">${hits.length - 8} more. Keep typing to narrow it down.</p>` : "") : `<p class="empty" style="padding:8px 2px 0">Nobody matches “${esc(S.pq)}”.</p>`;
-    };
-    box.oninput = () => { S.pq = box.value; draw(); };
-    found.onclick = e => { if (e.target.closest("[data-person]")) S.pq = ""; };  // the page-wide handler then opens that person
-    draw();
-  };
-  if (!m) { el.innerHTML = top + `<p class="empty">Search for someone, or tap a name on any list.</p>`; bind(); return; }
+  // Opened by tapping a name on any list, so there's no search box here (finding people is on Congregation)
+  const top = head(m ? esc(m.full_name) : "Person", esc(S.church), m ? `<button class="pill-btn" id="dl">Download</button>` : "");
+  const bind = () => {};
+  if (!m) { el.innerHTML = top + `<div class="card"><p class="empty" style="margin:0 0 12px">Tap a name on any list to see their attendance.</p><button class="pill-btn" data-go-people>Open Congregation</button></div>`;
+    el.querySelector("[data-go-people]").onclick = () => { S.view = "people"; render(); }; return; }
   el.innerHTML = top + `<p class="empty">Loading…</p>`; bind();
   let rows;
   try { rows = await all(`attendance?select=service_date&member_id=eq.${encodeURIComponent(m.id)}&order=service_date.desc`); }
