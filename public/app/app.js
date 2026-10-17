@@ -504,6 +504,8 @@ const ICON = {
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   prev: '<path d="M15 6l-6 6 6 6"/>',
   next: '<path d="M9 6l6 6-6 6"/>',
+  grip: '<circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/>',
+  dots: '<circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   bars: '<path d="M5 20V10M12 20V4M19 20v-7"/>',
@@ -555,7 +557,7 @@ function render() {
   root.innerHTML = `<div class="shell">
     <div class="scrim" data-close></div>
     <aside class="side" id="menu"><div class="brand"><span class="brand-mark">✝</span>Favourite Child Church</div>
-      ${groups.map(([h, items]) => (h ? `<h6>${h}</h6>` : "") + items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}">${svg(k)}${t}${
+      ${groups.map(([h, items]) => (h ? `<h6>${h}</h6>` : "") + items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}${t}${
         k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : ""}</button>`).join("")).join("")}
       ${S.me.role === "admin" ? `<h6>CHURCH</h6><button class="church on" data-view="overview" title="See every church and switch to another one"><i></i><span>${esc(S.church)}</span><em>Change</em></button>` : ""}
       <div class="side-foot">${S.canSwitch ? `<button class="nav" data-switch>${svg("pastors")}${switchLabel()}</button>` : ""}<button class="nav out" data-out>${svg("out")}Log out</button></div></aside>
@@ -600,7 +602,8 @@ addEventListener("popstate", () => {
 });
 const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", pastors: "Pastors", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", archive: "Archive",
                activity: "Activity", reports: "Reports", overview: "All churches", admin: "Admin"};
-const head = (title, sub, buttons = "") => `<div class="head"><div><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ""}</div><span class="gap" style="flex:1"></span>${buttons}</div>`;
+const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, followup: 3, pastors: 4, people: 5, signups: 6, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
+const head = (title, sub, buttons = "") => `<div class="head">${ICON[S.view] ? `<span class="hico" style="--wc:var(--h${NAVHUE[S.view] || 1});--wb:var(--h${NAVHUE[S.view] || 1}b)">${svg(S.view)}</span>` : ""}<div><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ""}</div><span class="gap" style="flex:1"></span>${buttons}</div>`;
 const badge = f => `<span class="badge ${f}">${FLAG[f]}</span>`;
 
 // ---------------------------------------------------------------- dashboard
@@ -664,7 +667,10 @@ function chart(el, rows, pick) {  // stacked bars: adults + kids per service; ta
     g.onclick = g.onkeydown = e => { if (e.type === "keydown" && e.key !== "Enter") return; if (pick) return pick(rows[g.dataset.i][0]); S.date = rows[g.dataset.i][0]; S.view = "checkin"; render(); };
   });
 }
-const whoBtn = m => `<button class="who" data-person="${esc(m.id)}" title="See their attendance history"><span>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</button>`;
+// Each name gets one of six colours from its letters, so the same person always has the same colour circle.
+const hueOf = s => 1 + [...norm(s)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 6;
+const avaStyle = s => `style="background:var(--h${hueOf(s)}b);color:var(--h${hueOf(s)}t)"`;
+const whoBtn = m => `<button class="who" data-person="${esc(m.id)}" title="See their attendance history"><span ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</button>`;
 function donut(el, parts) {  // parts: [flag, label, count]; a ring with a gap between segments and the total in the middle
   const total = parts.reduce((n, x) => n + x[2], 0), R = 54, C = 2 * Math.PI * R, gap = total && parts.filter(x => x[2]).length > 1 ? 3 : 0;
   let at = 0, s = `<svg viewBox="0 0 140 140" role="img" aria-label="Where everyone stands: ${parts.map(x => `${x[2]} ${x[1]}`).join(", ")}">
@@ -704,136 +710,153 @@ function rowsHtml(list, cols) {
   return list.map(p => `<tr><td>${whoBtn(p)}</td><td>${badge(p.flag)}</td><td>${p.missed}</td>
     <td class="muted hide-sm">${esc(nice(p.seen))}</td>${cols ? `<td class="muted hide-sm">${esc(p.pastor || "")}</td>` : ""}<td class="muted">${esc(p.phone || "")}</td></tr>`).join("");
 }
-// ---------------------------------------------------------------- dashboard: widgets each person can add, remove and move
-// Each widget: name, short description for the Add widget popup, size (full = whole row, wide/narrow = left/right column), draw(card, p).
-const DASH_DEFAULT = ["tiles", "people", "calendar", "followup", "stands"];
+// ---------------------------------------------------------------- dashboard: widgets each person can add, remove, drag and resize
+// Each widget: name, sub (line under the title), size (full = whole row, wide/narrow = left/right column), hue (its colour), draw(body, p).
+// A person's layout is a list like ["tiles", "trend@full"]: the key, and a size if they changed it. Nobody else's dashboard is touched.
+const DASH_DEFAULT = ["tiles", "stands", "people", "calendar", "followup"];
+const SIZES = [["full", "Full width"], ["wide", "Large"], ["narrow", "Small"]];
 const sameDayBefore = (p, d) => [...p.dates].reverse().find(x => x < d && new Date(x + "T12:00:00").getDay() === new Date(d + "T12:00:00").getDay());
-function countsOn(p, d) {  // present, adults, kids, first-timers (first visit that day) at one service
+function countsOn(p, d) {  // who was at one service: adults and kids exclude first-timers and visitors, so the parts add up
   const ids = Object.keys(p.byDate[d] || {}), by = Object.fromEntries(p.mine.map(m => [m.id, m]));
-  const kids = ids.filter(i => by[i] && isKid(by[i])).length, first = ids.filter(i => by[i]?.type === "first_timer").length;
-  return {present: ids.length, adults: ids.length - kids, kids, first, visitors: ids.filter(i => by[i]?.type === "visitor").length};
+  const first = ids.filter(i => by[i]?.type === "first_timer").length, visitors = ids.filter(i => by[i]?.type === "visitor").length;
+  const rest = ids.filter(i => !["first_timer", "visitor"].includes(by[i]?.type)), kidsAll = ids.filter(i => by[i] && isKid(by[i])).length;
+  const kids = rest.filter(i => by[i] && isKid(by[i])).length;
+  return {present: ids.length, adults: ids.length - kidsAll, kids: kidsAll, first, visitors, mAdults: rest.length - kids, mKids: kids};
 }
+const delta = (x, y, unit = "") => x === y ? `<span class="delta same">Same</span>` : `<span class="delta ${x > y ? "up" : "down"}">${x > y ? "▲" : "▼"} ${Math.abs(x - y)}${unit}</span>`;
+const TREND = {sun: ["Sundays", "Last 10 Sundays"], all: ["Every service", "Last 12 services"], mid: ["Midweek", "Last 10 midweek services"], month: ["Monthly", "Average a service, each month"]};
+const trendView = () => { if (!S.trendView) { try { S.trendView = localStorage.getItem("fcc-trend"); } catch {} } return TREND[S.trendView] ? S.trendView : "sun"; };
 const WIDGETS = {
-  tiles: {name: "This service", desc: "Present, adults, kids and first-timers at the latest service.", size: "full", icon: "checkin",
+  tiles: {name: "Service overview", sub: p => p.last ? `${svcName(p.last)} · ${nice(p.last, true)}` : "No services recorded yet", desc: "Present, adults, kids and first-timers at the latest service.", size: "wide", icon: "checkin", hue: 1,
     draw(el, p) {
-      el.classList.add("bare");
-      el.innerHTML = `<div class="tiles" style="margin:0">
-        <div class="card tile" tabindex="0" style="cursor:pointer"><div class="label">This service</div><div class="num">${p.present.length}<small>present</small></div></div>
-        <div class="card tile" tabindex="0" style="cursor:pointer"><div class="label">Adults</div><div class="num">${p.present.length - p.kids}</div></div>
-        <div class="card tile" tabindex="0" style="cursor:pointer"><div class="label">Kids</div><div class="num">${p.kids}</div></div>
-        <div class="card tile" tabindex="0" style="cursor:pointer"><div class="label">First-timers</div><div class="num">${p.first}${p.visitors ? `<small>+ ${p.visitors} ${p.visitors === 1 ? "visitor" : "visitors"}</small>` : ""}</div></div></div>`;
-      el.querySelectorAll(".tile").forEach(t => { t.title = "Open Check-in for this service";
-        t.onclick = t.onkeydown = e => { if (e.type === "keydown" && e.key !== "Enter") return; S.date = p.last || today(); S.view = "checkin"; render(); }; });
+      const c = p.last ? countsOn(p, p.last) : {present: 0, adults: 0, kids: 0, first: 0, visitors: 0}, pc = n => c.present ? Math.round(n / c.present * 100) + "% of those here" : "";
+      el.innerHTML = `<div class="ov">${[["Present", c.present, 5, `of ${p.mine.filter(m => !AWAY.has(norm(m.status))).length} on the register`], ["Adults", c.adults, 1, pc(c.adults)],
+        ["Kids", c.kids, 2, pc(c.kids)], ["First-timers", c.first, 3, c.visitors ? `+ ${c.visitors} ${c.visitors === 1 ? "visitor" : "visitors"}` : "at this service"]]
+        .map(([t, n, h, sub]) => `<button type="button" class="ov-cell" title="Open Check-in for this service"><b>${n}</b><span>${t}</span><small><i style="background:var(--h${h})"></i>${esc(sub)}</small></button>`).join("")}</div>`;
+      el.querySelectorAll(".ov-cell").forEach(t => t.onclick = () => { S.date = p.last || today(); S.view = "checkin"; render(); });
     }},
-  compare: {name: "Compared with last time", desc: "Each number against the previous service on the same day (Sunday with Sunday, midweek with midweek), as more or fewer people.", size: "full", icon: "compare",
+  compare: {name: "Compared with last time", sub: p => { const prev = p.last && sameDayBefore(p, p.last); return prev ? `Against ${svcName(prev)} · ${nice(prev, true)}` : "The same day last week"; }, desc: "Each number against the previous service on the same day of the week, as more or fewer people.", size: "wide", icon: "compare", hue: 4,
     draw(el, p) {
-      el.classList.add("bare");
       const prev = p.last && sameDayBefore(p, p.last);
-      if (!prev) { el.innerHTML = `<div class="card"><h2 style="margin:0 0 6px">Compared with last time</h2><p class="empty" style="margin:0">Needs two services on the same day of the week first.</p></div>`; return; }
+      if (!prev) { el.innerHTML = `<p class="empty">Needs two services on the same day of the week first.</p>`; return; }
       const a = countsOn(p, p.last), b = countsOn(p, prev);
-      const diff = (x, y) => x === y ? `<span class="delta same">Same as ${esc(nice(prev))}</span>` : `<span class="delta ${x > y ? "up" : "down"}">${x > y ? "▲" : "▼"} ${Math.abs(x - y)} ${x > y ? "more" : "fewer"}</span>`;
-      el.innerHTML = `<div class="tiles" style="margin:0">${[["Present", "present"], ["Adults", "adults"], ["Kids", "kids"], ["First-timers", "first"]].map(([t, k]) =>
-        `<div class="card tile"><div class="label">${t}</div><div class="num">${a[k]}</div>${diff(a[k], b[k])}<div class="note" style="margin:6px 0 0">${b[k]} on ${esc(nice(prev))}</div></div>`).join("")}</div>`;
+      el.innerHTML = `<div class="ov">${[["Present", "present", 5], ["Adults", "adults", 1], ["Kids", "kids", 2], ["First-timers", "first", 3]].map(([t, k, h]) =>
+        `<div class="ov-cell"><b>${a[k]}</b><span>${t}</span><small><i style="background:var(--h${h})"></i>${b[k]} on ${esc(nice(prev))} ${delta(a[k], b[k], a[k] > b[k] ? " more" : a[k] < b[k] ? " fewer" : "")}</small></div>`).join("")}</div>`;
     }},
-  people: {name: "People present", desc: "Adults and kids at each recent service. Tap a bar to open that day's Check-in.", size: "wide", icon: "dashboard",
+  people: {name: "People present", sub: "Adults and kids at each service · tap a bar to open it", size: "wide", icon: "dashboard", hue: 1,
     draw(el, p) {
       const kidIds = new Set(p.mine.filter(isKid).map(m => m.id));
       const series = p.dates.map(d => { const ids = Object.keys(p.byDate[d]), k = ids.filter(i => kidIds.has(i)).length; return [d, ids.length - k, k]; });
-      el.innerHTML = `<div class="card-head"><h2>People present</h2><span class="gap"></span>
-        <div class="legend"><span><i style="background:var(--adults)"></i>Adults</span><span><i style="background:var(--kids)"></i>Kids</span></div></div><div class="chart"></div>`;
+      el.closest(".w").querySelector(".w-tools").innerHTML = `<div class="legend"><span><i style="background:var(--adults)"></i>Adults</span><span><i style="background:var(--kids)"></i>Kids</span></div>`;
+      el.innerHTML = `<div class="chart"></div>`;
       chart(el.querySelector(".chart"), series);
     }},
-  calendar: {name: "Calendar", desc: "A month of services with how many came. Tap a day to open it.", size: "narrow", icon: "followup", draw(el, p) { calendar(el, p); }},
-  trend: {name: "Attendance trend", desc: "Sunday attendance over the last 10 weeks, against the 10 weeks before (dotted).", size: "full", icon: "trend",
+  calendar: {name: "Calendar", sub: "Services this month and how many came", size: "narrow", icon: "followup", hue: 2, draw(el, p) { calendar(el, p); }},
+  trend: {name: "Attendance trend", sub: () => TREND[trendView()][1], desc: "Attendance over time. Switch between Sundays, every service, midweek or monthly.", size: "full", icon: "trend", hue: 1,
     draw(el, p) {
-      const suns = p.dates.filter(isSunday), now = suns.slice(-10), before = suns.slice(-20, -10), val = d => d ? Object.keys(p.byDate[d] || {}).length : null;
-      const lastV = val(now.at(-1)), avg = xs => xs.length ? Math.round(xs.reduce((n, d) => n + val(d), 0) / xs.length) : 0, aNow = avg(now), aBefore = avg(before);
-      el.innerHTML = `<div class="trend"><div class="trend-head"><h2>Attendance trend</h2>
-          <div class="big">${lastV ?? "–"}</div><div class="note" style="margin:0">${now.length ? `last Sunday · ${esc(nice(now.at(-1)))}` : "No Sunday services yet"}</div>
-          ${before.length ? `<span class="delta ${aNow >= aBefore ? "up" : "down"}" style="margin-top:10px">Average ${aNow} a Sunday, ${aNow === aBefore ? "same as" : `${Math.abs(aNow - aBefore)} ${aNow > aBefore ? "more" : "fewer"} than`} the 10 weeks before</span>` : ""}
-          <div class="legend" style="margin-top:12px"><span><i style="background:var(--accent)"></i>Last 10 Sundays</span>${before.length ? `<span><i style="background:var(--ink-3)"></i>10 before</span>` : ""}</div></div>
+      const v = trendView(), w = el.closest(".w"), tools = w.querySelector(".w-tools");
+      tools.innerHTML = `<select class="in sel" aria-label="What the trend shows">${Object.entries(TREND).map(([k, [t]]) => `<option value="${k}" ${k === v ? "selected" : ""}>${t}</option>`).join("")}</select>`;
+      tools.querySelector("select").onchange = e => { S.trendView = e.target.value; try { localStorage.setItem("fcc-trend", S.trendView); } catch {}
+        w.querySelector(".w-tt p").textContent = TREND[S.trendView][1]; WIDGETS.trend.draw(el, p); };
+      const cnt = d => Object.keys(p.byDate[d] || {}).length;
+      let pts;
+      if (v === "month") {
+        const by = {}; for (const d of p.dates) (by[d.slice(0, 7)] ??= []).push(cnt(d));
+        pts = Object.keys(by).sort().map(k => { const xs = by[k], dt = new Date(k + "-15T12:00:00");
+          return {v: Math.round(xs.reduce((a, b) => a + b, 0) / xs.length), lab: dt.toLocaleDateString("en-NZ", {month: "short"}), long: `${dt.toLocaleDateString("en-NZ", {month: "long", year: "numeric"})} · ${xs.length} ${xs.length === 1 ? "service" : "services"}`}; });
+      } else {
+        const ds = v === "sun" ? p.dates.filter(isSunday) : v === "mid" ? p.dates.filter(d => !isSunday(d)) : p.dates;
+        pts = ds.map(d => ({v: cnt(d), lab: nice(d), long: `${svcName(d)} · ${nice(d, true)}`}));
+      }
+      const N = v === "sun" || v === "mid" ? 10 : 12, now = pts.slice(-N), before = pts.slice(-2 * N, -N);
+      const avg = xs => xs.length ? Math.round(xs.reduce((n, x) => n + x.v, 0) / xs.length) : 0, aNow = avg(now), aBefore = avg(before);
+      const unit = v === "month" ? "months" : v === "all" ? "services" : v === "mid" ? "midweek services" : "Sundays";
+      el.innerHTML = `<div class="trend"><div class="trend-head">
+          <small class="muted">${v === "month" ? "Latest month, average" : "Latest"}</small><div class="big">${now.at(-1)?.v ?? "–"}</div>
+          <div class="note" style="margin:0">${now.length ? esc(now.at(-1).long) : "Nothing recorded yet"}</div>
+          ${before.length ? `<p class="note" style="margin:12px 0 0">${delta(aNow, aBefore)} Average ${aNow}, ${aNow === aBefore ? "same as" : `${Math.abs(aNow - aBefore)} ${aNow > aBefore ? "more" : "fewer"} than`} the ${before.length} ${unit} before</p>` : ""}
+          <div class="legend" style="margin-top:12px"><span><i style="background:var(--h1)"></i>Last ${now.length}</span>${before.length ? `<span><i style="background:var(--ink-3)"></i>${before.length} before</span>` : ""}</div></div>
         <div class="chart tline"></div></div>`;
       const box = el.querySelector(".tline");
-      if (!now.length) { box.innerHTML = `<p class="empty">No Sunday services recorded yet.</p>`; return; }
-      const W = 640, H = 220, L = 30, B = 26, T = 14, n = Math.max(now.length, before.length, 2), all = [...now, ...before].map(val), max = Math.max(10, Math.ceil(Math.max(...all) / 10) * 10);
-      const x = i => L + (W - L - 10) * i / (n - 1), y = v => T + (H - T - B) * (1 - v / max);
-      const line = ds => ds.map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(val(d)).toFixed(1)}`).join(" ");
-      let svgs = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Sunday attendance, last 10 weeks against the 10 before">`;
-      for (const t of [0, .5, 1].map(f => Math.round(max * f))) svgs += `<line class="gridline" x1="${L}" x2="${W}" y1="${y(t)}" y2="${y(t)}"/><text x="${L - 8}" y="${y(t) + 4}" text-anchor="end">${t}</text>`;
-      svgs += `<path d="${line(now)} L${x(now.length - 1)},${y(0)} L${x(0)},${y(0)} Z" fill="var(--accent)" opacity=".08"/>`;
-      if (before.length) svgs += `<path d="${line(before)}" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-dasharray="5 5"/>`;
-      svgs += `<path d="${line(now)}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>`;
-      now.forEach((d, i) => { svgs += `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${i % 2 && n > 6 ? "" : esc(nice(d))}</text>`; });
-      svgs += `<line class="cursor" x1="0" x2="0" y1="${T}" y2="${y(0)}" stroke="var(--ink-3)" stroke-dasharray="3 3" opacity="0"/><circle class="dot" r="5" fill="var(--accent)" stroke="var(--panel)" stroke-width="2" opacity="0"/>`;
-      box.innerHTML = `<div class="tip"></div>${svgs}</svg>`;
-      const svg = box.querySelector("svg"), tip = box.querySelector(".tip"), cur = svg.querySelector(".cursor"), dot = svg.querySelector(".dot");
-      const show = e => {
-        const r = svg.getBoundingClientRect(), fx = (e.clientX - r.left) / r.width * W, i = Math.max(0, Math.min(now.length - 1, Math.round((fx - L) / ((W - L - 10) / (n - 1)))));
-        const v = val(now[i]), b = before[i] ? val(before[i]) : null, px = x(i);
-        cur.setAttribute("x1", px); cur.setAttribute("x2", px); cur.setAttribute("opacity", 1); dot.setAttribute("cx", px); dot.setAttribute("cy", y(v)); dot.setAttribute("opacity", 1);
-        tip.innerHTML = `<b>${esc(nice(now[i], true))}</b><br><i style="background:var(--accent)"></i>${v} present${b !== null ? `<br><i style="background:var(--ink-3)"></i>${b} on ${esc(nice(before[i]))}` : ""}`;
-        tip.style.left = Math.max(80, Math.min(r.width - 80, px / W * r.width)) + "px"; tip.style.top = (y(v) / H * r.height) + "px"; tip.style.opacity = 1;
+      if (!now.length) { box.innerHTML = `<p class="empty">No ${v === "mid" ? "midweek services" : v === "sun" ? "Sunday services" : "services"} recorded yet.</p>`; return; }
+      const W = 640, H = 220, L = 30, B = 26, T = 14, n = Math.max(now.length, before.length, 2), max = Math.max(10, Math.ceil(Math.max(...[...now, ...before].map(x => x.v)) / 10) * 10);
+      const x = i => L + (W - L - 10) * i / (n - 1), y = val => T + (H - T - B) * (1 - val / max);
+      const line = xs => xs.map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(d.v).toFixed(1)}`).join(" ");
+      let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(TREND[v][1])}"><defs><linearGradient id="tgrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" style="stop-color:var(--h1);stop-opacity:.42"/><stop offset="1" style="stop-color:var(--h1);stop-opacity:0"/></linearGradient></defs>`;
+      for (const t of [0, .5, 1].map(f => Math.round(max * f))) s += `<line class="gridline" x1="${L}" x2="${W}" y1="${y(t)}" y2="${y(t)}"/><text x="${L - 8}" y="${y(t) + 4}" text-anchor="end">${t}</text>`;
+      s += `<path d="${line(now)} L${x(now.length - 1)},${y(0)} L${x(0)},${y(0)} Z" fill="url(#tgrad)"/>`;
+      if (before.length) s += `<path d="${line(before)}" fill="none" stroke="var(--ink-3)" stroke-width="2" stroke-dasharray="5 5"/>`;
+      s += `<path d="${line(now)}" fill="none" stroke="var(--h1)" stroke-width="2.5" stroke-linejoin="round"/>`;
+      const every = Math.ceil(now.length / (innerWidth < 640 ? 4 : 6));
+      now.forEach((d, i) => { if ((now.length - 1 - i) % every === 0) s += `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(d.lab)}</text>`; });
+      s += `<line class="cursor" x1="0" x2="0" y1="${T}" y2="${y(0)}" stroke="var(--ink-3)" stroke-dasharray="3 3" opacity="0"/><circle class="dot" r="5" fill="var(--h1)" stroke="var(--card)" stroke-width="2" opacity="0"/>`;
+      box.innerHTML = `<div class="tip"></div>${s}</svg>`;
+      const svgEl = box.querySelector("svg"), tip = box.querySelector(".tip"), cur = svgEl.querySelector(".cursor"), dot = svgEl.querySelector(".dot");
+      svgEl.onpointermove = svgEl.onpointerdown = e => {
+        const r = svgEl.getBoundingClientRect(), fx = (e.clientX - r.left) / r.width * W, i = Math.max(0, Math.min(now.length - 1, Math.round((fx - L) / ((W - L - 10) / (n - 1)))));
+        const px = x(i), b = before[i];
+        cur.setAttribute("x1", px); cur.setAttribute("x2", px); cur.setAttribute("opacity", 1); dot.setAttribute("cx", px); dot.setAttribute("cy", y(now[i].v)); dot.setAttribute("opacity", 1);
+        tip.innerHTML = `<b>${esc(now[i].long)}</b><br><i style="background:var(--h1)"></i>${now[i].v} ${v === "month" ? "a service" : "present"}${b ? `<br><i style="background:var(--ink-3)"></i>${b.v} · ${esc(b.long)}` : ""}`;
+        tip.style.left = Math.max(90, Math.min(r.width - 90, px / W * r.width)) + "px"; tip.style.top = (y(now[i].v) / H * r.height) + "px"; tip.style.opacity = 1;
       };
-      svg.onpointermove = svg.onpointerdown = show;
-      svg.onpointerleave = () => { tip.style.opacity = 0; cur.setAttribute("opacity", 0); dot.setAttribute("opacity", 0); };
+      svgEl.onpointerleave = () => { tip.style.opacity = 0; cur.setAttribute("opacity", 0); dot.setAttribute("opacity", 0); };
     }},
-  split: {name: "Who came", desc: "The latest service split into adults, kids and first-timers.", size: "narrow", icon: "split",
+  split: {name: "Who came", sub: p => p.last ? `${svcName(p.last)} · ${nice(p.last, true)}` : "The latest service", desc: "The latest service split into adults, kids, first-timers and visitors, against the same day last week.", size: "narrow", icon: "split", hue: 3,
     draw(el, p) {
-      const c = p.last ? countsOn(p, p.last) : {present: 0, adults: 0, kids: 0, first: 0};
-      const parts = [["Adults", c.adults - c.first, "var(--adults)"], ["Kids", c.kids, "var(--kids)"], ["First-timers", c.first, "#e08a00"]].filter(x => x[1] > 0 || !c.present);
-      el.innerHTML = `<div class="card-head"><h2>Who came</h2><span class="gap"></span><span class="note" style="margin:0">${p.last ? esc(nice(p.last)) : ""}</span></div>
-        ${c.present ? `<div class="split-bar">${parts.map(([t, n, col]) => `<i style="flex:${n};background:${col}" title="${t}: ${n}"></i>`).join("")}</div>
-        <div class="split-rows">${parts.map(([t, n, col]) => `<div><span><i style="background:${col}"></i>${t}</span><b>${n}</b><small>${Math.round(n / c.present * 100)}%</small></div>`).join("")}</div>`
-        : `<p class="empty">No service recorded yet.</p>`}`;
+      if (!p.last) { el.innerHTML = `<p class="empty">No service recorded yet.</p>`; return; }
+      const c = countsOn(p, p.last), prev = sameDayBefore(p, p.last), b = prev ? countsOn(p, prev) : null;
+      const parts = [["Adults", "mAdults", 1], ["Kids", "mKids", 2], ["First-timers", "first", 3], ["Visitors", "visitors", 4]];
+      el.innerHTML = `<div class="split-top"><b>${c.present}</b> present</div>
+        <div class="split-bar">${parts.filter(([, k]) => c[k]).map(([t, k, h]) => `<i style="flex:${c[k]};background:var(--h${h})" title="${t}: ${c[k]}"></i>`).join("") || "<i></i>"}</div>
+        <div class="split-rows">${parts.map(([t, k, h]) => `<div><span><i style="background:var(--h${h})"></i>${t} <em>(${c[k]})</em></span>${b ? `<small>${delta(c[k], b[k])} vs ${esc(nice(prev))}</small>` : ""}</div>`).join("")}</div>`;
     }},
-  busiest: {name: "Biggest services", desc: "Recent services side by side, with the biggest one highlighted, and the highest number so far.", size: "wide", icon: "bars",
+  busiest: {name: "Biggest services", sub: "Recent services, the biggest one highlighted", size: "wide", icon: "bars", hue: 4,
     draw(el, p) {
       const rows = p.dates.slice(innerWidth < 640 ? -7 : -10).map(d => [d, Object.keys(p.byDate[d] || {}).length]);
       const best = p.dates.reduce((b, d) => { const v = Object.keys(p.byDate[d] || {}).length; return v > b[1] ? [d, v] : b; }, ["", 0]);
       const top = Math.max(1, ...rows.map(r => r[1])), topDay = [...rows].reverse().find(r => r[1] === top)?.[0];  // the latest of any tie
-      el.innerHTML = `<div class="card-head"><h2>Biggest services</h2></div>
-        ${rows.length ? `<div class="vbars">${rows.map(([d, v]) => `<button type="button" class="vbar ${d === topDay ? "on" : ""}" data-day="${d}" title="${esc(svcName(d))} · ${esc(nice(d, true))}: ${v}">
+      el.innerHTML = rows.length ? `<div class="vbars">${rows.map(([d, v]) => `<button type="button" class="vbar ${d === topDay ? "on" : ""}" data-day="${d}" title="${esc(svcName(d))} · ${esc(nice(d, true))}: ${v}">
           <b>${d === topDay ? v : ""}</b><span style="height:${Math.max(6, v / top * 100)}%"></span><small>${esc(nice(d))}</small></button>`).join("")}</div>
-          <p class="note" style="margin:12px 0 0">Highest so far: <b>${best[1]}</b> at ${esc(svcName(best[0]))}, ${esc(nice(best[0], true))}.</p>` : `<p class="empty">No services recorded yet.</p>`}`;
+          <p class="note" style="margin:12px 0 0">Highest so far: <b>${best[1]}</b> at ${esc(svcName(best[0]))}, ${esc(nice(best[0], true))}.</p>` : `<p class="empty">No services recorded yet.</p>`;
       el.querySelectorAll("[data-day]").forEach(b => b.onclick = () => { S.date = b.dataset.day; S.view = "checkin"; render(); });
     }},
-  returning: {name: "Return rate", desc: "Of first-timers in the last 6 months, how many came back within 4 weeks of their first visit.", size: "narrow", icon: "gauge",
+  returning: {name: "Return rate", sub: "First-timers who came back within 4 weeks", size: "narrow", icon: "gauge", hue: 2,
     draw(el, p) {
       const from = new Date(Date.now() - 182 * 864e5).toISOString().slice(0, 10), to = new Date(Date.now() - 28 * 864e5).toISOString().slice(0, 10);
       const plus28 = d => new Date(new Date(d + "T12:00:00").getTime() + 28 * 864e5).toISOString().slice(0, 10);
       const firsts = p.mine.filter(m => m.first_visit && m.first_visit >= from && m.first_visit <= to && m.type !== "visitor");
       const back = firsts.filter(m => p.dates.some(d => d > m.first_visit && d <= plus28(m.first_visit) && p.byDate[d][m.id]));
-      const pct = firsts.length ? Math.round(back.length / firsts.length * 100) : 0, TARGET = 50;
-      const R = 70, C = Math.PI * R, segs = 30;
+      const pct = firsts.length ? Math.round(back.length / firsts.length * 100) : 0, TARGET = 50, R = 70, segs = 30;
       let arcs = ""; for (let i = 0; i < segs; i++) { const a = Math.PI * (1 - (i + .5) / segs), on = (i + .5) / segs * 100 <= pct;
-        arcs += `<line x1="${90 + Math.cos(a) * (R - 12)}" y1="${90 - Math.sin(a) * (R - 12)}" x2="${90 + Math.cos(a) * R}" y2="${90 - Math.sin(a) * R}" stroke="${on ? "var(--ok)" : "var(--line)"}" stroke-width="5" stroke-linecap="round"/>`; }
-      el.innerHTML = `<div class="card-head"><h2>Return rate</h2></div>
-        ${firsts.length ? `<div class="gauge"><svg viewBox="0 0 180 100" role="img" aria-label="${pct}% came back">${arcs}</svg><div class="gauge-num">${pct}%</div>
-          <div class="note" style="margin:0;text-align:center">${back.length} of ${firsts.length} first-timers came back within 4 weeks<br>${pct >= TARGET ? "On track" : "Below"} the ${TARGET}% target</div></div>`
-          : `<p class="empty">No first-timers in the last 6 months yet (counting those who first came at least 4 weeks ago).</p>`}`;
+        arcs += `<line x1="${90 + Math.cos(a) * (R - 12)}" y1="${90 - Math.sin(a) * (R - 12)}" x2="${90 + Math.cos(a) * R}" y2="${90 - Math.sin(a) * R}" stroke="${on ? "var(--h2)" : "var(--line)"}" stroke-width="5" stroke-linecap="round"/>`; }
+      el.innerHTML = firsts.length ? `<div class="gauge"><svg viewBox="0 0 180 100" role="img" aria-label="${pct}% came back">${arcs}</svg><div class="gauge-num">${pct}%</div>
+          <div class="note" style="margin:0;text-align:center">${back.length} of ${firsts.length} first-timers in the last 6 months came back<br>${pct >= TARGET ? "On track for" : "Below"} the ${TARGET}% target</div></div>`
+        : `<p class="empty">No first-timers in the last 6 months yet (counting those who first came at least 4 weeks ago).</p>`;
     }},
-  followup: {name: "Needs a follow-up call", desc: `People who missed ${YELLOW_AT} or more Sundays in a row.`, size: "wide", icon: "followup",
+  followup: {name: "Needs a follow-up call", sub: `Missed ${YELLOW_AT} or more Sundays in a row`, size: "full", icon: "followup", hue: 3,
     draw(el, p) {
       const need = p.people.filter(x => x.level !== "ok");
-      el.innerHTML = `<div class="card-head"><h2>Needs a follow-up call</h2><span class="gap"></span><button class="pill-btn" data-go="followup">See all ${need.length}</button></div>
-        ${need.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th>Phone</th></tr></thead>
-        <tbody>${rowsHtml(need.slice(0, 6))}</tbody></table></div>` : `<p class="empty">Nobody has missed ${YELLOW_AT} or more services in a row.</p>`}`;
+      el.closest(".w").querySelector(".w-tools").innerHTML = `<button class="pill-btn sm" data-go="followup">See all ${need.length}</button>`;
+      el.innerHTML = need.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th>Phone</th></tr></thead>
+        <tbody>${rowsHtml(need.slice(0, 6))}</tbody></table></div>` : `<p class="empty">Nobody has missed ${YELLOW_AT} or more services in a row.</p>`;
     }},
-  stands: {name: "Where everyone stands", desc: "How many came, missed once, or need a call.", size: "narrow", icon: "people",
+  stands: {name: "Where everyone stands", sub: "Came, missed once, or need a call", size: "narrow", icon: "people", hue: 5,
     draw(el, p) {
       const stands = [["ok", "came this service"], ["blue", "missed this service"], ["yellow", `missed ${YELLOW_AT}–${RED_AT - 1} in a row`], ["red", `missed ${RED_AT} or more`]].map(([f, t]) => [f, t, p.count(f)]);
-      el.innerHTML = `<div class="card-head"><h2>Where everyone stands</h2></div><div class="stand"><div class="donut"></div><div class="stand-rows">
+      el.innerHTML = `<div class="stand"><div class="donut"></div><div class="stand-rows">
         ${stands.map(([f, t, n]) => `<div class="status-row">${badge(f)}<span class="txt"><small>${t}</small></span><b>${n}</b></div>`).join("")}</div></div>`;
       donut(el.querySelector(".donut"), stands);
     }},
 };
+const dashKey = x => x.split("@")[0], dashSize = x => SIZES.some(s => s[0] === x.split("@")[1]) ? x.split("@")[1] : WIDGETS[dashKey(x)]?.size;
 // Each person's widgets are saved in the database (so phone and laptop match), with this device as a fallback.
 async function loadDash() {
   if (S.dash) return S.dash;
   let list = null;
   try { const r = await api(`app_prefs?select=dash&email=eq.${encodeURIComponent(S.me.email)}`); list = r[0]?.dash || null; S.dashDb = true; } catch { S.dashDb = false; }
   if (!list) { try { list = JSON.parse(localStorage.getItem("fcc-dash:" + S.me.email) || "null"); } catch {} }
-  return S.dash = (Array.isArray(list) ? list : DASH_DEFAULT).filter(k => WIDGETS[k]);
+  return S.dash = (Array.isArray(list) ? list : DASH_DEFAULT).filter(k => WIDGETS[dashKey(k)]);
 }
 async function saveDash(list) {
   S.dash = list;
@@ -842,21 +865,27 @@ async function saveDash(list) {
 }
 async function dashboard(el) {
   const p = picture();
-  el.innerHTML = head("Dashboard", p.last ? `${esc(S.names[p.last] || "Service")} · ${esc(nice(p.last, true))}` : "No services recorded yet",
-    `<button class="pill-btn" id="addw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `<div class="wgrid" id="wgrid"></div>`;
+  el.innerHTML = head("Dashboard", p.last ? `${esc(svcName(p.last))} · ${esc(nice(p.last, true))}` : "No services recorded yet",
+    `<button class="pill-btn" id="addw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">WhatsApp summary</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `<div class="wgrid" id="wgrid"></div>`;
   el.querySelector("#wa").onclick = () => waDialog("Summary for WhatsApp", o => !p.dates.includes(o.day) ? null : report(o.day !== p.last ? picture(o.day) : p, o), {names: true, link: true, follow: true, noEmoji: true, day: p.last || today(),
     fields: [["preacher", "Preacher name"], ["sermon", "Sermon title"], ["zoomA", "Zoom: adults", "num"], ["zoomK", "Zoom: children", "num"], ["yt", "YouTube", "num"], ["fb", "Facebook", "num"], ["converts", "New converts", "num"]]});
   el.querySelector("#addw").onclick = () => addWidget();
+  el.querySelector("[data-go]").onclick = () => { S.view = "checkin"; render(); };
   const list = await loadDash();
   if (S.view !== "dashboard") return;
   const grid = el.querySelector("#wgrid");
-  grid.innerHTML = list.length ? list.map((k, i) => `<section class="w w-${WIDGETS[k].size} ${["tiles", "compare"].includes(k) ? "" : "card"}" data-w="${k}">
-      <div class="w-menu"><button class="icon-btn sm" data-wm="${k}" aria-label="Options for ${esc(WIDGETS[k].name)}" aria-haspopup="true">${svg("more")}</button>
-        <div class="w-pop" hidden>${i ? `<button data-up="${i}">Move up</button>` : ""}${i < list.length - 1 ? `<button data-down="${i}">Move down</button>` : ""}<button class="danger" data-rm="${k}">Remove</button></div></div>
-      <div class="w-body"></div></section>`).join("")
+  grid.innerHTML = list.length ? list.map((x, i) => { const k = dashKey(x), W = WIDGETS[k], sub = typeof W.sub === "function" ? W.sub(p) : W.sub, size = dashSize(x);
+    return `<section class="w w-${size} card" data-w="${k}" data-x="${esc(x)}" style="--wc:var(--h${W.hue});--wb:var(--h${W.hue}b)">
+      <header class="w-head"><button type="button" class="w-grip" aria-label="Drag ${esc(W.name)} to move it" title="Drag to move">${svg("grip")}</button>
+        <span class="w-ico">${svg(W.icon)}</span><div class="w-tt"><h2>${esc(W.name)}</h2><p>${esc(sub)}</p></div><div class="w-tools"></div>
+        <div class="w-menu"><button class="icon-btn sm w-dots" data-wm="${k}" aria-label="Options for ${esc(W.name)}" aria-haspopup="true">${svg("dots")}</button>
+          <div class="w-pop" hidden>${i ? `<button data-up="${i}">Move up</button>` : ""}${i < list.length - 1 ? `<button data-down="${i}">Move down</button>` : ""}
+            <small>Size</small>${SIZES.map(([s, t]) => `<button data-size="${i}:${s}" class="${s === size ? "on" : ""}">${t}</button>`).join("")}
+            <button class="danger" data-rm="${i}">Remove</button></div></div></header>
+      <div class="w-body"></div></section>`; }).join("")
     : `<div class="card"><p class="empty">Your dashboard is empty. Tap <b>Add widget</b> to choose what to see.</p></div>`;
-  for (const k of list) {
-    const body = grid.querySelector(`[data-w="${k}"] .w-body`);
+  for (const x of list) {
+    const k = dashKey(x), body = grid.querySelector(`[data-w="${k}"] .w-body`);
     try { WIDGETS[k].draw(body, p); } catch (e) { body.innerHTML = `<p class="empty">This widget couldn't load.</p>`; }
   }
   grid.querySelectorAll("[data-wm]").forEach(b => b.onclick = e => { e.stopPropagation(); const pop = b.nextElementSibling, open = pop.hidden;
@@ -865,24 +894,58 @@ async function dashboard(el) {
   const move = (i, j) => { const l = [...list]; [l[i], l[j]] = [l[j], l[i]]; saveDash(l); render(); };
   grid.querySelectorAll("[data-up]").forEach(b => b.onclick = () => move(+b.dataset.up, +b.dataset.up - 1));
   grid.querySelectorAll("[data-down]").forEach(b => b.onclick = () => move(+b.dataset.down, +b.dataset.down + 1));
-  grid.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { saveDash(list.filter(k => k !== b.dataset.rm)); toast(`${WIDGETS[b.dataset.rm].name} removed. Add it back any time with Add widget.`); render(); });
-  el.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { S.view = b.dataset.go; render(); });
+  grid.querySelectorAll("[data-size]").forEach(b => b.onclick = () => { const [i, s] = b.dataset.size.split(":"), l = [...list], k = dashKey(l[i]);
+    l[i] = s === WIDGETS[k].size ? k : `${k}@${s}`; saveDash(l); render(); });
+  grid.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { const k = dashKey(list[+b.dataset.rm]); saveDash(list.filter((_, i) => i !== +b.dataset.rm));
+    toast(`${WIDGETS[k].name} removed. Add it back any time with Add widget.`); render(); });
+  grid.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { S.view = b.dataset.go; render(); });
+  dragWidgets(grid);
 }
-// The Add widget popup: every widget not on the dashboard, with a picture-style icon, what it shows, and Select.
+// Drag a widget by its handle (mouse or finger): the others make room as you go, and the new order is saved for you only.
+function dragWidgets(grid) {
+  grid.querySelectorAll(".w-grip").forEach(h => h.onpointerdown = e => {
+    if (e.button > 0) return;
+    e.preventDefault();
+    const w = h.closest(".w"), r = w.getBoundingClientRect(), start = grid.querySelectorAll(".w").length && [...grid.querySelectorAll(".w")].map(x => x.dataset.x).join("|");
+    const ghost = w.cloneNode(true); ghost.classList.add("w-ghost"); Object.assign(ghost.style, {width: r.width + "px", height: r.height + "px", left: r.left + "px", top: r.top + "px"});
+    document.body.append(ghost); w.classList.add("w-hole");
+    const dx = e.clientX - r.left, dy = e.clientY - r.top;
+    let scroller = 0;
+    const at = ev => {
+      ghost.style.left = ev.clientX - dx + "px"; ghost.style.top = ev.clientY - dy + "px";
+      clearInterval(scroller);  // near the top or bottom of the screen, keep scrolling
+      const edge = ev.clientY < 70 ? -1 : ev.clientY > innerHeight - 90 ? 1 : 0;
+      if (edge) scroller = setInterval(() => scrollBy(0, edge * 14), 16);
+      ghost.hidden = true; const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".w"); ghost.hidden = false;
+      if (!under || under === w || under.parentElement !== grid) return;
+      const u = under.getBoundingClientRect(), after = innerWidth < 900 || dashSize(under.dataset.x) === "full" ? ev.clientY > u.top + u.height / 2 : ev.clientX > u.left + u.width / 2;
+      if (after ? under.nextElementSibling !== w : under.previousElementSibling !== w) grid.insertBefore(w, after ? under.nextElementSibling : under);
+    };
+    const end = () => {
+      clearInterval(scroller); removeEventListener("pointermove", at); removeEventListener("pointerup", end); removeEventListener("pointercancel", end);
+      ghost.remove(); w.classList.remove("w-hole");
+      const order = [...grid.querySelectorAll(".w")].map(x => x.dataset.x);
+      if (order.join("|") !== start) { saveDash(order); toast("Layout saved. Only your dashboard changes."); render(); }
+    };
+    addEventListener("pointermove", at); addEventListener("pointerup", end); addEventListener("pointercancel", end);
+  });
+}
+// The Add widget popup: every widget not on the dashboard, with its icon, what it shows, and Select.
 function addWidget() {
   document.querySelectorAll(".modal").forEach(m => m.remove());
-  const have = S.dash || DASH_DEFAULT, left = Object.keys(WIDGETS).filter(k => !have.includes(k));
+  const have = S.dash || DASH_DEFAULT, left = Object.keys(WIDGETS).filter(k => !have.some(x => dashKey(x) === k));
   const d = document.createElement("div"); d.className = "modal";
   d.innerHTML = `<div class="sheet narrow" role="dialog" aria-modal="true" aria-label="Add widget">
     <div class="card-head"><h2>Add widget</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
-    ${left.length ? `<div class="wlist">${left.map(k => `<div class="witem"><div class="wico">${svg(WIDGETS[k].icon)}</div><div class="wtxt"><b>${esc(WIDGETS[k].name)}</b><p>${esc(WIDGETS[k].desc)}</p></div>
-      <button class="pill-btn primary sm" data-add="${k}">Select</button></div>`).join("")}</div>` : `<p class="empty">Every widget is already on your dashboard.</p>`}
+    ${left.length ? `<div class="wlist">${left.map(k => { const W = WIDGETS[k]; return `<div class="witem" style="--wc:var(--h${W.hue});--wb:var(--h${W.hue}b)"><div class="wico">${svg(W.icon)}</div><div class="wtxt"><b>${esc(W.name)}</b><p>${esc(W.desc || W.sub)}</p></div>
+      <button class="pill-btn primary sm" data-add="${k}">Select</button></div>`; }).join("")}</div>` : `<p class="empty">Every widget is already on your dashboard.</p>`}
+    <p class="note">Drag a widget by its handle to move it. Your layout is yours only: nobody else's dashboard changes.</p>
     <div class="modal-foot"><button type="button" class="pill-btn" data-reset>Back to the standard layout</button></div></div>`;
   document.body.append(d);
   const close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
   d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
   document.addEventListener("keydown", onKey);
-  d.querySelectorAll("[data-add]").forEach(b => b.onclick = () => { saveDash([...have, b.dataset.add]); close(); toast(`${WIDGETS[b.dataset.add].name} added at the bottom. Use ⋯ to move it.`); S.view = "dashboard"; render(); });
+  d.querySelectorAll("[data-add]").forEach(b => b.onclick = () => { saveDash([...have, b.dataset.add]); close(); toast(`${WIDGETS[b.dataset.add].name} added at the bottom. Drag it to where you want it.`); S.view = "dashboard"; render(); });
   d.querySelector("[data-reset]").onclick = () => { saveDash([...DASH_DEFAULT]); close(); toast("Back to the standard dashboard."); render(); };
 }
 
@@ -891,15 +954,6 @@ async function log(kind, member_id, result = "done", detail = "") {
   try { await api("activity_log", {method: "POST", prefer: "return=minimal", body: {id: newId() + newId(), at: isoLocal(), kind, service_date: S.date,
     member_id, detail, by_name: `${S.me.name || S.me.email} (${ROLE[S.me.role]})`, result}}); } catch {}
 }
-// Which team pills to show: the biggest few (plus the one in use) until "more" is tapped, then all A to Z.
-const FEW = 5;
-function fewKeys(keys, counts, picked, open) {
-  if (open || keys.length <= FEW + 1) return {show: keys, more: 0};
-  const top = [...keys].sort((a, b) => counts[b].n - counts[a].n || a.localeCompare(b)).slice(0, FEW);
-  if (picked && !top.includes(picked)) top[FEW - 1] = picked;
-  return {show: keys.filter(k => top.includes(k)), more: keys.length - FEW};
-}
-const moreChip = (more, open, total) => more ? `<button type="button" class="chip sm ghost" data-more>+${more} more</button>` : open && total > FEW + 1 ? `<button type="button" class="chip sm ghost" data-more>Show less</button>` : "";
 // A service's title. Until someone types one, Sunday and Wednesday get the usual names.
 const svcName = d => S.names[d] || (S.titles?.[d]) || ({0: "Sunday Service", 3: "Midweek Service"})[new Date(d + "T12:00:00").getDay()] || "Service";
 async function setPresent(id, on, seen, at = isoLocal()) {
@@ -921,22 +975,23 @@ function checkin(el) {
   const mine = S.members.filter(m => churchOf(m) === S.church && !AWAY.has(norm(m.status))).sort((a, b) => norm(a.full_name).localeCompare(norm(b.full_name)));
   let here = {};
   const pastor = S.me.role === "pastor";  // a pastor ticks their own people only (locks work as for ushers): no adding or renaming
+  // Laid out like Admin → Sign-ins: numbers on top, then pills to filter, team and search on the right, a table of names, 25 a page
   el.innerHTML = head("Check-in", pastor ? "Your people" : esc(S.church)) + `
     <div class="card" style="margin-bottom:14px"><div class="row">
       <div style="flex:0 0 170px"><label class="f" for="d">Service date</label><input class="in" id="d" type="date" value="${S.date}"></div>
       <div><label class="f" for="svc">Service</label><input class="in" id="svc" list="svc-list" maxlength="60" autocomplete="off" value="${esc(svcName(S.date))}" ${pastor ? "readonly" : ""}>
-        <datalist id="svc-list">${[...new Set(["Sunday Service", "Midweek Service", "Prayer Meeting", "Special Service", ...Object.values(S.names)])].map(n => `<option value="${esc(n)}">`).join("")}</datalist></div>
-      <div><label class="f" for="q">Search</label><div style="display:flex;gap:8px;align-items:center"><input class="in" id="q" type="search" placeholder="Name or team" value="${esc(S.q)}" style="flex:1;min-width:0">
-        <button type="button" class="pill-btn sm" id="ci-tg" hidden aria-controls="ci-roles">Teams</button></div></div></div>
-      <div class="chips" id="ci-roles" style="margin:12px 0 0"></div></div>
+        <datalist id="svc-list">${[...new Set(["Sunday Service", "Midweek Service", "Prayer Meeting", "Special Service", ...Object.values(S.names)])].map(n => `<option value="${esc(n)}">`).join("")}</datalist></div></div></div>
     <div class="tiles"><div class="card tile"><div class="label">Checked in</div><div class="num" id="n-in">0</div></div>
       <div class="card tile"><div class="label">Adults</div><div class="num" id="n-ad">0</div></div>
       <div class="card tile"><div class="label">Kids</div><div class="num" id="n-kid">0</div></div>
       <div class="card tile"><div class="label">Not yet</div><div class="num" id="n-not">0</div></div></div>
-    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span><span id="shown" style="color:var(--ink-3);font-size:13px"></span><button type="button" class="pill-btn sm" id="ci-lock">${svg("lock")}Save &amp; lock</button></div>
+    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span><button type="button" class="pill-btn sm" id="ci-lock">${svg("lock")}Save &amp; lock</button></div>
+      <div class="u-bar"><div class="rpills" role="tablist" aria-label="Show" id="ci-pills"></div>
+        <div class="u-tools"><select class="in" id="ci-team" aria-label="Team" hidden></select>
+          <input class="in" id="q" type="search" placeholder="Search names" value="${esc(S.q)}" aria-label="Search by name, phone or team" autocomplete="off"></div></div>
       <div class="bulk" id="ci-bulk" hidden style="position:static;box-shadow:none"><b id="ci-count"></b><span class="gap"></span><button type="button" class="pill-btn sm primary" id="ci-all">Tick all</button><button type="button" class="pill-btn sm" id="ci-none">Untick all</button></div>
       <div class="msg locked" id="ci-locked" hidden></div>
-      <div class="names" id="names"></div>
+      <div id="names"></div><div id="ci-pager"></div>
       <div style="margin-top:12px;text-align:right" id="ci-clear-wrap" hidden><button type="button" class="pill-btn sm" id="ci-clear">Untick everyone</button></div></div>
     ${pastor ? "" : `<form class="card" id="add"><div class="card-head"><h2>Add someone new</h2></div><div class="row">
       <div><label class="f" for="a-name">Full name</label><input class="in" id="a-name" required></div>
@@ -950,29 +1005,40 @@ function checkin(el) {
   const teams = {};  // each role in this church with how many people have it
   for (const m of mine) for (const r of new Set(rolesOf(m).map(norm))) (teams[r] ??= {label: rolesOf(m).find(x => norm(x) === r), n: 0}).n++;
   if (S.ciRole && !teams[S.ciRole]) S.ciRole = "";
-  const chips = el.querySelector("#ci-roles"), teamKeys = Object.keys(teams).sort();
-  let teamsOn = true; try { teamsOn = localStorage.getItem("fcc-teams") !== "off"; } catch {}
-  const tg = el.querySelector("#ci-tg"); tg.hidden = !teamKeys.length;
-  tg.onclick = () => {  // hide or bring back the team pills; hiding also goes back to everyone so no filter is left on unseen
-    teamsOn = !teamsOn; try { localStorage.setItem("fcc-teams", teamsOn ? "on" : "off"); } catch {}
-    if (!teamsOn) S.ciRole = ""; armed = false; drawChips(); draw();
-  };
-  const drawChips = () => { tg.setAttribute("aria-expanded", teamsOn); tg.classList.toggle("primary", teamsOn); chips.hidden = !teamsOn;
-    const few = fewKeys(teamKeys, teams, S.ciRole, S.ciMore);
-    chips.innerHTML = teamKeys.length ? `<button type="button" class="chip sm ${S.ciRole ? "" : "on"}" data-team="">Everyone</button>` +
-    few.show.map(k => `<button type="button" class="chip sm ${S.ciRole === k ? "on" : ""}" data-team="${esc(k)}">${esc(teams[k].label)} · ${teams[k].n}</button>`).join("") + moreChip(few.more, S.ciMore, teamKeys.length) : ""; };
-  chips.onclick = e => { if (e.target.closest("[data-more]")) { S.ciMore = !S.ciMore; drawChips(); return; }
-    const b = e.target.closest("[data-team]"); if (!b) return; S.ciRole = b.dataset.team; armed = false; drawChips(); draw(); };
+  const teamKeys = Object.keys(teams).sort(), teamSel = el.querySelector("#ci-team");
+  teamSel.hidden = !teamKeys.length;
+  teamSel.innerHTML = `<option value="">All teams</option>` + teamKeys.map(k => `<option value="${esc(k)}" ${S.ciRole === k ? "selected" : ""}>${esc(teams[k].label)} · ${teams[k].n}</option>`).join("");
+  teamSel.onchange = () => { S.ciRole = teamSel.value; S.ciPage = 1; armed = false; draw(); };
+  const SHOWCI = {all: ["Everyone", 0, () => true], here: ["Here", 2, m => here[m.id]], not: ["Not yet", 3, m => !here[m.id]],
+    first: ["First-timers", 6, m => m.type === "first_timer"], visitor: ["Visitors", 4, m => m.type === "visitor"], kids: ["Kids", 5, m => isKid(m)]};
+  if (!SHOWCI[S.ciShow]) S.ciShow = "all";
+  el.querySelector("#ci-pills").onclick = e => { const b = e.target.closest("[data-cis]"); if (!b) return; S.ciShow = b.dataset.cis; S.ciPage = 1; armed = false; draw(); };
+  const PER = 25;
   let armed = false, armedAll = false, busy = false;
-  const showing = () => { const q = norm(S.q);
-    return mine.filter(m => (!S.ciRole || rolesOf(m).some(r => norm(r) === S.ciRole)) && (!q || norm(m.full_name).includes(q) || rolesOf(m).some(r => norm(r).includes(q)))); };
+  const narrowedTo = () => { const q = norm(S.q);  // team and search; the pills then pick within these
+    return mine.filter(m => (!S.ciRole || rolesOf(m).some(r => norm(r) === S.ciRole)) && (!q || norm(m.full_name).includes(q) || norm(m.phone).includes(q) || rolesOf(m).some(r => norm(r).includes(q)))); };
+  const showing = () => narrowedTo().filter(SHOWCI[S.ciShow][2]);
   const draw = () => {
-    const shown = showing(), narrowed = !!(S.ciRole || norm(S.q)), ticked = shown.filter(m => here[m.id]).length;
-    box.innerHTML = shown.map(m => `<label class="name ${here[m.id] ? "on" : ""}"><input type="checkbox" data-id="${esc(m.id)}" ${here[m.id] ? "checked" : ""} ${lock ? "disabled" : ""}>
-      <span>${esc(m.full_name)}</span><small>${[narrowed ? rolesOf(m).join(", ") : "", m.type === "first_timer" ? "first-timer" : m.type === "visitor" ? "visitor" : "", isKid(m) ? "child" : ""].filter(Boolean).map(esc).join(" · ")}</small></label>`).join("") || `<p class="empty">Nobody matches.</p>`;
-    el.querySelector("#shown").textContent = `showing ${shown.length} of ${mine.length}`;
-    el.querySelector("#ci-title").textContent = S.ciRole ? teams[S.ciRole].label : "Names A to Z";
-    // ticking a whole group is only offered once the list is narrowed to a team or a search, never for the whole church
+    const base = narrowedTo(), shown = base.filter(SHOWCI[S.ciShow][2]), narrowed = !!(S.ciRole || norm(S.q) || S.ciShow !== "all"), ticked = shown.filter(m => here[m.id]).length;
+    el.querySelector("#ci-pills").innerHTML = Object.entries(SHOWCI).map(([k, [t, h, f]]) =>
+      `<button type="button" class="rpill" role="tab" data-cis="${k}" aria-selected="${S.ciShow === k}" ${h ? `style="--rc:var(--h${h})"` : ""}>${h ? "<i></i>" : ""}${t} <span>${base.filter(f).length}</span></button>`).join("");
+    const pages = Math.max(1, Math.ceil(shown.length / PER)); S.ciPage = Math.min(Math.max(1, S.ciPage || 1), pages);
+    const page = shown.slice((S.ciPage - 1) * PER, S.ciPage * PER);
+    const nums = [...new Set([1, S.ciPage - 1, S.ciPage, S.ciPage + 1, pages])].filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
+    box.innerHTML = shown.length ? `<div class="scroll"><table class="utable ci-table"><thead><tr><th class="tick"><span class="sr">Here</span></th><th>Name</th><th class="hide-sm">Type</th><th class="hide-sm">Teams</th><th class="hide-sm">Status</th></tr></thead><tbody>
+      ${page.map(m => `<tr class="ci-row ${here[m.id] ? "on" : ""}" data-row="${esc(m.id)}"><td class="tick"><input type="checkbox" data-id="${esc(m.id)}" aria-label="${esc(m.full_name)} is here" ${here[m.id] ? "checked" : ""} ${lock ? "disabled" : ""}></td>
+        <td><div class="who-cell"><span class="ava" ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span><span><b>${esc(m.full_name)}</b><small>${esc([m.phone, isKid(m) ? "Child" : ""].filter(Boolean).join(" · "))}</small></span></div></td>
+        <td class="hide-sm">${m.type === "first_timer" ? `<span class="rbadge r-pastor">First-timer</span>` : m.type === "visitor" ? `<span class="rbadge r-bishop">Visitor</span>` : `<span class="muted">Member</span>`}</td>
+        <td class="hide-sm">${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("") || `<span class="muted">–</span>`}</td>
+        <td class="hide-sm">${here[m.id] ? `<span class="badge ok">Here${here[m.id].length > 15 ? " · " + esc(here[m.id].slice(11, 16)) : ""}</span>` : `<span class="muted">Not yet</span>`}</td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="empty">${norm(S.q) ? "Nobody matches that search." : "Nobody here. Try another filter or team."}</p>`;
+    el.querySelector("#ci-pager").innerHTML = pages > 1 ? `<div class="pager"><span class="muted">Page ${S.ciPage} of ${pages} · ${shown.length} people</span><span class="gap"></span>
+        <button class="pg" data-cpg="${S.ciPage - 1}" ${S.ciPage === 1 ? "disabled" : ""} aria-label="Previous page">${svg("prev")}</button>
+        ${nums.map((n, i) => (i && n - nums[i - 1] > 1 ? `<span class="muted">…</span>` : "") + `<button class="pg ${n === S.ciPage ? "on" : ""}" data-cpg="${n}">${n}</button>`).join("")}
+        <button class="pg" data-cpg="${S.ciPage + 1}" ${S.ciPage === pages ? "disabled" : ""} aria-label="Next page">${svg("next")}</button></div>` : shown.length ? `<p class="note" style="margin:10px 2px 0">Showing ${shown.length} of ${mine.length}</p>` : "";
+    el.querySelectorAll("[data-cpg]").forEach(b => b.onclick = () => { S.ciPage = +b.dataset.cpg; draw(); });
+    el.querySelector("#ci-title").textContent = S.ciRole ? teams[S.ciRole].label : S.ciShow !== "all" ? SHOWCI[S.ciShow][0] : "Names A to Z";
+    // ticking a whole group is only offered once the list is narrowed to a team, a search or a pill, never for the whole church
     const bar = el.querySelector("#ci-bulk"); bar.hidden = !narrowed || !shown.length;
     el.querySelector("#ci-count").textContent = `${ticked} of ${shown.length} here`;
     const all = el.querySelector("#ci-all"), none = el.querySelector("#ci-none");
@@ -986,6 +1052,9 @@ function checkin(el) {
     el.querySelector("#n-in").textContent = ids.length; el.querySelector("#n-ad").textContent = ids.length - kids;
     el.querySelector("#n-kid").textContent = kids; el.querySelector("#n-not").textContent = mine.length - ids.length;
   };
+  // tapping anywhere on a row ticks it, like tapping its box
+  box.onclick = e => { if (e.target.closest("input, a, button")) return; const tr = e.target.closest("[data-row]"); if (!tr) return;
+    const c = tr.querySelector("input[data-id]"); if (c.disabled) return toast("This service is locked. Unlock it to make changes."); c.checked = !c.checked; c.dispatchEvent(new Event("change", {bubbles: true})); };
   const pull = async () => {
     const rows = await api(`attendance?select=member_id,checked_at&service_date=eq.${S.date}`).catch(() => null);
     readLock();
@@ -1035,7 +1104,7 @@ function checkin(el) {
     }
     pending.delete(id); draw(); pull();
   };
-  el.querySelector("#q").oninput = e => { S.q = e.target.value; armed = false; draw(); };
+  el.querySelector("#q").oninput = e => { S.q = e.target.value; S.ciPage = 1; armed = false; draw(); };
   el.querySelector("#ci-all").onclick = async () => {
     const todo = showing().filter(m => !here[m.id]); if (!todo.length || busy) return;
     busy = true; armed = false; draw();
@@ -1072,7 +1141,6 @@ function checkin(el) {
     } catch (err) { toast("Not saved: " + err.message); }
     busy = false; draw(); pull();
   };
-  drawChips();
   const svc = el.querySelector("#svc");
   el.querySelector("#d").onchange = e => { S.date = e.target.value || today(); svc.value = svcName(S.date); here = {}; lock = null; draw(); showLock(); pull(); };
   if (!pastor) svc.onchange = async () => {
@@ -1547,7 +1615,7 @@ async function admin(el) {
     const nums = [...new Set([1, S.uPage - 1, S.uPage, S.uPage + 1, pages])].filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
     el.querySelector("#u-list").innerHTML = !list.length ? `<p class="empty">Nobody matches. Try another role, church or name.</p>` : `
       <div class="scroll"><table class="utable"><thead><tr><th>Name</th><th>Role</th><th>Church</th><th class="hide-sm">Pastor name</th><th></th></tr></thead><tbody>
-      ${shown.map(u => `<tr><td><div class="who-cell"><span class="ava">${esc(initials(u.name || u.email))}</span><span><b>${esc(u.name || u.email.split("@")[0])}</b><small>${esc(u.email)}</small></span></div></td>
+      ${shown.map(u => `<tr><td><div class="who-cell"><span class="ava" ${avaStyle(u.name || u.email)}>${esc(initials(u.name || u.email))}</span><span><b>${esc(u.name || u.email.split("@")[0])}</b><small>${esc(u.email)}</small></span></div></td>
         <td><span class="rbadge ${roleCls(u.role)}">${ROLE[u.role]}</span>${u.pastor && u.role !== "pastor" ? ` <span class="rbadge r-pastor">+ Pastor</span>` : ""}</td>
         <td class="muted">${esc(u.church || "All churches")}</td><td class="muted hide-sm">${esc(u.pastor || (u.role === "pastor" ? "Not set yet" : ""))}</td>
         <td style="white-space:nowrap;text-align:right">${u.email === S.me.email ? `<span class="muted">You</span>` : `<button class="pill-btn sm" data-chg="${esc(u.email)}">${svg("edit")}Change</button> <button class="x" data-del="${esc(u.email)}">Remove</button>`}</td></tr>`).join("")}</tbody></table></div>
