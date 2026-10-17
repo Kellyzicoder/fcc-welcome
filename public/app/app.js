@@ -988,9 +988,9 @@ function people(el) {
   const roleKeys = Object.keys(counts).sort();
   if (S.roleF && !counts[S.roleF]) S.roleF = "";
   const q = norm(S.findQ), inRole = S.roleF ? everyone.filter(m => rolesOf(m).some(r => norm(r) === S.roleF)) : everyone;
-  const SHOW = {all: ["Everyone", () => true], female: ["Females", m => genderOf(m) === "Female"], male: ["Males", m => genderOf(m) === "Male"],
-    adult: ["Adults", m => !isKid(m)], child: ["Children", m => isKid(m)], member: ["Members", m => typeKey(m) === "member"],
-    first: ["First-timers", m => m.type === "first_timer"], visitor: ["Visitors", m => m.type === "visitor"], nopastor: ["No pastor yet", m => !pastorsOf(m).length]};
+  const SHOW = {all: ["Everyone", () => true], member: ["Members", m => typeKey(m) === "member"],
+    first: ["First-timers", m => m.type === "first_timer"], visitor: ["Visitors", m => m.type === "visitor"], nopastor: ["No pastor yet", m => !pastorsOf(m).length],
+    female: ["Females", m => genderOf(m) === "Female"], male: ["Males", m => genderOf(m) === "Male"], adult: ["Adults", m => !isKid(m)], child: ["Children", m => isKid(m)]};
   const last = {}; for (const t of S.ticks) if (!last[t.member_id] || t.service_date > last[t.member_id]) last[t.member_id] = t.service_date;
   const lastOf = m => last[m.id] || S.seen?.[m.id] || "";
   const SORT = {name: ["Name A to Z", (a, b) => byName(a, b)], namez: ["Name Z to A", (a, b) => byName(b, a)],
@@ -1008,23 +1008,41 @@ function people(el) {
   const roleNames = roleKeys.map(k => counts[k].label);
   const picked = everyone.filter(m => S.sel.has(m.id)), shownPicked = mine.filter(m => S.sel.has(m.id)).length;
   const typeOf = typeName, ageOf = m => isKid(m) ? "Child" : "Adult";
-  el.innerHTML = head("Congregation", `${esc(S.church)} · ${everyone.length} people`, `<button class="pill-btn" id="dl">Download</button>`) + `
-    <input class="in" id="find" type="search" placeholder="Search" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off" style="margin-bottom:12px">
-    <div class="row sortbar"><div><label class="f" for="show">Show</label><select class="in" id="show">${Object.entries(SHOW).map(([k, [t, f]]) =>
-      `<option value="${k}" ${S.showF === k ? "selected" : ""}>${t} · ${inRole.filter(f).length}</option>`).join("")}</select></div>
-      <div><label class="f" for="sort">Sort by</label><select class="in" id="sort">${Object.entries(SORT).map(([k, [t]]) => `<option value="${k}" ${S.sortBy === k ? "selected" : ""}>${t}</option>`).join("")}</select></div></div>
-    ${roleKeys.length ? `<div class="chips"><button class="chip ${S.roleF ? "" : "on"}" data-role="">Everyone · ${everyone.length}</button>${fewKeys(roleKeys, counts, S.roleF, S.roleMore).show.map(k =>
-      `<button class="chip ${S.roleF === k ? "on" : ""}" data-role="${esc(k)}">${esc(counts[k].label)} · ${counts[k].n}</button>`).join("")}${moreChip(fewKeys(roleKeys, counts, S.roleF, S.roleMore).more, S.roleMore, roleKeys.length).replace("chip sm ghost", "chip ghost")}</div>` : ""}
-    ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><button class="pill-btn sm" id="bulk-see">${S.selOnly ? "Show all" : "View"}</button><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-set">Set details</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
-    <div class="card"><div class="scroll"><table><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select everyone shown" ${mine.length && shownPicked === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Pastor assigned</th><th>Type</th><th>Age group</th><th>Gender</th><th>Status</th><th>Phone</th><th>Roles</th></tr></thead><tbody>
-    ${mine.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}<td>${whoBtn(m)}</td>${edit ? `<td><button class="pill-btn sm" data-edit="${esc(m.id)}" aria-label="Edit ${esc(m.full_name)}">${svg("edit")}Edit</button></td>` : ""}
-      <td class="${pastorsOf(m).length ? "" : "muted"}">${pastorsOf(m).length ? pastorsOf(m).map(pastorBtn).join("<br>") : "Not assigned"}</td><td class="muted">${typeOf(m)}</td><td class="muted">${ageOf(m)}</td><td class="muted">${genderOf(m)}</td>
-      <td>${m.status ? `<span class="badge">${esc(m.status)}</span>` : `<span class="muted">Active</span>`}</td>
-      <td class="muted">${esc(m.phone || "")}</td><td>${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("")}</td></tr>`).join("")}
-    </tbody></table></div>${mine.length ? "" : `<p class="empty">${q ? "Nobody matches that search." : "Nobody yet. Add people from Check-in."}</p>`}
-    ${edit ? `` : ""}</div>`;
-  el.querySelector("#show").onchange = e => { S.showF = e.target.value; render(); };
-  el.querySelector("#sort").onchange = e => { S.sortBy = e.target.value; render(); };
+  // Laid out like Admin → Sign-ins: numbers on top, pills to filter, tools on the right, 20 people per page
+  const PER = 20, pages = Math.max(1, Math.ceil(mine.length / PER)); S.pPage = Math.min(Math.max(1, S.pPage || 1), pages);
+  const shown = mine.slice((S.pPage - 1) * PER, S.pPage * PER);
+  const nums = [...new Set([1, S.pPage - 1, S.pPage, S.pPage + 1, pages])].filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
+  const TYPECLS = {member: "r-team", first_timer: "r-pastor", visitor: "r-bishop"};
+  const DOT = {member: "r-team", first: "r-pastor", visitor: "r-bishop", nopastor: "r-admin", female: "r-lead", male: "r-lead", adult: "", child: ""};
+  el.innerHTML = head("Congregation", esc(S.church), `<button class="pill-btn" id="dl">Download</button>`) + `
+    <div class="tiles">${[["Total people", everyone.length, "In " + S.church], ["Members", everyone.filter(SHOW.member[1]).length, "Regular members"],
+        ["First-timers & visitors", everyone.filter(m => m.type === "first_timer" || m.type === "visitor").length, "Still getting to know us"],
+        ["No pastor yet", everyone.filter(SHOW.nopastor[1]).length, "Need a pastor assigned"]]
+      .map(([t, n, sub]) => `<div class="card tile"><div class="label">${t}</div><div class="num">${String(n).padStart(2, "0")}</div><div class="note" style="margin:4px 0 0">${esc(sub)}</div></div>`).join("")}</div>
+    <div class="card">
+      <div class="u-bar"><div class="rpills" role="tablist" aria-label="Show">${Object.entries(SHOW).map(([k, [t, f]]) =>
+          `<button type="button" class="rpill ${DOT[k] || ""}" role="tab" data-show="${k}" aria-selected="${S.showF === k}">${k === "all" || !DOT[k] ? "" : "<i></i>"}${t} <span>${inRole.filter(f).length}</span></button>`).join("")}</div>
+        <div class="u-tools">${roleKeys.length ? `<select class="in" id="teamF" aria-label="Team"><option value="">All teams</option>${roleKeys.map(k => `<option value="${esc(k)}" ${S.roleF === k ? "selected" : ""}>${esc(counts[k].label)} · ${counts[k].n}</option>`).join("")}</select>` : ""}
+          <select class="in" id="sort" aria-label="Sort by">${Object.entries(SORT).map(([k, [t]]) => `<option value="${k}" ${S.sortBy === k ? "selected" : ""}>${t}</option>`).join("")}</select>
+          <input class="in" id="find" type="search" placeholder="Search by name, phone or pastor" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off"></div></div>
+      ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><button class="pill-btn sm" id="bulk-see">${S.selOnly ? "Show all" : "View"}</button><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-set">Set details</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
+      <div class="scroll"><table class="utable"><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select all ${mine.length} shown" title="Select all ${mine.length} shown" ${mine.length && shownPicked === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Type</th><th>Pastor assigned</th><th>Age group</th><th>Gender</th><th>Status</th><th>Roles</th></tr></thead><tbody>
+      ${shown.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}
+        <td><div class="who-cell">${whoBtn(m)}</div>${m.phone ? `<small class="muted" style="display:block;margin:2px 0 0 40px">${esc(m.phone)}</small>` : ""}</td>
+        ${edit ? `<td><button class="pill-btn sm" data-edit="${esc(m.id)}" aria-label="Edit ${esc(m.full_name)}">${svg("edit")}Edit</button></td>` : ""}
+        <td><span class="rbadge ${TYPECLS[typeKey(m)] || ""}">${esc(typeOf(m))}</span></td>
+        <td class="${pastorsOf(m).length ? "" : "muted"}">${pastorsOf(m).length ? pastorsOf(m).map(pastorBtn).join("<br>") : "Not assigned"}</td><td class="muted">${ageOf(m)}</td><td class="muted">${genderOf(m)}</td>
+        <td>${m.status ? `<span class="badge">${esc(m.status)}</span>` : `<span class="muted">Active</span>`}</td>
+        <td>${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("")}</td></tr>`).join("")}
+      </tbody></table></div>${mine.length ? "" : `<p class="empty">${q ? "Nobody matches that search." : "Nobody here. Try another filter, or add people from Check-in."}</p>`}
+      ${pages > 1 ? `<div class="pager"><span class="muted">Page ${S.pPage} of ${pages} · ${mine.length} people</span><span class="gap"></span>
+        <button class="pg" data-ppg="${S.pPage - 1}" ${S.pPage === 1 ? "disabled" : ""} aria-label="Previous page">${svg("prev")}</button>
+        ${nums.map((n, i) => (i && n - nums[i - 1] > 1 ? `<span class="muted">…</span>` : "") + `<button class="pg ${n === S.pPage ? "on" : ""}" data-ppg="${n}">${n}</button>`).join("")}
+        <button class="pg" data-ppg="${S.pPage + 1}" ${S.pPage === pages ? "disabled" : ""} aria-label="Next page">${svg("next")}</button></div>` : ""}</div>`;
+  el.querySelectorAll("[data-show]").forEach(b => b.onclick = () => { S.showF = b.dataset.show; S.pPage = 1; render(); });
+  el.querySelectorAll("[data-ppg]").forEach(b => b.onclick = () => { S.pPage = +b.dataset.ppg; render(); el.scrollIntoView?.({block: "start"}); });
+  const teamF = el.querySelector("#teamF"); if (teamF) teamF.onchange = e => { S.roleF = e.target.value; S.pPage = 1; render(); };
+  el.querySelector("#sort").onchange = e => { S.sortBy = e.target.value; S.pPage = 1; render(); };
   el.querySelectorAll("[data-pick]").forEach(c => c.onchange = () => { c.checked ? S.sel.add(c.dataset.pick) : S.sel.delete(c.dataset.pick); render(); });
   const all = el.querySelector("#pick-all");
   if (all) all.onchange = () => { for (const m of mine) all.checked ? S.sel.add(m.id) : S.sel.delete(m.id); render(); };  // only those on show
@@ -1115,7 +1133,7 @@ function people(el) {
     }, "Change roles");
   };
   el.querySelector("#find").oninput = e => {  // redraw, then put the cursor back where it was
-    S.findQ = e.target.value; S.selOnly = false; const at = e.target.selectionStart; render();
+    S.findQ = e.target.value; S.selOnly = false; S.pPage = 1; const at = e.target.selectionStart; render();
     const f = document.querySelector("#find"); if (f) { f.focus(); try { f.setSelectionRange(at, at); } catch {} }
   };
   el.querySelectorAll("[data-role]").forEach(b => b.onclick = () => { S.roleF = b.dataset.role; render(); });
