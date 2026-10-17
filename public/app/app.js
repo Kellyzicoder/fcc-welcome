@@ -1983,9 +1983,8 @@ async function person(el) {
       ${flock.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Came${p.last ? " · " + esc(nice(p.last)) : ""}</th><th>Status</th><th>Missed in a row</th><th>Phone</th></tr></thead><tbody>
         ${flock.map(x => `<tr><td>${whoBtn(x)}</td><td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${badge(x.flag)}</td><td>${x.missed}</td><td class="muted">${esc(x.phone || "")}</td></tr>`).join("")}</tbody></table></div>`
         : `<p class="empty">Nobody is assigned to them yet.</p>`}</div>` : ""}
-    <div class="tiles"><div class="card tile"><div class="label">Attendance History</div><div class="num">${came.length}</div></div>
+    <div class="tiles three"><div class="card tile"><div class="label">Attendance History</div><div class="num">${came.length}</div></div>
       <div class="card tile"><div class="label">Last Attended</div><div class="num sm">${esc(full(came[0]))}</div></div>
-      <div class="card tile"><div class="label">First Attended</div><div class="num sm">${esc(full(came[came.length - 1]))}</div></div>
       <div class="card tile"><div class="label">Missed in a row</div><div class="num">${st ? st.missed : "–"}</div></div></div>
     ${recent.length ? `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>The last ${recent.length} services</h2><span class="gap"></span>
         <div class="legend"><span><i class="dot on"></i>Came</span><span><i class="dot"></i>Missed</span></div></div>
