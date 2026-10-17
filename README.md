@@ -43,6 +43,7 @@ in `supabase/app_setup.sql` decides what comes back.
 - All-churches dashboard: month calendar, church list, charts, *No service was recorded* when a day is empty
 - WhatsApp summaries (phones only) and CSV downloads
 - Help page with questions by role, and a contact form that emails the admin and lands in the Admin inbox
+- Ask a question: 50 ready-made questions (services such as Fathers Day, first-timers by month, females, males, kids, who is missing and more). Each one is a saved SQL query in `app_ask` (`supabase/app_setup.sql`). It is free, has no AI, and never lets anyone type their own SQL. The database's own rules decide what each sign-in sees, and phone numbers are never returned
 - Light and dark mode; checks for a newer version each time it opens
 
 ## Keeping it safe
