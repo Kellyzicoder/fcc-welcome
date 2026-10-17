@@ -1675,7 +1675,7 @@ function editPerson(m) {
 // ---------------------------------------------------------------- all churches (numbers only) and admin
 // ---------------------------------------------------------------- All churches page: widgets (numbers only, no names)
 // c: rows (each church's numbers), pick (the churches being shown), series ([date, adults, kids, first-timers, visitors] per service), ...
-const CDASH_DEFAULT = ["numbers", "chart", "churches", "follow"];
+const CDASH_DEFAULT = ["chart", "numbers", "churches", "follow"];
 const CWIDGETS = {
   numbers: {name: "Service numbers", sub: c => c.when, desc: "Present (with the change since last time), adults and kids, first-timers, and how many of the register came.", size: "full", icon: "checkin", hue: 1,
     draw(el, c) {
