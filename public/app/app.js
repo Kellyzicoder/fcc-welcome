@@ -952,9 +952,9 @@ const WIDGETS = {
     draw(el) {
       const PL = [["youtube", "YouTube"], ["facebook", "Facebook"], ["zoom", "Zoom"]];
       const word = x => x.status === "live" ? (x.viewers === null ? "Hidden" : "Live") : {offline: "Offline", not_configured: "Not set up", error: "Error"}[x.status] || "Off";
-      const church = S.church, call = async (init = {}) => {
+      const church = S.church, call = async (init = {}, q = "") => {
         if (S.session.expires_at - Date.now() < 60000) await refresh();
-        const r = await fetch("/app-live" + (init.method ? "" : "?church=" + encodeURIComponent(church)), {cache: "no-store", ...init,
+        const r = await fetch("/app-live" + (init.method ? "" : "?church=" + encodeURIComponent(church) + q), {cache: "no-store", ...init,
           headers: {Authorization: "Bearer " + S.session.access_token, "Content-Type": "application/json"}});
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j.message || "The livestream numbers couldn't be loaded.");
@@ -987,9 +987,18 @@ const WIDGETS = {
             <div class="live-nums"><div><b>${j.total}</b><small>watching now</small></div><div><b>${j.peak}</b><small>peak this service</small></div></div>
             <div class="live-pl">${PL.map(([k, t]) => { const x = j.platforms[k]; return `<div class="${x.status === "live" ? "on" : ""}"><small>${t}</small>
               <b>${x.status === "live" && x.viewers !== null ? x.viewers : "–"}</b><em>${word(x)}</em></div>`; }).join("")}</div>
+            ${j.platforms.zoom.status === "live" ? `<p class="note" style="margin:10px 0 0">Zoom includes the host and co-host: take 2 off for the attendance count.</p>` : ""}
             ${h.length > 1 ? `<div class="live-spark" aria-hidden="true">${h.map(x => `<i style="height:${Math.max(3, x.total / top * 100)}%"></i>`).join("")}</div>` : ""}
             ${j.channel ? `<div class="live-ch"><small>YouTube channel: <b>${esc(j.channel)}</b></small><button type="button" class="link-btn" data-change>Change</button></div>` : ""}`;
           el.querySelector("[data-change]")?.addEventListener("click", () => connect(j.channel));
+          if (!live && j.home) {  // between services: the last service's numbers, which the live dashboard keeps (morning prayers left out)
+            const early = t => { const x = new Date(t), m = x.getHours() * 60 + x.getMinutes(); return m >= 270 && m < 390; };
+            const s = await call({}, `&from=${Date.now() - 3 * 86400000}&to=${Date.now()}`).catch(() => null);
+            const last = (s?.services || []).filter(x => !early(x.start)).pop();
+            if (last && el.isConnected) el.querySelector(".live-nums")?.insertAdjacentHTML("afterend", `<div class="live-last">
+              <small>Last service · ${esc(new Date(last.start).toLocaleString([], {weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit"}))}</small>
+              <span>Peak <b>${last.total}</b> · YouTube ${last.youtube} · Facebook ${last.facebook} · Zoom ${last.zoom}${last.zoom > 2 ? ` (${last.zoom - 2} without the host and co-host)` : ""}</span></div>`);
+          }
         } catch (e) { el.innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
       };
       el.innerHTML = `<p class="empty">Loading the livestream…</p>`;
