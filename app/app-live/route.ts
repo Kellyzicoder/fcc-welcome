@@ -47,6 +47,14 @@ async function ask(url: string) {
 
 const p = (x: Platform | undefined) => ({ status: String(x?.status ?? "off"), viewers: typeof x?.viewers === "number" ? x.viewers : null });
 const off = { status: "not_configured", viewers: null };
+// The highest count on each platform in the dashboard's recent history (about the last 3 hours): the service's peaks,
+// which the WhatsApp summary can fill in for YouTube, Facebook and Zoom.
+const peaks = (h: unknown, now: Record<string, number | null>) => {
+  const out: Record<string, number> = {};
+  for (const k of ["youtube", "facebook", "zoom"]) out[k] = Math.max(now[k] ?? 0,
+    ...(Array.isArray(h) ? h : []).map((x: Record<string, number>) => Number(x?.[k]) || 0));
+  return out;
+};
 const hist = (h: unknown) => (Array.isArray(h) ? h.slice(-90) : [])
   .map((x: { t: number; youtube?: number; facebook?: number; zoom?: number }) => ({ t: x.t, total: (x.youtube || 0) + (x.facebook || 0) + (x.zoom || 0) }));
 
@@ -63,7 +71,8 @@ export async function GET(req: Request) {
     const s = r?.ok ? await r.json().catch(() => null) : null;
     if (!s || typeof s.total !== "number") return say("The live dashboard didn't answer. Try again in a minute.", 502);
     return Response.json({ church: w.c, home: true, updatedAt: Number(s.updatedAt) || Date.now(), total: s.total, peak: Number(s.peak) || s.total,
-      platforms: { youtube: p(s.platforms?.youtube), facebook: p(s.platforms?.facebook), zoom: p(s.platforms?.zoom) }, history: hist(s.history) },
+      platforms: { youtube: p(s.platforms?.youtube), facebook: p(s.platforms?.facebook), zoom: p(s.platforms?.zoom) }, history: hist(s.history),
+      peaks: peaks(s.history, { youtube: p(s.platforms?.youtube).viewers, facebook: p(s.platforms?.facebook).viewers, zoom: p(s.platforms?.zoom).viewers }) },
       { headers: { "cache-control": "no-store" } });
   }
 
@@ -77,7 +86,8 @@ export async function GET(req: Request) {
   if (!s || typeof s.total !== "number") return say(r?.status === 404 ? "The live dashboard needs updating to show other churches' channels."
     : "The live dashboard didn't answer. Try again in a minute.", 502);
   return Response.json({ church: w.c, channel: String(link.name || "YouTube channel"), updatedAt: Number(s.updatedAt) || Date.now(), total: s.total,
-    peak: Number(s.peak) || s.total, platforms: { youtube: p(s.platforms?.youtube), facebook: off, zoom: off }, history: hist(s.history) },
+    peak: Number(s.peak) || s.total, platforms: { youtube: p(s.platforms?.youtube), facebook: off, zoom: off }, history: hist(s.history),
+    peaks: { youtube: Number(s.peak) || s.total, facebook: 0, zoom: 0 } },
     { headers: { "cache-control": "no-store" } });
 }
 
