@@ -1127,8 +1127,8 @@ function addWidget(b) {
   const d = document.createElement("div"); d.className = "modal";
   d.innerHTML = `<div class="sheet narrow" role="dialog" aria-modal="true" aria-label="Add widget">
     <div class="card-head"><h2>Add widget</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
-    ${left.length ? `<div class="wlist">${left.map(k => { const W = defs[k]; return `<div class="witem" style="--wc:var(--h${W.hue});--wb:var(--h${W.hue}b)"><div class="wico">${svg(W.icon)}</div><div class="wtxt"><b>${esc(W.name)}</b><p>${esc(W.desc || W.sub)}</p></div>
-      <button class="pill-btn primary sm" data-add="${k}">Select</button></div>`; }).join("")}</div>` : `<p class="empty">Every widget is already on this ${B.where}.</p>`}
+    ${left.length ? `<div class="wlist">${left.map(k => { const W = defs[k]; return `<button type="button" class="witem" data-add="${k}" style="--wc:var(--h${W.hue});--wb:var(--h${W.hue}b)">
+      <span class="wico">${svg(W.icon)}</span><span class="wtxt"><b>${esc(W.name)}</b><span>${esc(W.desc || W.sub)}</span></span><span class="wadd">${svg("plus")}Add</span></button>`; }).join("")}</div>` : `<p class="empty">Every widget is already on this ${B.where}.</p>`}
     <p class="note">Drag a widget by its handle to move it. Your layout is yours only: nobody else's view changes.</p>
     <div class="modal-foot"><button type="button" class="pill-btn" data-reset>Back to the standard layout</button></div></div>`;
   document.body.append(d);
