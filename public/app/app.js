@@ -1578,7 +1578,7 @@ async function bishop(el, rows, text, newest) {
 }
 async function admin(el) {
   el.innerHTML = head("Admin", "") + `<p class="empty">Loading…</p>`;
-  const users = await api("app_users?select=email,role,church,name,pastor,title,role3&order=email").catch(() => api("app_users?select=email,role,church,name,pastor&order=email")).catch(() => api("app_users?select=email,role,church,name&order=email")).catch(() => []);
+  const users = await api("app_users?select=email,role,church,name,pastor,title&order=email").catch(() => api("app_users?select=email,role,church,name,pastor&order=email")).catch(() => api("app_users?select=email,role,church,name&order=email")).catch(() => []);
   const pnames = [...new Set(Object.values(S.pastorList).flat())].sort();  // names on every church's pastor list
   const space = await api("rpc/app_db_size", {method: "POST", body: {}}).catch(() => null);  // null until the newer setup SQL has been run
   const inbox = await api("help_messages?select=*&order=created_at.desc&limit=50").catch(() => null);  // messages sent from Help
@@ -1662,7 +1662,7 @@ async function admin(el) {
     el.querySelector("#u-list").innerHTML = !list.length ? `<p class="empty">Nobody matches. Try another role, church or name.</p>` : `
       <div class="scroll"><table class="utable"><thead><tr><th>Name</th><th>Role</th><th>Church</th><th class="hide-sm">Pastor name</th><th></th></tr></thead><tbody>
       ${shown.map(u => `<tr><td><div class="who-cell"><span class="ava" ${avaStyle(u.name || u.email)}>${esc(initials(u.name || u.email))}</span><span><b>${esc(u.name || u.email.split("@")[0])}</b><small>${esc(u.email)}</small></span></div></td>
-        <td><span class="rbadge ${roleCls(u.role)}">${esc(roleName(u))}</span>${u.pastor && u.role !== "pastor" && roleName(u) !== "Lead pastor" ? ` <span class="rbadge r-pastor">+ Pastor</span>` : ""}${u.role3 ? ` <span class="tag">${esc(u.role3)}</span>` : ""}</td>
+        <td><span class="rbadge ${roleCls(u.role)}">${esc(roleName(u))}</span>${u.pastor && u.role !== "pastor" && roleName(u) !== "Lead pastor" ? ` <span class="rbadge r-pastor">+ Pastor</span>` : ""}</td>
         <td class="muted">${esc(u.church || "All churches")}</td><td class="muted hide-sm">${esc(u.pastor || (u.role === "pastor" ? "Not set yet" : ""))}</td>
         <td style="white-space:nowrap;text-align:right">${u.email === S.me.email ? `<span class="muted">You</span>` : `<button class="pill-btn sm" data-chg="${esc(u.email)}">${svg("edit")}Change</button> <button class="x" data-del="${esc(u.email)}">Remove</button>`}</td></tr>`).join("")}</tbody></table></div>
       ${pages > 1 ? `<div class="pager"><span class="muted">Page ${S.uPage} of ${pages} · ${list.length} people</span><span class="gap"></span>
@@ -1697,9 +1697,6 @@ async function admin(el) {
         <div id="ud-p-wrap"><label class="f" for="ud-p">Their name on the Pastors list</label><input class="in" id="ud-p" list="ud-p-list" autocomplete="off" value="${esc(u?.pastor || "")}" placeholder="e.g. Pastor Grace Mensah">
           <datalist id="ud-p-list">${pnames.map(n => `<option value="${esc(n)}">`).join("")}</datalist>
           <p class="note" style="margin:6px 2px 0">Must match the Pastors list exactly: it decides whose people they see.</p></div>
-        <div><label class="f" for="ud-3">Role 3 <span class="muted">(optional, for later)</span></label><input class="in" id="ud-3" list="ud-3-list" maxlength="40" autocomplete="off" value="${esc(u?.role3 || "")}" placeholder="e.g. Treasurer, Youth leader">
-          <datalist id="ud-3-list">${[...new Set(["Treasurer", "Secretary", "Youth leader", "Usher leader", "Media lead", "Worship leader", ...users.map(x => x.role3).filter(Boolean)])].map(n => `<option value="${esc(n)}">`).join("")}</datalist>
-          <p class="note" style="margin:6px 2px 0">Saved with their sign-in. It doesn't change what they can see yet.</p></div>
         <div id="ud-c-wrap"><label class="f" for="ud-c">Church</label><select class="in" id="ud-c">${S.churches.map(c => `<option ${c === (u?.church || S.church) ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></div>
       </div>
       <div class="msg bad" id="ud-err" hidden></div>
@@ -1717,8 +1714,8 @@ async function admin(el) {
     d.querySelector("form").onsubmit = async e => {
       e.preventDefault();
       const go = $("ud-go"), err = $("ud-err"), pick = $("ud-role").value, r = pick === "lead_pastor" ? "lead" : pick, needP = pick === "pastor" || pick === "lead_pastor" || (two(pick) && $("ud-2").value === "pastor");
-      const title = pick === "lead_pastor" ? "Lead pastor" : null, role3 = $("ud-3").value.trim().replace(/\s+/g, " ").slice(0, 40) || null;
-      const more = {...(title || u?.title ? {title} : {}), ...(role3 || u?.role3 ? {role3} : {})};  // only sent when used, so it works before the new setup SQL
+      const title = pick === "lead_pastor" ? "Lead pastor" : null;
+      const more = title || u?.title ? {title} : {};  // only sent when used, so it works before the new setup SQL
       const email = $("ud-email").value.trim().toLowerCase(), name = $("ud-name").value.trim().replace(/\s+/g, " ").slice(0, 80);
       const pastor = needP ? $("ud-p").value.trim().replace(/\s+/g, " ") : "", church = noChurch(r) ? null : $("ud-c").value;
       const fail = t => { err.textContent = t; err.hidden = false; go.disabled = false; };
@@ -1729,14 +1726,14 @@ async function admin(el) {
         if (u) {
           const rows = await api(`app_users?email=eq.${encodeURIComponent(u.email)}`, {method: "PATCH", prefer: "return=representation", body: {name: name || null, role: r, church, pastor: pastor || null, ...more}});
           if (!rows?.length) throw new Error("Not saved. Check you are still signed in as an admin.");
-          log("role_change", "", "done", `${u.email}: ${name ? name + " · " : ""}${title || r}${pastor && r !== "pastor" && !title ? " + pastor" : ""}${role3 ? " + " + role3 : ""}${church ? " · " + church : ""}`);
+          log("role_change", "", "done", `${u.email}: ${name ? name + " · " : ""}${title || r}${pastor && r !== "pastor" && !title ? " + pastor" : ""}${church ? " · " + church : ""}`);
           toast("Saved. They will see the change next time they open the app.");
         } else {
           await api("app_users", {method: "POST", prefer: "return=minimal", body: {email, name: name || null, role: r, church, ...(pastor ? {pastor} : {}), ...more}});
           toast(`Added. ${name || email} can now sign in with ${email}.`);
         }
         close(); render();
-      } catch (ex) { fail(/duplicate|already exists|23505/i.test(ex.message) ? "That email can already sign in." : /title|role3|column/i.test(ex.message) ? "Lead pastor and Role 3 need the latest setup SQL: run it in Supabase once, then try again." : ex.message); }
+      } catch (ex) { fail(/duplicate|already exists|23505/i.test(ex.message) ? "That email can already sign in." : /title|column/i.test(ex.message) ? "Lead pastor needs the latest setup SQL: run it in Supabase once, then try again." : ex.message); }
     };
   }
   drawUsers();
@@ -2294,7 +2291,7 @@ function account(el) {
   el.innerHTML = head("Your account", "") + `
     <form class="card" id="me" style="max-width:560px;margin-bottom:14px"><label class="f" for="my-name">Your name</label>
       <input class="in" id="my-name" maxlength="80" autocomplete="name" value="${esc(S.me.name || "")}" placeholder="e.g. Grace Mensah">
-      <p class="facts" style="margin-top:14px">Email: ${esc(S.me.email)}<br>Role: ${roleName(S.me)}${S.me.role3 ? " · " + esc(S.me.role3) : ""}${S.me.church ? "<br>Church: " + esc(S.me.church) : ""}${S.me.role === "pastor" && S.me.pastor ? "<br>Your people: those assigned to " + esc(S.me.pastor) : ""}</p>
+      <p class="facts" style="margin-top:14px">Email: ${esc(S.me.email)}<br>Role: ${roleName(S.me)}${S.me.church ? "<br>Church: " + esc(S.me.church) : ""}${S.me.role === "pastor" && S.me.pastor ? "<br>Your people: those assigned to " + esc(S.me.pastor) : ""}</p>
       
       <div style="margin-top:14px"><button class="pill-btn primary">Save name</button></div></form>
     <form class="card" id="setpw" style="max-width:560px;margin-bottom:14px"><div class="card-head"><h2>Password</h2></div>
