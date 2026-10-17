@@ -1508,7 +1508,7 @@ function editPerson(m) {
 // ---------------------------------------------------------------- all churches (numbers only) and admin
 // ---------------------------------------------------------------- All churches page: widgets (numbers only, no names)
 // c: rows (each church's numbers), pick (the churches being shown), series ([date, adults, kids, first-timers, visitors] per service), ...
-const CDASH_DEFAULT = ["numbers", "chart", "follow", "churches"];
+const CDASH_DEFAULT = ["numbers", "chart", "churches", "follow"];
 const CWIDGETS = {
   numbers: {name: "Service numbers", sub: c => c.when, desc: "Present (with the change since last time), adults and kids, first-timers, and how many of the register came.", size: "full", icon: "checkin", hue: 1,
     draw(el, c) {
@@ -1523,12 +1523,12 @@ const CWIDGETS = {
       if (!c.trend) { el.innerHTML = `<p class="empty">Run the latest setup SQL in Supabase once to see this chart.</p>`; return; }
       el.innerHTML = `<div class="chart"></div>`; chart(el.querySelector(".chart"), c.series.map(x => [x[0], x[1], x[2]]), c.pickDay);
     }},
-  follow: {name: "Follow-up", sub: "Missing services · no names", size: "narrow", icon: "followup", hue: 3,
+  follow: {name: "Follow-up", sub: "Missing services · no names", size: "full", icon: "followup", hue: 3,
     draw(el, c) {
       if (!c.had && c.day) { el.innerHTML = `<p class="empty">No service that day.</p>`; return; }
       el.innerHTML = c.fu.map(([f, t, n]) => `<div class="b-bar"><span><i class="b-key ${f}"></i>${esc(t)}</span><span class="b-track"><i class="${f}" style="width:${n ? Math.max(4, n / c.fuMax * 100) : 0}%"></i></span><b>${n}</b></div>`).join("");
     }},
-  churches: {name: "Churches side by side", sub: "Tap one to open it", desc: "Present at each church's latest service, side by side.", size: "narrow", icon: "bars", hue: 4,
+  churches: {name: "Churches side by side", sub: "Tap one to open it", desc: "Present at each church's latest service, side by side.", size: "full", icon: "bars", hue: 4,
     draw(el, c) {
       const list = c.rows.filter(c.served), top = Math.max(1, ...list.map(r => r.present));
       el.innerHTML = list.length ? `<div class="vbars">${list.map(r => `<button type="button" class="vbar ${r.church === S.bChurch || (!S.bChurch && r.present === top) ? "on" : ""}" data-cb="${esc(r.church)}" title="${esc(r.church)}: ${r.present}">
