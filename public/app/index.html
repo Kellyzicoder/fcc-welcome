@@ -541,6 +541,14 @@ button.ov-cell {cursor: pointer;} button.ov-cell:hover {background: var(--soft);
 .ov-cell b small {display: inline; font-size: 18px; color: var(--ink-3); font-weight: 600; margin: 0;}
 @media (max-width: 1100px) { .ov.ov4 {grid-template-columns: 1fr 1fr;} .ov.ov4 .ov-cell:nth-child(-n+2) {border-bottom: 1px solid var(--line);} .ov.ov4 .ov-cell:nth-child(2) {border-right: 0;} }
 @media (max-width: 900px) { .wgrid.c2 {grid-template-columns: minmax(0, 1fr);} .wgrid.c2 .w-narrow {grid-column: 1 / -1;} }
+/* Report recipients: a chip per email with × to take it off, and a box to add one */
+.rcpts {display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;}
+.rcpt {display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 4px 4px 4px 4px; border: 1px solid var(--line); border-radius: 999px; background: var(--soft);}
+.rcpt .ava {width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; flex: none;}
+.rcpt-mail {min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px;}
+.rcpt-x {width: 28px; height: 28px; border: 0; border-radius: 50%; background: none; color: var(--ink-3); display: grid; place-items: center; cursor: pointer; flex: none;}
+.rcpt-x svg {width: 15px; height: 15px;} .rcpt-x:hover {background: var(--red-bg); color: var(--red);}
+.add-mail {display: flex; gap: 8px; flex-wrap: wrap;} .add-mail .in {flex: 1 1 240px; min-width: 0;} .add-mail .pill-btn {flex: none;}
 /* Admin tabs */
 .atabs {display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); margin: 0 0 14px; overflow-x: auto; width: max-content; max-width: 100%;}
 .atabs button {border: 0; background: none; color: var(--ink-2); font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 10px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 7px;}

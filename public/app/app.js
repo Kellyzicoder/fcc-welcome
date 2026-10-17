@@ -2097,11 +2097,13 @@ async function reports(el) {
   if (S.view !== "reports") return;
   const list = (setting[0]?.value || "").split(/[,\s;]+/).filter(Boolean), p = picture();
   el.innerHTML = head("Reports", sub) + `
-    <form class="card" id="to" style="margin-bottom:14px"><div class="card-head"><h2>Who gets the email</h2></div>
-      <label class="f" for="emails">Email addresses, one per line</label>
-      <textarea class="in" id="emails" rows="${Math.max(3, list.length + 1)}" placeholder="e.g. fcc@gmail.com&#10;usher@gmail.com">${esc(list.join("\n"))}</textarea>
-      <div class="row" style="margin-top:12px"><p class="note" style="margin:0">${list.length ? "To take someone off, delete their line and press Save." : "Type the leaders' email addresses, then press Save."}</p>
-        <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap"><button class="pill-btn">Save</button><button type="button" class="pill-btn primary" id="send" ${list.length && p.last ? "" : "disabled"}>${svg("reports")}Send report now</button></div></div></form>
+    <form class="card" id="to" style="margin-bottom:14px"><div class="card-head"><h2>Who gets the email</h2><span class="gap"></span><span class="muted" style="font-size:13px">${list.length} ${list.length === 1 ? "person" : "people"}</span></div>
+      <div class="rcpts">${list.length ? list.map(m => `<span class="rcpt"><span class="ava" ${avaStyle(m)}>${esc(initials(m))}</span><span class="rcpt-mail">${esc(m)}</span>
+          <button type="button" class="rcpt-x" data-unmail="${esc(m)}" aria-label="Take ${esc(m)} off the list" title="Take off the list">${svg("close")}</button></span>`).join("")
+        : `<p class="empty" style="margin:0">Nobody gets the report yet. Add the leaders' email addresses below.</p>`}</div>
+      <div class="add-mail"><input class="in" id="newmail" type="text" inputmode="email" autocomplete="off" placeholder="Add an email, e.g. fcc@gmail.com" aria-label="Email address to add">
+        <button class="pill-btn">${svg("plus")}Add</button><button type="button" class="pill-btn primary" id="send" ${list.length && p.last ? "" : "disabled"}>${svg("reports")}Send report now</button></div>
+      <p class="note" style="margin:10px 2px 0">Tap × to take someone off. Changes save straight away.</p></form>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Emails sent</h2></div>
       ${sent.length ? `<div class="scroll"><table><thead><tr><th>Sent</th><th>Report for</th><th>Type</th><th>To</th><th>Result</th></tr></thead><tbody>
         ${sent.map(r => `<tr><td class="muted">${esc(when(r.sent_at))}</td><td>${esc(full(r.report_date))}</td><td class="muted">${r.kind === "daily" ? "Automatic (old schedule)" : "Sent by the admin"}</td>
@@ -2112,14 +2114,22 @@ async function reports(el) {
       <div class="chips" style="margin:0"><button class="pill-btn" data-dl="in">Checked in${p.last ? " · " + esc(nice(p.last)) : ""}</button>
         <button class="pill-btn" data-dl="call">Needs a follow-up call</button><button class="pill-btn" data-dl="all">Whole register</button></div>
       </div>`;
-  el.querySelector("#to").onsubmit = async e => {
-    e.preventDefault();
-    const items = el.querySelector("#emails").value.split(/[,\s;]+/).filter(Boolean), bad = items.map(emailProblem).filter(Boolean);
-    if (bad.length) return toast("Not saved: " + bad[0]);
-    const value = [...new Set(items.map(x => x.toLowerCase()))].join(", ");  // an empty box clears the list
-    try { await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key, value}}); toast(value ? "Saved." : "List cleared. Nobody will get the report until you add an address."); render(); }
+  const saveList = async (next, done) => {
+    const value = [...new Set(next.map(x => x.toLowerCase()))].join(", ");  // an empty list is fine: nobody gets the report
+    try { await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key, value}}); toast(done); render(); }
     catch (err) { toast("Not saved: " + err.message); }
   };
+  el.querySelector("#to").onsubmit = e => {
+    e.preventDefault();
+    const items = el.querySelector("#newmail").value.split(/[,\s;]+/).filter(Boolean), bad = items.map(emailProblem).filter(Boolean);
+    if (!items.length) return el.querySelector("#newmail").focus();
+    if (bad.length) return toast("Not added: " + bad[0]);
+    const fresh = items.filter(x => !list.includes(x.toLowerCase()));
+    if (!fresh.length) return toast("That email is already on the list.");
+    saveList([...list, ...fresh], fresh.length === 1 ? `Added ${fresh[0].toLowerCase()}.` : `Added ${fresh.length} emails.`);
+  };
+  el.querySelectorAll("[data-unmail]").forEach(b => b.onclick = () => { const m = b.dataset.unmail, left = list.filter(x => x !== m);
+    saveList(left, left.length ? `${m} won't get the report any more.` : "List cleared. Nobody will get the report until you add an address."); });
   const type = typeName, age = m => isKid(m) ? "Child" : "Adult";
   const files = {
     in: () => [`checked_in_${S.church}_${p.last || today()}.csv`, [["Church", "Service", "Name", "Type", "Age group", "Phone"], ...p.present.slice().sort(byName).map(m => [S.church, p.last, m.full_name, type(m), age(m), m.phone || ""])]],
