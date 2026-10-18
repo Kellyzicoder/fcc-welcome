@@ -322,7 +322,7 @@ async function refresh() {
   catch { store.set(null); return false; }
 }
 async function api(path, {method = "GET", body, prefer, retry = true} = {}) {
-  if (S.preview && method !== "GET" && !/^rpc\/app_(me|ask|db_size|last_seen|set_my_name)\b/.test(path)) throw new Error(viewOnly());  // View as: look, don't change
+  if (S.preview && method !== "GET" && !/^rpc\/(app_(me|ask|db_size|last_seen|set_my_name)|church_(numbers|trend|days))\b/.test(path)) throw new Error(viewOnly());  // View as: look, don't change (the church_ ones only read)
   if (S.session && S.session.expires_at - Date.now() < 60000) await refresh();
   const r = await fetch(S.cfg.url + "/rest/v1/" + path, {method, body: body === undefined ? undefined : JSON.stringify(body),
     headers: {apikey: S.cfg.key, Authorization: "Bearer " + (S.session?.access_token || S.cfg.key), "Content-Type": "application/json",
