@@ -69,15 +69,12 @@ export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams, from = Number(sp.get("from")), to = Number(sp.get("to"));
   if (from > 0 && to > from) {
     if (w.c !== w.me.home) return Response.json({ church: w.c, services: null });
-    const wf = Number(sp.get("wfrom")), wt = Number(sp.get("wto")), win = wf > 0 && wt > wf ? `&wfrom=${wf}&wto=${wt}` : "";  // the Sunday service's set hours
-    const r = await ask(`${d.base}/api/services?${d.q}from=${from}&to=${to}${win}`);
+    const r = await ask(`${d.base}/api/services?${d.q}from=${from}&to=${to}`);
     const s = r?.ok ? await r.json().catch(() => null) : null;
     if (!s || !Array.isArray(s.services)) return say("The live dashboard needs updating to list its services.", 502);
     const n = (v: unknown) => Number(v) || 0;
     return Response.json({ church: w.c, services: s.services.slice(0, 20).map((x: Record<string, unknown>) => ({ start: n(x.start), end: n(x.end),
-      total: n(x.total), youtube: n(x.youtube), facebook: n(x.facebook), zoom: n(x.zoom) })),
-      window: s.window ? { start: n(s.window.start), end: n(s.window.end), minutes: n(s.window.minutes), total: n(s.window.total),
-        youtube: n(s.window.youtube), facebook: n(s.window.facebook), zoom: n(s.window.zoom) } : null }, { headers: { "cache-control": "no-store" } });
+      total: n(x.total), youtube: n(x.youtube), facebook: n(x.facebook), zoom: n(x.zoom) })) }, { headers: { "cache-control": "no-store" } });
   }
 
   // The home church: the full dashboard (YouTube, Facebook and Zoom)
