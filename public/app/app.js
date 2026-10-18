@@ -246,13 +246,14 @@ function waDialog(title, build, opts = {}) {
   const liveNote = async () => {
     d.querySelector(".live-note")?.remove();
     if (!opts.fields?.some(f => f[0] === "yt") || !["admin", "lead"].includes(S.me.role) || !st.day || !S.session) return;
-    const day = st.day, from = new Date(day + "T00:00:00").getTime(), to = from + 86400000;  // that day, on this phone's clock
+    const day = st.day, from = new Date(day + "T00:00:00").getTime(), to = from + 86400000, win = liveWindow(new Date(from));  // that day, on this phone's clock
     const get = async q => { const r = await fetch("/app-live?church=" + encodeURIComponent(S.church) + q, {cache: "no-store",
       headers: {Authorization: "Bearer " + S.session.access_token}}); return r.ok ? r.json() : null; };
     try {
       let list = [];
-      const s = await get(`&from=${from}&to=${to}`);
-      if (s?.services) list = s.services.filter(x => !prayers(x.start)).sort((a, b) => a.start - b.start);  // the day's services, in order
+      const s = await get(liveQ(from, to, win));
+      if (s?.services) list = withWindow(s.services.filter(x => !prayers(x.start) && (x.youtube > 0 || x.facebook > 0 || x.zoom > 2))
+        .sort((a, b) => a.start - b.start), win, s.window);  // the day's services, in order (Sunday: 9:30 am to 1 pm)
       else if (day === today()) {  // a church without saved services (its own YouTube channel): today's recent counts
         const j = await get(""); const h = (j?.history || []).filter(x => x.t >= from && !prayers(x.t) && x.total > 0);
         if (h.length) list = [{start: h[0].t, total: Math.max(...h.map(x => x.total)), youtube: Math.max(...h.map(x => x.total)), facebook: 0, zoom: 0}];
@@ -855,6 +856,21 @@ const badge = f => `<span class="badge ${f}">${FLAG[f]}</span>`;
 // The church's standard attendance message. No emojis. Online numbers, preacher and sermon are typed in the popup;
 // adults and children "Attending" come from the ticks. Follow-up is added only when asked for.
 const dmy = d => d.split("-").reverse().join("/");
+// The Sunday service runs 9:30 am to 1 pm. Its livestream numbers are the highest counts inside those hours, which the
+// live dashboard works out minute by minute, so a stream started early or left on late doesn't change them.
+const SUNDAY_LIVE = [9 * 60 + 30, 13 * 60];
+function liveWindow(d) {  // d: that day at midnight, on this phone's clock
+  if (d.getDay() !== 0) return null;
+  const at = m => new Date(d.getFullYear(), d.getMonth(), d.getDate(), Math.floor(m / 60), m % 60).getTime();
+  return [at(SUNDAY_LIVE[0]), at(SUNDAY_LIVE[1])];
+}
+const liveQ = (from, to, win) => `&from=${from}&to=${to}${win ? `&wfrom=${win[0]}&wto=${win[1]}` : ""}`;
+// The day's streams, with the Sunday service's hours in place of any stream that overlaps them
+function withWindow(list, win, w) {
+  if (!win || !w || !(w.youtube > 0 || w.facebook > 0 || w.zoom > 2)) return list;
+  const rest = list.filter(x => (x.end || Date.now()) <= win[0] || x.start >= win[1]);
+  return [...rest, {start: win[0], end: win[1], window: true, total: w.total, youtube: w.youtube, facebook: w.facebook, zoom: w.zoom}].sort((a, b) => a.start - b.start);
+}
 // Which of this church's people came to one of a day's services (Check-in split the day into services).
 function membersAt(p, d, part) {
   const day = p.byDate[d] || {}, ids = new Set(S.pticks.filter(t => t.service_date === d && t.part === part && day[t.member_id]).map(t => t.member_id));
@@ -1150,10 +1166,11 @@ const WIDGETS = {
             if (seen && Date.now() - seen.at < (back ? 600000 : 60000)) return;  // today: fresh each minute; past days hardly change
             const early = t => { const x = new Date(t), m = x.getHours() * 60 + x.getMinutes(); return m >= 270 && m < 390; };  // morning prayers, left out
             const from = day.getTime(), to = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime();
-            const s = await call({}, `&from=${from}&to=${to}`).catch(() => null);
+            const win = liveWindow(day), s = await call({}, liveQ(from, to, win)).catch(() => null);
             if (!box.isConnected) return;
             if (!s && seen) return;  // keep showing what we had
-            const list = (s?.services || []).filter(x => !early(x.start) && (x.youtube > 0 || x.facebook > 0 || x.zoom > 2)).sort((a, b) => a.start - b.start);  // not just the host and co-host on Zoom
+            const list = withWindow((s?.services || []).filter(x => !early(x.start) && (x.youtube > 0 || x.facebook > 0 || x.zoom > 2))  // not just the host and co-host on Zoom
+              .sort((a, b) => a.start - b.start), win, s?.window);  // Sunday: the service's numbers come from 9:30 am to 1 pm only
             const hm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
             const name = back === 0 ? "Today" : back === 1 ? "Yesterday" : day.toLocaleDateString([], {weekday: "long", day: "numeric", month: "short"});
             const best = list.reduce((m, x) => Math.max(m, x.total), 0);
@@ -1162,8 +1179,8 @@ const WIDGETS = {
                 <b>${esc(name)}</b><button type="button" class="link-btn" data-lday="-1" ${back === 0 ? "disabled" : ""} aria-label="The day after">Later ›</button></div>
               ${!s ? `<p class="note">The saved numbers couldn't be loaded. Try again in a minute.</p>`
                 : list.length ? `${list.length > 1 ? `<p class="note">Highest of the day: <b>${best}</b> watching</p>` : ""}${list.map(x => `<div class="ld-svc">
-                  <small>${hm(x.start)}${x.end ? ` to ${hm(x.end)}` : " · still going"}</small>
-                  <div class="ld-nums">${num(x.total, "peak", 1)}${num(x.youtube, "YouTube")}${num(x.facebook, "Facebook")}${num(x.zoom > 2 ? x.zoom - 2 : x.zoom, "Zoom")}</div></div>`).join("")}${list.some(x => x.zoom > 2) ? `<p class="note">Zoom has 2 taken off for the host and co-host.</p>` : ""}`
+                  <small>${x.window ? "Service · " : ""}${hm(x.start)}${x.end ? ` to ${hm(x.end)}` : ""}${!x.end || (x.window && Date.now() < x.end) ? " · still going" : ""}</small>
+                  <div class="ld-nums">${num(x.total, "peak", 1)}${num(x.youtube, "YouTube")}${num(x.facebook, "Facebook")}${num(x.zoom, "Zoom")}</div></div>`).join("")}`
                 : `<p class="note">No livestream ${back ? "that day" : "yet today"}${back ? "" : ": the numbers stay here after it ends"}.</p>`}`;
             LD[back] = {html, at: Date.now()};
             if (html !== box.innerHTML) { box.innerHTML = html; wire(); }
