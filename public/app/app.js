@@ -168,13 +168,33 @@ function shareOut(k, msg, subject) {
 
 // A popup for a WhatsApp message: options on the left, a live preview on the right, then Copy.
 // build({names, link}) returns the text; opts says which options this message offers.
+// The preview, laid out for reading: headings, labels and numbers lined up, WhatsApp's *bold* shown bold.
+// Only for looking at: Copy, Send and Share always use the message exactly as written.
+function prettyMsg(t) {
+  const fmt = x => esc(x).replace(/\*([^*\n]+)\*/g, "<b>$1</b>");
+  const row = (cls, k, v) => `<div class="pm-row ${cls}"><span>${fmt(k)}</span><b>${fmt(v)}</b></div>`;
+  let first = true, gap = false;
+  return t.split("\n").map(raw => {
+    const l = raw.trim();
+    if (!l) { if (first) return ""; gap = true; return ""; }
+    const sp = gap ? " pm-gap" : ""; gap = false;
+    let m;
+    if (first) { first = false; return `<div class="pm-title">${fmt(l.replace(/^\*|\*$/g, ""))}</div>`; }
+    if ((m = l.match(/^[—–-]{1,2}\s*(.+?)\s*[—–-]{1,2}$/))) return `<div class="pm-sec${sp}">${fmt(m[1])}</div>`;
+    if ((m = l.match(/^\*([^*]+?)\s*-\s*(\d[\d,]*)\*?$/))) return row("pm-total" + sp, m[1], m[2]);
+    if ((m = l.match(/^\[(.+?)\s*-\s*([^\]]*)\]$/))) return row("pm-sub" + sp, m[1].replace(/:\s*$/, ""), m[2].trim());
+    if ((m = l.match(/^([A-Z][A-Z0-9 /&'().]+?)\s*(?:-|:)\s*(.*)$/)) && m[1].length <= 30) return `<div class="pm-field${sp}"><span>${fmt(m[1])}</span><b>${fmt(m[2]) || "–"}</b></div>`;
+    if ((m = l.match(/^(.{2,60}?)\s*(?:-|:)\s*(\*?\d[\d,]*\*?)$/))) return row(sp, m[1], m[2]);
+    return `<div class="pm-line${sp}">${fmt(l)}</div>`;
+  }).join("");
+}
 function waDialog(title, build, opts = {}) {
   document.querySelectorAll(".modal").forEach(m => m.remove());
   const st = {names: false, link: "", follow: false, day: opts.day || ""}, d = document.createElement("div");
   const memo = () => `fcc-wa:${S.church}:${st.day}`, recall = () => { try { return JSON.parse(localStorage.getItem(memo()) || "{}"); } catch { return {}; } };
   // A day with more than one service: the boxes come once per service (preacher, Zoom, YouTube... for each),
   // and the message keeps the services apart. It's switched on by the person, or already on when Check-in split the day.
-  const FKEY = /^(preacher|sermon|zoomA|zoomK|yt|fb|converts)(_\d)?$/;
+  const FKEY = /^(preacher|sermon|zoomA|zoomK|yt|fb|converts|time)(_\d)?$/;
   const loadDraft = () => { for (const k of Object.keys(st)) if (FKEY.test(k)) delete st[k]; const r = recall();
     Object.assign(st, Object.fromEntries(Object.entries(r).filter(([k]) => FKEY.test(k))), {_at: r._at || 0,
       multi: r.multi ?? partsOf(st.day).length > 1, count: Math.min(3, Math.max(2, r.count || partsOf(st.day).length || 2))}); };
@@ -195,20 +215,25 @@ function waDialog(title, build, opts = {}) {
         ${opts.link ? `<div class="opt"><label class="f" for="m-link">Livestream link (optional)</label><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>` : ""}
         ${opts.fields ? `<div class="draft-line"><span id="m-draft"></span><button type="button" class="link-btn" data-clear hidden>Start again</button></div>` : ""}
       </div>
-      <div class="opt"><span class="f">Preview</span><pre class="preview" id="m-text" tabindex="0"></pre></div></div>
+      <div class="opt"><div class="prev-top"><span class="f">Preview</span><div class="pv-seg" role="group" aria-label="Preview style"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Easy to read</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">As sent</button></div></div>
+        <div class="preview ${S.pvRaw ? "" : "nice"}" id="m-text" tabindex="0"></div></div></div>
     ${others.length || native ? `<div class="share-row"><small>Send to</small>${others.map(k => `<button type="button" class="chip" data-share="${k}">${SHARE.find(s => s[0] === k)[1]}</button>`).join("")}
       ${native ? `<button type="button" class="chip" data-share="native">More apps…</button>` : ""}</div>` : ""}
     <div class="modal-foot">${opts.fields ? `<button class="pill-btn" id="m-save">Save draft</button>` : `<button class="pill-btn" data-x>Close</button>`}<button class="pill-btn ${onPhone() ? "" : "primary"}" id="m-copy">Copy</button>${onPhone() ? `<button class="pill-btn primary" id="m-send">Open in WhatsApp</button>` : ""}</div></div>`;
   document.body.append(d);
   const text = d.querySelector("#m-text");
-  let turn = 0;
+  let turn = 0, msg = "";  // msg: the message exactly as it's copied and sent; the preview can show it laid out for reading
+  const show = () => { text.classList.toggle("nice", !S.pvRaw && !text.classList.contains("muted"));
+    if (S.pvRaw || text.classList.contains("muted")) text.textContent = msg; else text.innerHTML = prettyMsg(msg); };
+  d.querySelectorAll("[data-pv]").forEach(b => b.onclick = () => { S.pvRaw = b.dataset.pv === "raw";
+    d.querySelectorAll("[data-pv]").forEach(x => x.setAttribute("aria-pressed", String(x === b))); show(); });
   const draw = async () => {  // build may load numbers for the chosen day; null means there is nothing for that day
     const mine = ++turn, send = d.querySelector("#m-send"), copy = d.querySelector("#m-copy");
     let out; try { out = await build(st); } catch (err) { out = null; text.dataset.why = err.message; }
     if (mine !== turn) return;
     const none = out == null;
-    text.textContent = none ? (text.dataset.why || `No summary for ${st.day ? nice(st.day, true) : "this day"}. No service was recorded.`) : out;
-    delete text.dataset.why; text.classList.toggle("muted", none); copy.disabled = none; if (send) send.disabled = none;
+    msg = none ? (text.dataset.why || `No summary for ${st.day ? nice(st.day, true) : "this day"}. No service was recorded.`) : out;
+    delete text.dataset.why; text.classList.toggle("muted", none); show(); copy.disabled = none; if (send) send.disabled = none;
     d.querySelectorAll("[data-share]").forEach(b => b.disabled = none);
   };
   // Drafts: what's typed is kept for this church and day, so it can be closed, checked and finished later
@@ -219,15 +244,21 @@ function waDialog(title, build, opts = {}) {
     try { localStorage.setItem(memo(), JSON.stringify({...Object.fromEntries(Object.entries(st).filter(([k, v]) => FKEY.test(k) && v)), multi: st.multi, count: st.count, _at: st._at})); } catch {} drafted(); };
   // the boxes: one set, or one set per service. With more than one, each service's livestream peaks show under its own boxes.
   const liveUnder = j => { const x = liveList[j]; return x ? `<small class="wide svc-live">${svg("live")}Livestream ${hm(x.start)}: YouTube ${x.youtube} · Facebook ${x.facebook} · Zoom ${x.zoom}</small>` : ""; };
-  const groupName = i => partsOf(st.day)[i - 1]?.name || (liveStarts[i - 1] ? `${hm(liveStarts[i - 1])} service` : `Service ${i}`);
+  // Each service's start time can be set by hand (it starts as the livestream's start, if there was one) and names the service in the message
+  const startOf = i => st[`time_${i}`] || (liveStarts[i - 1] ? (d => `${pad(d.getHours())}:${pad(d.getMinutes())}`)(new Date(liveStarts[i - 1])) : "");
+  const clock = t => { const [h, m] = t.split(":").map(Number); return new Date(2000, 0, 1, h, m).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"}); };
+  const groupName = i => { const part = partsOf(st.day)[i - 1]?.name, t = startOf(i);
+    return part ? (t ? `${part} · ${clock(t)}` : part) : t ? `${clock(t)} service` : `Service ${i}`; };
   const drawFields = () => {
     const box = d.querySelector("#m-fields"); if (!box) return;
     st.groups = Array.from({length: st.count}, (_, j) => groupName(j + 1));  // the services' names, for the message
     const set = (sfx, head) => `<div class="opt fields-grid">${head || ""}${opts.fields.map(([k, label, kind]) => `<div class="${kind === "num" ? "" : "wide"}"><label class="f" for="m-${k}${sfx}">${label}</label>
       <input class="in" id="m-${k}${sfx}" data-field="${k}${sfx}" ${kind === "num" ? `type="number" inputmode="numeric" min="0" placeholder="0"` : `maxlength="80"`} value="${esc(st[k + sfx] ?? "")}"></div>`).join("")}${sfx ? liveUnder(+sfx.slice(1) - 1) : ""}</div>`;
-    box.innerHTML = !st.multi ? set("") : Array.from({length: st.count}, (_, j) => set("_" + (j + 1), `<b class="wide svc-head">${esc(groupName(j + 1))}</b>`)).join("")
+    box.innerHTML = !st.multi ? set("") : Array.from({length: st.count}, (_, j) => set("_" + (j + 1), `<div class="wide svc-top"><b class="svc-head">${esc(groupName(j + 1))}</b>
+        <label class="svc-time">Starts <input class="in sm" type="time" data-time="${j + 1}" value="${esc(startOf(j + 1))}" aria-label="Service ${j + 1} start time"></label></div>`)).join("")
       + `<div class="svc-more">${st.count < 3 ? `<button type="button" class="link-btn" data-svc-add>+ Add a third service</button>` : `<button type="button" class="link-btn" data-svc-less>Only two services</button>`}</div>`;
     box.querySelectorAll("[data-field]").forEach(i => i.oninput = () => { st[i.dataset.field] = i.value.trim(); keepDraft(); draw(); });
+    box.querySelectorAll("[data-time]").forEach(i => i.onchange = () => { st["time_" + i.dataset.time] = i.value; keepDraft(); drawFields(); draw(); });
     box.querySelector("[data-svc-add]")?.addEventListener("click", () => { st.count = 3; keepDraft(); drawFields(); liveNote(); draw(); });
     box.querySelector("[data-svc-less]")?.addEventListener("click", () => { st.count = 2; keepDraft(); drawFields(); liveNote(); draw(); });
   };
@@ -239,7 +270,7 @@ function waDialog(title, build, opts = {}) {
   const saveBtn = d.querySelector("#m-save"); if (saveBtn) saveBtn.onclick = () => { keepDraft(); toast("Draft saved. Open the summary again any time to finish it."); };
   d.querySelector("[data-clear]")?.addEventListener("click", () => { try { localStorage.removeItem(memo()); } catch {}
     for (const k of Object.keys(st)) if (FKEY.test(k)) delete st[k]; st._at = 0; drawFields(); drafted(); draw(); });
-  d.querySelectorAll("[data-share]").forEach(b => b.onclick = () => shareOut(b.dataset.share, text.textContent, title));
+  d.querySelectorAll("[data-share]").forEach(b => b.onclick = () => shareOut(b.dataset.share, msg, title));
   drafted();
   // Livestream numbers for the chosen day's services. Morning prayers (streams that start between 4:30 and 6:30 am) aren't counted,
   // and Zoom has 2 taken off each service for the host and co-host. They're shown as a note, or filled in for you (Settings → Sharing summaries).
@@ -293,10 +324,11 @@ function waDialog(title, build, opts = {}) {
   if (names) names.onchange = e => { st.names = e.target.checked; draw(); };
   if (link) link.oninput = e => { st.link = e.target.value.trim(); draw(); };
   // opens WhatsApp with exactly what the preview shows (emojis, names and link as chosen); the person picks the chat and sends
-  const sendBtn = d.querySelector("#m-send"); if (sendBtn) sendBtn.onclick = () => { window.open("https://wa.me/?text=" + encodeURIComponent(text.textContent), "_blank", "noopener"); };
+  const sendBtn = d.querySelector("#m-send"); if (sendBtn) sendBtn.onclick = () => { window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank", "noopener"); };
   d.querySelector("#m-copy").onclick = async e => {
-    try { await navigator.clipboard.writeText(text.textContent); e.target.textContent = "Copied"; toast("Copied."); setTimeout(() => { e.target.textContent = "Copy"; }, 2500); }
-    catch {  // no clipboard access here: select the text so it can be copied by hand
+    try { await navigator.clipboard.writeText(msg); e.target.textContent = "Copied"; toast("Copied."); setTimeout(() => { e.target.textContent = "Copy"; }, 2500); }
+    catch {  // no clipboard access here: show it as sent and select it, so it can be copied by hand
+      S.pvRaw = true; d.querySelectorAll("[data-pv]").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.pv === "raw"))); show();
       const r = document.createRange(); r.selectNodeContents(text); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
       toast("The message is selected. Press and hold it, then choose Copy.");
     }
@@ -869,7 +901,7 @@ function reportMulti(p, o) {
     `DATE - ${dmy(day)}`, "", `BRANCH/MISSION - ${S.church}`, ""];
   for (let i = 1; i <= n; i++) {
     const part = parts[i - 1], ppl = part ? membersAt(p, day, part.part) : null, kidsIn = ppl ? ppl.filter(isKid).length : 0, adultsIn = ppl ? ppl.length - kidsIn : 0;
-    out.push(`— ${(part?.name || o.groups?.[i - 1] || `Service ${i}`).toUpperCase()} —`, `PREACHER NAME - ${o["preacher_" + i] || ""}`, `SERMON TITLE: ${o["sermon_" + i] || ""}`, "",
+    out.push(`— ${(o.groups?.[i - 1] || part?.name || `Service ${i}`).toUpperCase()} —`, `PREACHER NAME - ${o["preacher_" + i] || ""}`, `SERMON TITLE: ${o["sermon_" + i] || ""}`, "",
       `*ADULTS - ${adultsIn + num("zoomA_" + i) + num("yt_" + i) + num("fb_" + i)}`, ...(ppl ? [`[Attending: Adults - ${adultsIn}]`] : []),
       `[Zoom: Adults - ${num("zoomA_" + i)}]`, `[Youtube -  ${num("yt_" + i)}]`, `[Facebook -  ${num("fb_" + i)}]`, "",
       `*CHILDREN - ${kidsIn + num("zoomK_" + i)}`, ...(ppl ? [`[Attending - ${kidsIn}]`] : []), `[Zoom - ${num("zoomK_" + i)}]`, "", `New Converts - ${num("converts_" + i)}`, "");
