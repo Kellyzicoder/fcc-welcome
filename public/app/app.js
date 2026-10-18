@@ -1751,25 +1751,27 @@ function followup(el) {
     [["Church", "Name", "Status", "Missed in a row", "Last seen", "Phone", "Pastor", "Age group"],
      ...list.map(x => [S.church, x.full_name, FLAG[x.flag], x.missed, x.seen || "", x.phone || "", x.pastor || "", x.kid ? "Child" : "Adult"])]);
 }
-// Congregation → Add many: a church admin or the team adds a list of names at once. Paste them (one per line, a phone number
-// after a comma if you have it) or pick a CSV file (a "Name" column, and Phone, Type, Age group and Gender if you have them,
-// like the Download file). Names already on this church's list are skipped, so the same list can be added twice safely.
+// Congregation → Import people: a church admin or the team adds a list of names at once. Pick a CSV file or paste a list.
+// Files don't have to follow a set layout: each column is matched to Name, First name, Last name, Phone, Type, Age group or
+// Gender (guessed from its heading and what's in it, and changeable), and the names and numbers are tidied before importing.
+// Names already on this church's list are skipped, so the same list can be imported twice safely.
 function bulkAdd() {
   document.querySelectorAll(".modal").forEach(m => m.remove());
   const d = document.createElement("div"); d.className = "modal";
   d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="Import people">
     <div class="card-head"><h2>Import people</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
     <div class="fields">
-      <label class="bk-drop" id="bk-drop"><input type="file" id="bk-file" accept=".csv,.txt,text/csv,text/plain">
+      <label class="bk-drop" id="bk-drop"><input type="file" id="bk-file" accept=".csv,.txt,.tsv,text/csv,text/plain">
         <span class="bk-drop-btn">${svg("upload")}<span>Import a CSV file</span></span>
-        <small>Or drop it here. It needs a <b>Name</b> column; Phone, Type, Age group and Gender are used if they're there (the Download file works).</small></label>
+        <small>Or drop it here. Any layout works: you'll match the columns next, and the names and numbers are tidied for you.</small></label>
       <div class="bk-or"><span>or type the names</span></div>
       <div><label class="f" for="bk-text">Names, one per line</label>
-        <textarea class="in" id="bk-text" rows="7" placeholder="Ama Mensah, 021 555 0101&#10;Kofi Boateng&#10;Efua Owusu, 022 555 0123"></textarea>
-        <p class="note" style="margin:6px 2px 0">Add a phone number after a comma if you have it, and "child" or "first-timer" for anyone who is. You can also change each person in the list below.</p></div>
-      <div class="bk-two"><div><label class="f" for="bk-type">They are</label><select class="in" id="bk-type">${typeOpts.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("")}</select></div>
+        <textarea class="in" id="bk-text" rows="6" placeholder="Ama Mensah, 021 555 0101&#10;Kofi Boateng&#10;Efua Owusu, 022 555 0123, child"></textarea>
+        <p class="note" style="margin:6px 2px 0">Add a phone number after a comma if you have it, and "child" or "first-timer" for anyone who is.</p></div>
+      <div id="bk-map"></div>
+      <div class="bk-two"><div><label class="f" for="bk-type">Everyone is</label><select class="in" id="bk-type">${typeOpts.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("")}</select></div>
         <div><label class="f" for="bk-age">Age group</label><select class="in" id="bk-age"><option>Adult</option><option>Child</option></select></div></div>
-      <p class="note" style="margin:0 2px">They go on <b>${esc(S.church)}</b>'s list. A CSV's own Type or Age group column wins over these.</p>
+      <p class="note" style="margin:0 2px">They go on <b>${esc(S.church)}</b>'s list. A file's own Type or Age group column wins, and you can change anyone in the list below.</p>
       <div id="bk-prev"></div>
     </div>
     <div class="msg bad" id="bk-err" hidden></div>
@@ -1783,32 +1785,83 @@ function bulkAdd() {
       if (q) { if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; }
       else if (c === '"') q = true; else if (c === "," || c === "\t" || c === ";") { out.push(cur); cur = ""; } else cur += c; }
     out.push(cur); return out.map(x => x.trim()); };
-  const TYPES = {member: "member", members: "member", "first-timer": "first_timer", "first timer": "first_timer", first_timer: "first_timer", firsttimer: "first_timer", visitor: "visitor"};
-  let rows = [];
+  const TYPES = {member: "member", members: "member", "first-timer": "first_timer", "first timer": "first_timer", first_timer: "first_timer", firsttimer: "first_timer",
+    "first time": "first_timer", new: "first_timer", visitor: "visitor", guest: "visitor"};
+  const ROLES = [["name", "Name"], ["first", "First name"], ["last", "Last name"], ["phone", "Phone"], ["type", "Type"], ["age", "Age group"], ["gender", "Gender"], ["", "Leave out"]];
+  // Tidying: names in capitals or all small letters get proper capitals, list numbers and stray marks go,
+  // and a phone number that lost its first 0 (as spreadsheets do) gets it back.
+  const cap = w => w.replace(/(^|[\s'-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+  const tidyName = raw => { let x = String(raw || "").replace(/^\s*\d+\s*[.)\-:]\s+/, "").replace(/[*_"]+/g, "").replace(/\s+/g, " ").trim();
+    x = x.split(" ").map(w => w.length > 1 && (w === w.toUpperCase() || w === w.toLowerCase()) ? cap(w.toLowerCase()) : w).join(" "); return x.slice(0, 80); };  // each word on its own: "ama MENSAH" → "Ama Mensah"
+  const tidyPhone = raw => { let x = String(raw || "").replace(/[^0-9+]/g, "");
+    if (/^[2-9]\d{7,9}$/.test(x)) x = "0" + x;  // 21 555 0101 → 021 555 0101
+    if (/^0\d{8,10}$/.test(x)) x = `${x.slice(0, 3)} ${x.slice(3, 6)} ${x.slice(6)}`;
+    return x; };
+  const isPhone = v => (v.replace(/\D/g, "").length >= 7) && /^[\d\s+()\-.]+$/.test(v);
+  const guess = (head, samples) => {
+    const h = norm(head), s = samples.map(norm).filter(Boolean), share = f => s.length ? s.filter(f).length / s.length : 0;
+    if (/^(full )?names?$|^member|^person|^attendee/.test(h)) return "name";
+    if (/first|given|fore/.test(h)) return "first";
+    if (/last|sur|family/.test(h)) return "last";
+    if (/phone|mobile|cell|tel\b|number|contact|whatsapp/.test(h)) return "phone";
+    if (/gender|sex/.test(h)) return "gender";
+    if (/^age|group|adult|child/.test(h)) return "age";
+    if (/type|category|status|member type/.test(h)) return "type";
+    if (share(isPhone) > .6) return "phone";
+    if (share(v => /^(m|f|male|female)$/.test(v)) > .6) return "gender";
+    if (share(v => /^(child|kid|kids|adult|children|adults)$/.test(v)) > .6) return "age";
+    if (share(v => TYPES[v]) > .6) return "type";
+    if (share(v => /^\p{L}[\p{L}'. -]*$/u.test(v)) > .6) return "name";
+    return "";
+  };
+  let rows = [], map = null, sig = "", fromFile = false;
   const own = {};  // changes made to one person in the list (age group, type), kept while the list is edited
   const read = () => {
-    const lines = $("bk-text").value.replace(/^﻿/, "").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    const head = lines.length ? cells(lines[0]).map(norm) : [], col = k => head.findIndex(h => h === k || h.startsWith(k));
-    const hasHead = head.some(h => h === "name" || h === "full name" || h === "full_name");
-    const at = {name: hasHead ? head.findIndex(h => ["name", "full name", "full_name"].includes(h)) : 0, phone: hasHead ? col("phone") : 1,
-                type: hasHead ? col("type") : -1, age: hasHead ? col("age") : -1, gender: hasHead ? col("gender") : -1};
+    const lines = $("bk-text").value.replace(/^﻿/, "").split(/\r?\n/).filter(l => l.replace(/[,;\t\s]/g, ""));
+    const table = lines.map(cells), n = Math.max(0, ...table.slice(0, 50).map(r => r.length));
+    // A heading row: words like Name or Phone, and no phone numbers in it
+    const headWords = /name|phone|mobile|first|last|surname|type|age|gender|sex|email|contact/i;
+    const hasHead = table.length > 1 && table[0].some(c => headWords.test(c)) && !table[0].some(isPhone);
+    const body = hasHead ? table.slice(1) : table;
+    const key = `${n}|${hasHead ? table[0].join("|") : ""}`;
+    if (key !== sig) {  // a new layout: guess each column again
+      sig = key;
+      map = Array.from({length: n}, (_, j) => guess(hasHead ? table[0][j] || "" : "", body.slice(0, 30).map(r => r[j] || "")));
+      if (!hasHead && n > 1 && !map.includes("name")) map[0] = "name";
+      if (n === 1) map = ["name"];
+      const firstName = map.indexOf("name"); map = map.map((r, j) => r === "name" && j !== firstName && !map.includes("first") ? "" : r);  // one name column
+    }
+    // Match your columns: shown when the list has more than one column
+    $("bk-map").innerHTML = n > 1 && (fromFile || hasHead) ? `<div class="bk-map"><b>Match your columns</b><p class="note" style="margin:2px 0 8px">Say what's in each column. We guessed from ${hasHead ? "the headings and " : ""}what's in them.</p>
+      ${map.map((r, j) => `<div class="bk-map-row"><div><b>${esc(hasHead ? table[0][j] || `Column ${j + 1}` : `Column ${j + 1}`)}</b>
+        <small>${esc(body.slice(0, 3).map(x => x[j]).filter(Boolean).join(" · ") || "(empty)")}</small></div>
+        <select class="in sm" data-map="${j}" aria-label="What column ${j + 1} is">${ROLES.map(([v, t]) => `<option value="${v}" ${r === v ? "selected" : ""}>${t}</option>`).join("")}</select></div>`).join("")}</div>` : "";
+    $("bk-map").querySelectorAll("[data-map]").forEach(s => s.onchange = () => { map[+s.dataset.map] = s.value; read(); });
+    const col = k => map.indexOf(k), get = (c, k) => col(k) >= 0 ? c[col(k)] || "" : "";
     const have = new Set(S.members.filter(m => churchOf(m) === S.church).map(m => norm(m.full_name))), seen = new Set();
-    rows = (hasHead ? lines.slice(1) : lines).map(l => {
-      const c = cells(l), name = (c[at.name] || "").replace(/\s+/g, " ").slice(0, 80), phone = at.phone >= 0 ? (hasHead ? c[at.phone] || "" : c.slice(1).find(x => /\d/.test(x)) || "").replace(/[^0-9+ ]/g, "").trim() : "";
-      const extra = hasHead ? [] : c.slice(1).map(norm);  // a plain list: "Ama Mensah, child" or "Kofi, 021 555 0101, first-timer"
-      const ageTxt = hasHead ? c[at.age] || "" : extra.find(x => /^(child|kid|kids|adult)$/.test(x)) || "";
-      const t = TYPES[norm(hasHead ? c[at.type] || "" : extra.find(x => TYPES[x]) || "")], age = /child|kid/i.test(ageTxt) ? "Child" : /adult/i.test(ageTxt) ? "Adult" : "";
-      const g = /^f/i.test(c[at.gender] || "") ? "Female" : /^m/i.test(c[at.gender] || "") ? "Male" : "";
-      const why = !name || /^\d+$/.test(name) ? "no name" : have.has(norm(name)) ? "already on the list" : seen.has(norm(name)) ? "twice in this list" : phoneProblem(phone, false) ? "phone number looks wrong" : "";
+    let fixedNames = 0, fixedPhones = 0;
+    rows = body.map(c => {
+      const rawName = col("name") >= 0 ? get(c, "name") : [get(c, "first"), get(c, "last")].filter(Boolean).join(" ");
+      const name = tidyName(rawName); if (name && name !== rawName.replace(/\s+/g, " ").trim()) fixedNames++;
+      // the phone: its own column, or (a plain list) anything after the name that looks like one
+      const rawPhone = col("phone") >= 0 ? get(c, "phone") : n > 1 && !hasHead ? c.slice(1).find(isPhone) || "" : "";
+      const phone = rawPhone ? tidyPhone(rawPhone) : ""; if (rawPhone && phone.replace(/\s/g, "") !== rawPhone.replace(/[\s()\-.]/g, "")) fixedPhones++;
+      const words = hasHead ? [] : c.slice(1).map(norm);  // a plain list: "Ama Mensah, child" or "Kofi, 021 555 0101, first-timer"
+      const ageTxt = norm(get(c, "age") || words.find(x => /^(child|kid|kids|adult)$/.test(x)) || "");
+      const t = TYPES[norm(get(c, "type"))] || TYPES[words.find(x => TYPES[x]) || ""] || "";
+      const age = /child|kid/.test(ageTxt) ? "Child" : /adult/.test(ageTxt) ? "Adult" : "";
+      const gt = norm(get(c, "gender")), g = /^f/.test(gt) ? "Female" : /^m/.test(gt) ? "Male" : "";
+      const why = !name || /^\d+$/.test(name) || /^total/i.test(name) ? "no name" : have.has(norm(name)) ? "already on the list" : seen.has(norm(name)) ? "twice in this list" : phoneProblem(phone, false) ? "phone number looks wrong" : "";
       seen.add(norm(name)); const o = own[norm(name)] || {}; return {name, phone, type: o.type || t, age: o.age || age, gender: g, why};
     }).filter(r => r.name || r.phone);
     const ok = rows.filter(r => !r.why), skip = rows.filter(r => r.why);
-    $("bk-prev").innerHTML = rows.length ? `<div class="bk-prev"><b>${ok.length} to add</b>${skip.length ? ` · ${skip.length} skipped` : ""}
-      <div class="bk-cols" aria-hidden="true"><span>Name and phone</span><span>Age group</span><span>Type</span></div>
+    const tidied = [fixedNames && `${fixedNames} ${fixedNames === 1 ? "name" : "names"} tidied`, fixedPhones && `${fixedPhones} phone ${fixedPhones === 1 ? "number" : "numbers"} tidied`].filter(Boolean);
+    $("bk-prev").innerHTML = rows.length ? `<div class="bk-prev"><b>${ok.length} to add</b>${skip.length ? ` · ${skip.length} skipped` : ""}${tidied.length ? ` · <span class="bk-tidy">${tidied.join(", ")}</span>` : ""}
+      <div class="bk-scroll"><div class="bk-cols" aria-hidden="true"><span>Name</span><span>Phone</span><span>Age group</span><span>Type</span></div>
       <ul>${rows.slice(0, 200).map((r, i) => r.why ? `<li class="skip"><span>${esc(r.name || "(no name)")}</span><small>${esc(r.why)}</small></li>`
-        : `<li><span>${esc(r.name)}${r.phone ? `<small>${esc(r.phone)}</small>` : ""}</span><span class="bk-own">
+        : `<li><span class="bk-name">${esc(r.name)}</span><span class="bk-phone">${esc(r.phone) || "–"}</span>
           <select class="in sm" data-own-age="${i}" aria-label="Age group for ${esc(r.name)}">${["Adult", "Child"].map(a => `<option ${(r.age || $("bk-age").value) === a ? "selected" : ""}>${a}</option>`).join("")}</select>
-          <select class="in sm" data-own-type="${i}" aria-label="Type for ${esc(r.name)}">${typeOpts.map(([v, t]) => `<option value="${v}" ${(r.type || $("bk-type").value) === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></span></li>`).join("")}</ul>
+          <select class="in sm" data-own-type="${i}" aria-label="Type for ${esc(r.name)}">${typeOpts.map(([v, t]) => `<option value="${v}" ${(r.type || $("bk-type").value) === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></li>`).join("")}</ul></div>
       ${rows.length > 200 ? `<p class="note">…and ${rows.length - 200} more.</p>` : ""}</div>` : "";
     $("bk-prev").querySelectorAll("[data-own-age],[data-own-type]").forEach(s => s.onchange = () => {
       const r = rows[+(s.dataset.ownAge ?? s.dataset.ownType)], k = norm(r.name), o = own[k] ??= {};
@@ -1819,9 +1872,11 @@ function bulkAdd() {
   const drop = $("bk-drop");
   drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); }; drop.ondragleave = () => drop.classList.remove("over");
   drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); const f = e.dataTransfer.files[0]; if (f) $("bk-file").onchange({target: {files: [f]}}); };
-  $("bk-file").onchange = async e => { const f = e.target.files[0]; if (!f) return; drop.querySelector(".bk-drop-btn span").textContent = f.name;
-    if (f.size > 2e6) { $("bk-err").textContent = "That file is too big: keep it under 2 MB."; $("bk-err").hidden = false; return; }
-    $("bk-text").value = await f.text(); $("bk-err").hidden = true; read(); };
+  $("bk-file").onchange = async e => { const f = e.target.files[0]; if (!f) return; const err = $("bk-err");
+    if (/\.(xlsx?|numbers|ods)$/i.test(f.name)) { err.textContent = "That's a spreadsheet file. Open it, choose File → Save as (or Download) → CSV, then import the CSV."; err.hidden = false; return; }
+    if (f.size > 2e6) { err.textContent = "That file is too big: keep it under 2 MB."; err.hidden = false; return; }
+    drop.querySelector(".bk-drop-btn span").textContent = f.name;
+    $("bk-text").value = await f.text(); fromFile = true; err.hidden = true; read(); };
   $("bk-text").focus();
   d.querySelector("form").onsubmit = async e => {
     e.preventDefault();

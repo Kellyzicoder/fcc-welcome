@@ -371,7 +371,14 @@ input.in:focus, select.in:focus {border-color: var(--accent); box-shadow: 0 0 0 
 .bk-drop-btn {display: inline-flex; align-items: center; gap: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 16px; padding: 13px 24px; border-radius: 999px; max-width: 100%;}
 .bk-drop-btn span {overflow: hidden; text-overflow: ellipsis; white-space: nowrap;} .bk-drop-btn svg {width: 20px; height: 20px; flex: none;} .bk-drop small {color: var(--ink-2); font-size: 12.5px; max-width: 380px;}
 .bk-or {display: flex; align-items: center; gap: 10px; color: var(--ink-3); font-size: 12.5px;} .bk-or::before, .bk-or::after {content: ""; flex: 1; border-top: 1px solid var(--line);}
-.bk-cols, .bk-prev li:not(.skip) {display: grid; grid-template-columns: minmax(0, 1fr) 88px 118px; gap: 8px; align-items: center;}
+.bk-scroll {overflow-x: auto; margin: 0 -4px; padding: 0 4px;} .bk-scroll > * {min-width: 430px;} #bk-prev, #bk-map, .bk-prev, .fields:has(#bk-prev) > * {min-width: 0; max-width: 100%;}
+.bk-cols, .bk-prev li:not(.skip) {display: grid; grid-template-columns: minmax(110px, 1fr) 112px 84px 112px; gap: 8px; align-items: center;}
+.bk-name {font-weight: 500; overflow: hidden; text-overflow: ellipsis;} .bk-phone {color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap;}
+.bk-tidy {color: var(--ok); font-weight: 500;} .bk-prev li .in.sm {padding: 5px 22px 5px 8px; font-size: 13px; min-height: 0; height: auto; width: 100%; background-position: right 6px center;}
+.bk-map {border: 1px solid var(--line); border-radius: 14px; padding: 12px; background: var(--card);}
+.bk-map-row {display: grid; grid-template-columns: minmax(0, 1fr) 140px; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line);}
+.bk-map-row div {display: grid; min-width: 0;} .bk-map-row small {color: var(--ink-3); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.bk-map-row .in.sm {padding: 6px 26px 6px 10px; font-size: 13.5px; min-height: 0; height: auto; width: 100%; background-position: right 8px center;}
 .bk-cols {margin-top: 10px; padding: 6px 0; color: var(--ink-3); font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;}
 .bk-prev ul {margin-top: 0;}
 .names {display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 14px;}
