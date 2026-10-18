@@ -501,6 +501,11 @@ td .x {border: 0; background: none; color: var(--red); font-weight: 600;}
   .u-tools input, .u-tools /* Check-in: a day with more than one service */
 .ci-parts {display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px;} .ci-parts > .f {margin: 0;}
 .ci-parts .seg {flex-wrap: wrap;} .danger-link {color: var(--red);}
+.ci-part-acts {display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto;} .ci-part-acts .pill-btn svg, [data-split] svg {width: 16px; height: 16px;}
+.tl-add {display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 14px;} .tl-add input {width: 18px; height: 18px; accent-color: var(--accent);}
+.pill-btn.ci-remove {color: var(--red); border-color: color-mix(in srgb, var(--red) 35%, var(--line));} .pill-btn.ci-remove:hover {background: color-mix(in srgb, var(--red) 8%, transparent);}
+.bk-prev.tl li:not(.skip), .bk-prev.tl li {display: flex; justify-content: space-between; gap: 10px;} .bk-prev.tl li small {white-space: nowrap;}
+#tl-prev, .fields:has(#tl-prev) > * {min-width: 0; max-width: 100%;}
 .ov-parts {margin: 0; padding: 12px 18px 14px; color: var(--ink-2); font-size: 13.5px; border-top: 1px solid var(--line);} .ov-parts b {color: var(--ink);}
 .find-bar {flex: 1 1 100%; min-width: 0;}
   .u-tools select:only-of-type {flex-basis: 100%;}
