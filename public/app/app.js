@@ -1729,7 +1729,7 @@ function bulkAdd() {
     <div class="fields">
       <div><label class="f" for="bk-text">Names, one per line</label>
         <textarea class="in" id="bk-text" rows="7" placeholder="Ama Mensah, 021 555 0101&#10;Kofi Boateng&#10;Efua Owusu, 022 555 0123"></textarea>
-        <p class="note" style="margin:6px 2px 0">Add a phone number after a comma if you have it. Or <button type="button" class="link-btn" id="bk-pick">choose a CSV file</button> with a Name column (Phone, Type, Age group and Gender too, if you have them).</p>
+        <p class="note" style="margin:6px 2px 0">Add a phone number after a comma if you have it, and "child" or "first-timer" for anyone who is. You can also change each person in the list below. Or <button type="button" class="link-btn" id="bk-pick">choose a CSV file</button> with a Name column (Phone, Type, Age group and Gender too, if you have them).</p>
         <input type="file" id="bk-file" accept=".csv,.txt,text/csv,text/plain" hidden></div>
       <div class="bk-two"><div><label class="f" for="bk-type">They are</label><select class="in" id="bk-type">${typeOpts.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("")}</select></div>
         <div><label class="f" for="bk-age">Age group</label><select class="in" id="bk-age"><option>Adult</option><option>Child</option></select></div></div>
@@ -1749,6 +1749,7 @@ function bulkAdd() {
     out.push(cur); return out.map(x => x.trim()); };
   const TYPES = {member: "member", members: "member", "first-timer": "first_timer", "first timer": "first_timer", first_timer: "first_timer", firsttimer: "first_timer", visitor: "visitor"};
   let rows = [];
+  const own = {};  // changes made to one person in the list (age group, type), kept while the list is edited
   const read = () => {
     const lines = $("bk-text").value.replace(/^﻿/, "").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     const head = lines.length ? cells(lines[0]).map(norm) : [], col = k => head.findIndex(h => h === k || h.startsWith(k));
@@ -1757,19 +1758,27 @@ function bulkAdd() {
                 type: hasHead ? col("type") : -1, age: hasHead ? col("age") : -1, gender: hasHead ? col("gender") : -1};
     const have = new Set(S.members.filter(m => churchOf(m) === S.church).map(m => norm(m.full_name))), seen = new Set();
     rows = (hasHead ? lines.slice(1) : lines).map(l => {
-      const c = cells(l), name = (c[at.name] || "").replace(/\s+/g, " ").slice(0, 80), phone = at.phone >= 0 ? (c[at.phone] || "").replace(/[^0-9+ ]/g, "").trim() : "";
-      const t = TYPES[norm(c[at.type] || "")], age = /child|kid/i.test(c[at.age] || "") ? "Child" : /adult/i.test(c[at.age] || "") ? "Adult" : "";
+      const c = cells(l), name = (c[at.name] || "").replace(/\s+/g, " ").slice(0, 80), phone = at.phone >= 0 ? (hasHead ? c[at.phone] || "" : c.slice(1).find(x => /\d/.test(x)) || "").replace(/[^0-9+ ]/g, "").trim() : "";
+      const extra = hasHead ? [] : c.slice(1).map(norm);  // a plain list: "Ama Mensah, child" or "Kofi, 021 555 0101, first-timer"
+      const ageTxt = hasHead ? c[at.age] || "" : extra.find(x => /^(child|kid|kids|adult)$/.test(x)) || "";
+      const t = TYPES[norm(hasHead ? c[at.type] || "" : extra.find(x => TYPES[x]) || "")], age = /child|kid/i.test(ageTxt) ? "Child" : /adult/i.test(ageTxt) ? "Adult" : "";
       const g = /^f/i.test(c[at.gender] || "") ? "Female" : /^m/i.test(c[at.gender] || "") ? "Male" : "";
       const why = !name || /^\d+$/.test(name) ? "no name" : have.has(norm(name)) ? "already on the list" : seen.has(norm(name)) ? "twice in this list" : phoneProblem(phone, false) ? "phone number looks wrong" : "";
-      seen.add(norm(name)); return {name, phone, type: t, age, gender: g, why};
+      seen.add(norm(name)); const o = own[norm(name)] || {}; return {name, phone, type: o.type || t, age: o.age || age, gender: g, why};
     }).filter(r => r.name || r.phone);
     const ok = rows.filter(r => !r.why), skip = rows.filter(r => r.why);
     $("bk-prev").innerHTML = rows.length ? `<div class="bk-prev"><b>${ok.length} to add</b>${skip.length ? ` · ${skip.length} skipped` : ""}
-      <ul>${rows.slice(0, 200).map(r => `<li class="${r.why ? "skip" : ""}"><span>${esc(r.name || "(no name)")}</span><small>${r.why ? esc(r.why) : esc([r.phone, r.type && TYPE[r.type], r.age, r.gender].filter(Boolean).join(" · "))}</small></li>`).join("")}</ul>
+      <ul>${rows.slice(0, 200).map((r, i) => r.why ? `<li class="skip"><span>${esc(r.name || "(no name)")}</span><small>${esc(r.why)}</small></li>`
+        : `<li><span>${esc(r.name)}${r.phone ? `<small>${esc(r.phone)}</small>` : ""}</span><span class="bk-own">
+          <select class="in sm" data-own-age="${i}" aria-label="Age group for ${esc(r.name)}">${["Adult", "Child"].map(a => `<option ${(r.age || $("bk-age").value) === a ? "selected" : ""}>${a}</option>`).join("")}</select>
+          <select class="in sm" data-own-type="${i}" aria-label="Type for ${esc(r.name)}">${typeOpts.map(([v, t]) => `<option value="${v}" ${(r.type || $("bk-type").value) === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></span></li>`).join("")}</ul>
       ${rows.length > 200 ? `<p class="note">…and ${rows.length - 200} more.</p>` : ""}</div>` : "";
+    $("bk-prev").querySelectorAll("[data-own-age],[data-own-type]").forEach(s => s.onchange = () => {
+      const r = rows[+(s.dataset.ownAge ?? s.dataset.ownType)], k = norm(r.name), o = own[k] ??= {};
+      if (s.dataset.ownAge !== undefined) o.age = s.value; else o.type = s.value; read(); });
     $("bk-go").disabled = !ok.length; $("bk-go").textContent = ok.length ? `Add ${ok.length} ${ok.length === 1 ? "person" : "people"}` : "Add people";
   };
-  $("bk-text").oninput = read;
+  $("bk-text").oninput = read; $("bk-age").onchange = $("bk-type").onchange = read;
   $("bk-pick").onclick = () => $("bk-file").click();
   $("bk-file").onchange = async e => { const f = e.target.files[0]; if (!f) return;
     if (f.size > 2e6) { $("bk-err").textContent = "That file is too big: keep it under 2 MB."; $("bk-err").hidden = false; return; }
