@@ -363,7 +363,17 @@ input.in:focus, select.in:focus {border-color: var(--accent); box-shadow: 0 0 0 
 .bk-prev li {display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px;} .bk-prev li small {color: var(--ink-3); text-align: right;}
 .bk-prev li.skip span {color: var(--ink-3); text-decoration: line-through;} .bk-prev li.skip small {color: var(--red);}
 .bk-prev li {align-items: center;} .bk-prev li > span:first-child {display: grid; min-width: 0;} .bk-prev li > span:first-child small {text-align: left;}
-.bk-own {display: flex; gap: 6px; flex: none;} .bk-own .in.sm {padding: 5px 26px 5px 9px; font-size: 13px; min-height: 0; height: auto; width: auto; background-position: right 7px center;}
+.bk-own {display: contents;} .bk-own .in.sm {padding: 5px 24px 5px 9px; font-size: 13px; min-height: 0; height: auto; width: 100%; background-position: right 7px center;}
+/* Import: a big button for the file, and the list in clear columns (name and phone, age group, type) */
+.bk-drop {position: relative; display: grid; justify-items: center; gap: 8px; text-align: center; padding: 18px 16px; border: 2px dashed var(--line); border-radius: 16px; background: var(--soft); cursor: pointer;}
+.bk-drop.over, .bk-drop:hover {border-color: var(--accent); background: var(--accent-soft);} .bk-drop input {position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%;}
+.bk-drop:focus-within {outline: 2px solid var(--accent); outline-offset: 2px;}
+.bk-drop-btn {display: inline-flex; align-items: center; gap: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 16px; padding: 13px 24px; border-radius: 999px; max-width: 100%;}
+.bk-drop-btn span {overflow: hidden; text-overflow: ellipsis; white-space: nowrap;} .bk-drop-btn svg {width: 20px; height: 20px; flex: none;} .bk-drop small {color: var(--ink-2); font-size: 12.5px; max-width: 380px;}
+.bk-or {display: flex; align-items: center; gap: 10px; color: var(--ink-3); font-size: 12.5px;} .bk-or::before, .bk-or::after {content: ""; flex: 1; border-top: 1px solid var(--line);}
+.bk-cols, .bk-prev li:not(.skip) {display: grid; grid-template-columns: minmax(0, 1fr) 88px 118px; gap: 8px; align-items: center;}
+.bk-cols {margin-top: 10px; padding: 6px 0; color: var(--ink-3); font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;}
+.bk-prev ul {margin-top: 0;}
 .names {display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 14px;}
 .name {display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--line);
        background: var(--card); cursor: pointer; min-width: 0; user-select: none;}
