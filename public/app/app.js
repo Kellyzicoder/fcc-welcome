@@ -1140,13 +1140,25 @@ const WIDGETS = {
             ${h.length > 1 ? `<div class="live-spark" aria-hidden="true">${h.map(x => `<i style="height:${Math.max(3, x.total / top * 100)}%"></i>`).join("")}</div>` : ""}
             ${j.channel ? `<div class="live-ch"><small>YouTube channel: <b>${esc(j.channel)}</b></small><button type="button" class="link-btn" data-change>Change</button></div>` : ""}`;
           el.querySelector("[data-change]")?.addEventListener("click", () => connect(j.channel));
-          if (!live && j.home) {  // between services: the last service's numbers, which the live dashboard keeps (morning prayers left out)
-            const early = t => { const x = new Date(t), m = x.getHours() * 60 + x.getMinutes(); return m >= 270 && m < 390; };
-            const s = await call({}, `&from=${Date.now() - 3 * 86400000}&to=${Date.now()}`).catch(() => null);
-            const last = (s?.services || []).filter(x => !early(x.start)).pop();
-            if (last && el.isConnected) el.querySelector(".live-nums")?.insertAdjacentHTML("afterend", `<div class="live-last">
-              <small>Last service · ${esc(new Date(last.start).toLocaleString([], {weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit"}))}</small>
-              <span>Peak <b>${last.total}</b> · YouTube ${last.youtube} · Facebook ${last.facebook} · Zoom ${last.zoom}${last.zoom > 2 ? ` (${last.zoom - 2} without the host and co-host)` : ""}</span></div>`);
+          if (j.home) {  // the day's services, which the live dashboard keeps for 30 days: check them any time, even after the stream ends
+            const early = t => { const x = new Date(t), m = x.getHours() * 60 + x.getMinutes(); return m >= 270 && m < 390; };  // morning prayers, left out
+            const back = S.liveBack = Math.min(29, Math.max(0, S.liveBack || 0)), day = new Date(); day.setHours(0, 0, 0, 0); day.setDate(day.getDate() - back);
+            const from = day.getTime(), to = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime();
+            const s = await call({}, `&from=${from}&to=${to}`).catch(() => null);
+            if (!el.isConnected || !el.querySelector(".live-nums")) return;
+            const list = (s?.services || []).filter(x => !early(x.start)).sort((a, b) => a.start - b.start);
+            const hm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
+            const name = back === 0 ? "Today" : back === 1 ? "Yesterday" : day.toLocaleDateString([], {weekday: "long", day: "numeric", month: "short"});
+            const best = list.reduce((m, x) => Math.max(m, x.total), 0);
+            el.querySelector(".live-nums").insertAdjacentHTML("afterend", `<div class="live-day">
+              <div class="live-day-top"><button type="button" class="link-btn" data-lday="1" ${back >= 29 ? "disabled" : ""} aria-label="The day before">‹ Earlier</button>
+                <b>${esc(name)}</b><button type="button" class="link-btn" data-lday="-1" ${back === 0 ? "disabled" : ""} aria-label="The day after">Later ›</button></div>
+              ${!s ? `<p class="note">The saved numbers couldn't be loaded. Try again in a minute.</p>`
+                : list.length ? `${list.length > 1 ? `<p class="note" style="margin:0 0 6px">Highest of the day: <b>${best}</b> watching</p>` : ""}${list.map(x => `<div class="live-last">
+                  <small>${hm(x.start)}${x.end ? ` to ${hm(x.end)}` : " · still going"}</small>
+                  <span>Peak <b>${x.total}</b> · YouTube ${x.youtube} · Facebook ${x.facebook} · Zoom ${x.zoom}${x.zoom > 2 ? ` (${x.zoom - 2} without the host and co-host)` : ""}</span></div>`).join("")}`
+                : `<p class="note">No livestream ${back ? "that day" : "yet today"}${back ? "" : ": the numbers stay here after it ends"}.</p>`}</div>`);
+            el.querySelectorAll("[data-lday]").forEach(b => b.onclick = () => { S.liveBack = back + Number(b.dataset.lday); pull(); });
           }
         } catch (e) { el.innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
       };
