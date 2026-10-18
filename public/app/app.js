@@ -673,7 +673,8 @@ async function signOut() { try { await auth("logout", {}, S.session?.access_toke
 async function load() {
   const since = new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10);
   const [members, ticks, services, seen, lists, parts, pticks] = await Promise.all([
-    all("members?select=id,full_name,phone,type,status,age_group,gender,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name")
+    all("members?select=id,full_name,phone,email,address,type,status,age_group,gender,pastor,church,role,group_name,date_joined,first_visit,created_at,version&order=full_name")
+      .catch(() => all("members?select=id,full_name,phone,type,status,age_group,gender,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name"))  // before the address column is added
       .catch(() => all("members?select=id,full_name,phone,type,status,age_group,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name")),
     all(`attendance?select=service_date,member_id,checked_at&service_date=gte.${since}&order=service_date`),
     all(`services?select=service_date,name&service_date=gte.${since}`),
@@ -1859,7 +1860,17 @@ function bulkAdd() {
     out.push(cur); return out.map(x => x.trim()); };
   const TYPES = {member: "member", members: "member", "first-timer": "first_timer", "first timer": "first_timer", first_timer: "first_timer", firsttimer: "first_timer",
     "first time": "first_timer", new: "first_timer", visitor: "visitor", guest: "visitor"};
-  const ROLES = [["name", "Name"], ["first", "First name"], ["last", "Last name"], ["phone", "Phone"], ["type", "Type"], ["age", "Age group"], ["gender", "Gender"], ["", "Leave out"]];
+  const ROLES = [["name", "Name"], ["first", "First name"], ["last", "Last name"], ["phone", "Phone"], ["email", "Email"], ["address", "Address"], ["type", "Type"], ["age", "Age group"],
+    ["gender", "Gender"], ["team", "Team / ministry"], ["status", "Status"], ["group", "Group"], ["joined", "Date joined"], ["", "Leave out"]];
+  // dates as people write them: 2024-03-17, 17/03/2024, 17-3-24, 17 Mar 2024 (day first, as in New Zealand)
+  const MON = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  const isoDate = raw => { const x = String(raw || "").trim(); let m, y, mo, d;
+    if ((m = x.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) [, y, mo, d] = m;
+    else if ((m = x.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/))) [, d, mo, y] = m;
+    else if ((m = x.match(/^(\d{1,2})\s+([a-z]{3})[a-z]*\.?,?\s+(\d{4})$/i)) && MON.includes(m[2].toLowerCase())) { d = m[1]; mo = MON.indexOf(m[2].toLowerCase()) + 1; y = m[3]; }
+    else return "";
+    y = +y < 100 ? 2000 + +y : +y; const t = new Date(y, +mo - 1, +d);
+    return t.getMonth() === +mo - 1 && y > 1900 && t <= new Date() ? `${y}-${pad(+mo)}-${pad(+d)}` : ""; };
   // Tidying: names in capitals or all small letters get proper capitals, list numbers and stray marks go,
   // and a phone number that lost its first 0 (as spreadsheets do) gets it back.
   const cap = w => w.replace(/(^|[\s'-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
@@ -1871,14 +1882,20 @@ function bulkAdd() {
     return x; };
   const isPhone = v => (v.replace(/\D/g, "").length >= 7) && /^[\d\s+()\-.]+$/.test(v);
   const guess = (head, samples) => {
-    const h = norm(head), s = samples.map(norm).filter(Boolean), share = f => s.length ? s.filter(f).length / s.length : 0;
-    if (/^(full )?names?$|^member|^person|^attendee/.test(h)) return "name";
-    if (/first|given|fore/.test(h)) return "first";
-    if (/last|sur|family/.test(h)) return "last";
-    if (/phone|mobile|cell|tel\b|number|contact|whatsapp/.test(h)) return "phone";
+    const h = norm(head).replace(/[\s_]+/g, " ").replace(/[^a-z /]/g, "").trim(), s = samples.map(norm).filter(Boolean), share = f => s.length ? s.filter(f).length / s.length : 0;
+    if (/^(full |member |members |person |attendee |)names?$|^member$|^person$|^attendee$/.test(h)) return "name";
+    if (/^(first|given|fore|christian)/.test(h)) return "first";
+    if (/^(last|sur|family)/.test(h)) return "last";
+    if (/phone|mobile|cell|tel\b|number|whatsapp/.test(h)) return "phone";
+    if (/mail/.test(h)) return "email";
+    if (/address|street|suburb|location|residence/.test(h)) return "address";
     if (/gender|sex/.test(h)) return "gender";
-    if (/^age|group|adult|child/.test(h)) return "age";
-    if (/type|category|status|member type/.test(h)) return "type";
+    if (/^age|adult|child|kids?$/.test(h)) return "age";
+    if (/ministry|role|team|department|service unit/.test(h)) return "team";
+    if (/joined|member since|date/.test(h)) return "joined";
+    if (/type|category/.test(h)) return "type";
+    if (/status/.test(h)) return "status";
+    if (/group|cell|fellowship/.test(h)) return "group";
     if (share(isPhone) > .6) return "phone";
     if (share(v => /^(m|f|male|female)$/.test(v)) > .6) return "gender";
     if (share(v => /^(child|kid|kids|adult|children|adults)$/.test(v)) > .6) return "age";
@@ -1892,7 +1909,7 @@ function bulkAdd() {
     const lines = $("bk-text").value.replace(/^﻿/, "").split(/\r?\n/).filter(l => l.replace(/[,;\t\s]/g, ""));
     const table = lines.map(cells), n = Math.max(0, ...table.slice(0, 50).map(r => r.length));
     // A heading row: words like Name or Phone, and no phone numbers in it
-    const headWords = /name|phone|mobile|first|last|surname|type|age|gender|sex|email|contact/i;
+    const headWords = /name|phone|mobile|first|last|surname|type|age|gender|sex|email|contact|address|ministry|role|status|group|joined/i;
     const hasHead = table.length > 1 && table[0].some(c => headWords.test(c)) && !table[0].some(isPhone);
     const body = hasHead ? table.slice(1) : table;
     const key = `${n}|${hasHead ? table[0].join("|") : ""}`;
@@ -1923,15 +1940,18 @@ function bulkAdd() {
       const t = TYPES[norm(get(c, "type"))] || TYPES[words.find(x => TYPES[x]) || ""] || "";
       const age = /child|kid/.test(ageTxt) ? "Child" : /adult/.test(ageTxt) ? "Adult" : "";
       const gt = norm(get(c, "gender")), g = /^f/.test(gt) ? "Female" : /^m/.test(gt) ? "Male" : "";
+      const email = get(c, "email").trim().toLowerCase(), more = {email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "",
+        address: get(c, "address").replace(/\s+/g, " ").trim().slice(0, 200), team: get(c, "team").replace(/\s*[\/;|]\s*/g, ", ").replace(/\s+/g, " ").trim(),
+        status: /^(active|member|yes|)$/i.test(get(c, "status").trim()) ? "" : cap(get(c, "status").trim().toLowerCase()), group: get(c, "group").trim(), joined: isoDate(get(c, "joined"))};
       const why = !name || /^\d+$/.test(name) || /^total/i.test(name) ? "no name" : have.has(norm(name)) ? "already on the list" : seen.has(norm(name)) ? "twice in this list" : phoneProblem(phone, false) ? "phone number looks wrong" : "";
-      seen.add(norm(name)); const o = own[norm(name)] || {}; return {name, phone, type: o.type || t, age: o.age || age, gender: g, why};
+      seen.add(norm(name)); const o = own[norm(name)] || {}; return {name, phone, type: o.type || t, age: o.age || age, gender: g, why, ...more};
     }).filter(r => r.name || r.phone);
     const ok = rows.filter(r => !r.why), skip = rows.filter(r => r.why);
     const tidied = [fixedNames && `${fixedNames} ${fixedNames === 1 ? "name" : "names"} tidied`, fixedPhones && `${fixedPhones} phone ${fixedPhones === 1 ? "number" : "numbers"} tidied`].filter(Boolean);
     $("bk-prev").innerHTML = rows.length ? `<div class="bk-prev"><b>${ok.length} to add</b>${skip.length ? ` · ${skip.length} skipped` : ""}${tidied.length ? ` · <span class="bk-tidy">${tidied.join(", ")}</span>` : ""}
       <div class="bk-scroll"><div class="bk-cols" aria-hidden="true"><span>Name</span><span>Phone</span><span>Age group</span><span>Type</span></div>
       <ul>${rows.slice(0, 200).map((r, i) => r.why ? `<li class="skip"><span>${esc(r.name || "(no name)")}</span><small>${esc(r.why)}</small></li>`
-        : `<li><span class="bk-name">${esc(r.name)}</span><span class="bk-phone">${esc(r.phone) || "–"}</span>
+        : `<li><span class="bk-name">${esc(r.name)}${[r.email, r.address, r.team].some(Boolean) ? `<small>${esc([r.email, r.address, r.team].filter(Boolean).join(" · "))}</small>` : ""}</span><span class="bk-phone">${esc(r.phone) || "–"}</span>
           <select class="in sm" data-own-age="${i}" aria-label="Age group for ${esc(r.name)}">${["Adult", "Child"].map(a => `<option ${(r.age || $("bk-age").value) === a ? "selected" : ""}>${a}</option>`).join("")}</select>
           <select class="in sm" data-own-type="${i}" aria-label="Type for ${esc(r.name)}">${typeOpts.map(([v, t]) => `<option value="${v}" ${(r.type || $("bk-type").value) === v ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></li>`).join("")}</ul></div>
       ${rows.length > 200 ? `<p class="note">…and ${rows.length - 200} more.</p>` : ""}</div>` : "";
@@ -1955,15 +1975,16 @@ function bulkAdd() {
     const ok = rows.filter(r => !r.why), go = $("bk-go"), err = $("bk-err"); if (!ok.length) return;
     const type0 = $("bk-type").value, age0 = $("bk-age").value, at = isoLocal(), day = today();
     const list = ok.map(r => { const type = r.type || type0;
-      return {id: newId(), full_name: r.name, phone: r.phone, type, status: "", age_group: r.age || age0, ...(r.gender ? {gender: r.gender} : {}),
-              church: S.church, created_at: at, [type === "member" ? "date_joined" : "first_visit"]: day}; });
+      return {id: newId(), full_name: r.name, phone: r.phone, type, status: r.status || "", age_group: r.age || age0, ...(r.gender ? {gender: r.gender} : {}),
+              ...(r.email ? {email: r.email} : {}), ...(r.address ? {address: r.address} : {}), ...(r.team ? {role: r.team} : {}), ...(r.group ? {group_name: r.group} : {}),
+              church: S.church, created_at: at, [type === "member" ? "date_joined" : "first_visit"]: r.joined || day}; });
     go.disabled = true; err.hidden = true; go.textContent = "Importing…";
     try {
       for (let i = 0; i < list.length; i += 200) {  // 200 at a time; each lot is on the list as soon as it's saved
         await api("members", {method: "POST", prefer: "return=minimal", body: list.slice(i, i + 200)}); S.members.push(...list.slice(i, i + 200)); }
       log("edit", "", "done", `added ${list.length} people at once`);
       close(); toast(`${list.length} ${list.length === 1 ? "person is" : "people are"} added to ${S.church}'s list.`); render();
-    } catch (x) { err.textContent = "Not added: " + x.message; err.hidden = false; go.disabled = false; read(); }
+    } catch (x) { err.textContent = "Not added: " + (/address/.test(x.message) ? "addresses need the latest setup SQL in Supabase. Run it once, or set the Address column to Leave out." : x.message); err.hidden = false; go.disabled = false; read(); }
   };
 }
 function people(el) {
@@ -2140,6 +2161,8 @@ function editPerson(m) {
     formDialog(`Edit ${m.full_name}`, [
       {k: "full_name", label: "Full name", value: m.full_name, required: true},
       {k: "phone", label: "Phone", value: m.phone || "", type: "tel"},
+      {k: "email", label: "Email", value: m.email || "", type: "email"},
+      {k: "address", label: "Address", value: m.address || ""},
       {k: "role", label: "Roles", value: rolesOf(m).join(", "), suggest: roleNames, many: true, hint: "Separate several with commas."},
       {k: "type", label: "Attendance Type", value: typeKey(m), type: "select", options: typeOpts},
       {k: "age_group", label: "Age group", value: ageOf(m), type: "select", options: [["Adult", "Adult"], ["Child", "Child"]]},
@@ -2159,7 +2182,7 @@ function editPerson(m) {
       // only save over the version this screen loaded: if someone else edited the person meanwhile, nothing is overwritten
       const ver = Number(m.version) || 1;
       const rows = await api(`members?id=eq.${encodeURIComponent(m.id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {...changed, version: ver + 1}})
-        .catch(err => { throw new Error(/gender/.test(err.message) ? "Run the latest setup SQL in Supabase once to save gender, then try again." : err.message); });
+        .catch(err => { throw new Error(/gender|address/.test(err.message) ? "Run the latest setup SQL in Supabase once to save this, then try again." : err.message); });
       if (!rows?.length) { await load(); render(); throw new Error("Someone else changed this person a moment ago, so nothing was saved. The list now shows the latest details: please make your change again."); }
       Object.assign(m, changed, {version: ver + 1});
       log("edit", m.id, "done", Object.keys(changed).join(", "));
