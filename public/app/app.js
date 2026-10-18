@@ -1718,6 +1718,79 @@ function followup(el) {
     [["Church", "Name", "Status", "Missed in a row", "Last seen", "Phone", "Pastor", "Age group"],
      ...list.map(x => [S.church, x.full_name, FLAG[x.flag], x.missed, x.seen || "", x.phone || "", x.pastor || "", x.kid ? "Child" : "Adult"])]);
 }
+// Congregation → Add many: a church admin or the team adds a list of names at once. Paste them (one per line, a phone number
+// after a comma if you have it) or pick a CSV file (a "Name" column, and Phone, Type, Age group and Gender if you have them,
+// like the Download file). Names already on this church's list are skipped, so the same list can be added twice safely.
+function bulkAdd() {
+  document.querySelectorAll(".modal").forEach(m => m.remove());
+  const d = document.createElement("div"); d.className = "modal";
+  d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="Add many people">
+    <div class="card-head"><h2>Add many people</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+    <div class="fields">
+      <div><label class="f" for="bk-text">Names, one per line</label>
+        <textarea class="in" id="bk-text" rows="7" placeholder="Ama Mensah, 021 555 0101&#10;Kofi Boateng&#10;Efua Owusu, 022 555 0123"></textarea>
+        <p class="note" style="margin:6px 2px 0">Add a phone number after a comma if you have it. Or <button type="button" class="link-btn" id="bk-pick">choose a CSV file</button> with a Name column (Phone, Type, Age group and Gender too, if you have them).</p>
+        <input type="file" id="bk-file" accept=".csv,.txt,text/csv,text/plain" hidden></div>
+      <div class="bk-two"><div><label class="f" for="bk-type">They are</label><select class="in" id="bk-type">${typeOpts.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("")}</select></div>
+        <div><label class="f" for="bk-age">Age group</label><select class="in" id="bk-age"><option>Adult</option><option>Child</option></select></div></div>
+      <p class="note" style="margin:0 2px">They go on <b>${esc(S.church)}</b>'s list. A CSV's own Type or Age group column wins over these.</p>
+      <div id="bk-prev"></div>
+    </div>
+    <div class="msg bad" id="bk-err" hidden></div>
+    <div class="modal-foot"><button type="button" class="pill-btn" data-x>Cancel</button><button class="pill-btn primary" id="bk-go" disabled>Add people</button></div></form>`;
+  document.body.append(d);
+  const $ = id => d.querySelector("#" + id), close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
+  d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
+  document.addEventListener("keydown", onKey);
+  const cells = line => { const out = []; let cur = "", q = false;  // one CSV line, with "quoted, values"
+    for (let i = 0; i < line.length; i++) { const c = line[i];
+      if (q) { if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; }
+      else if (c === '"') q = true; else if (c === "," || c === "\t" || c === ";") { out.push(cur); cur = ""; } else cur += c; }
+    out.push(cur); return out.map(x => x.trim()); };
+  const TYPES = {member: "member", members: "member", "first-timer": "first_timer", "first timer": "first_timer", first_timer: "first_timer", firsttimer: "first_timer", visitor: "visitor"};
+  let rows = [];
+  const read = () => {
+    const lines = $("bk-text").value.replace(/^﻿/, "").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const head = lines.length ? cells(lines[0]).map(norm) : [], col = k => head.findIndex(h => h === k || h.startsWith(k));
+    const hasHead = head.some(h => h === "name" || h === "full name" || h === "full_name");
+    const at = {name: hasHead ? head.findIndex(h => ["name", "full name", "full_name"].includes(h)) : 0, phone: hasHead ? col("phone") : 1,
+                type: hasHead ? col("type") : -1, age: hasHead ? col("age") : -1, gender: hasHead ? col("gender") : -1};
+    const have = new Set(S.members.filter(m => churchOf(m) === S.church).map(m => norm(m.full_name))), seen = new Set();
+    rows = (hasHead ? lines.slice(1) : lines).map(l => {
+      const c = cells(l), name = (c[at.name] || "").replace(/\s+/g, " ").slice(0, 80), phone = at.phone >= 0 ? (c[at.phone] || "").replace(/[^0-9+ ]/g, "").trim() : "";
+      const t = TYPES[norm(c[at.type] || "")], age = /child|kid/i.test(c[at.age] || "") ? "Child" : /adult/i.test(c[at.age] || "") ? "Adult" : "";
+      const g = /^f/i.test(c[at.gender] || "") ? "Female" : /^m/i.test(c[at.gender] || "") ? "Male" : "";
+      const why = !name || /^\d+$/.test(name) ? "no name" : have.has(norm(name)) ? "already on the list" : seen.has(norm(name)) ? "twice in this list" : phoneProblem(phone, false) ? "phone number looks wrong" : "";
+      seen.add(norm(name)); return {name, phone, type: t, age, gender: g, why};
+    }).filter(r => r.name || r.phone);
+    const ok = rows.filter(r => !r.why), skip = rows.filter(r => r.why);
+    $("bk-prev").innerHTML = rows.length ? `<div class="bk-prev"><b>${ok.length} to add</b>${skip.length ? ` · ${skip.length} skipped` : ""}
+      <ul>${rows.slice(0, 200).map(r => `<li class="${r.why ? "skip" : ""}"><span>${esc(r.name || "(no name)")}</span><small>${r.why ? esc(r.why) : esc([r.phone, r.type && TYPE[r.type], r.age, r.gender].filter(Boolean).join(" · "))}</small></li>`).join("")}</ul>
+      ${rows.length > 200 ? `<p class="note">…and ${rows.length - 200} more.</p>` : ""}</div>` : "";
+    $("bk-go").disabled = !ok.length; $("bk-go").textContent = ok.length ? `Add ${ok.length} ${ok.length === 1 ? "person" : "people"}` : "Add people";
+  };
+  $("bk-text").oninput = read;
+  $("bk-pick").onclick = () => $("bk-file").click();
+  $("bk-file").onchange = async e => { const f = e.target.files[0]; if (!f) return;
+    if (f.size > 2e6) { $("bk-err").textContent = "That file is too big: keep it under 2 MB."; $("bk-err").hidden = false; return; }
+    $("bk-text").value = await f.text(); $("bk-err").hidden = true; read(); };
+  $("bk-text").focus();
+  d.querySelector("form").onsubmit = async e => {
+    e.preventDefault();
+    const ok = rows.filter(r => !r.why), go = $("bk-go"), err = $("bk-err"); if (!ok.length) return;
+    const type0 = $("bk-type").value, age0 = $("bk-age").value, at = isoLocal(), day = today();
+    const list = ok.map(r => { const type = r.type || type0;
+      return {id: newId(), full_name: r.name, phone: r.phone, type, status: "", age_group: r.age || age0, ...(r.gender ? {gender: r.gender} : {}),
+              church: S.church, created_at: at, [type === "member" ? "date_joined" : "first_visit"]: day}; });
+    go.disabled = true; err.hidden = true; go.textContent = "Adding…";
+    try {
+      for (let i = 0; i < list.length; i += 200) {  // 200 at a time; each lot is on the list as soon as it's saved
+        await api("members", {method: "POST", prefer: "return=minimal", body: list.slice(i, i + 200)}); S.members.push(...list.slice(i, i + 200)); }
+      log("edit", "", "done", `added ${list.length} people at once`);
+      close(); toast(`${list.length} ${list.length === 1 ? "person is" : "people are"} added to ${S.church}'s list.`); render();
+    } catch (x) { err.textContent = "Not added: " + x.message; err.hidden = false; go.disabled = false; read(); }
+  };
+}
 function people(el) {
   const everyone = S.members.filter(m => churchOf(m) === S.church).sort(byName);
   const counts = {};  // each role with how many people have it, however the capitals were typed
@@ -1751,7 +1824,7 @@ function people(el) {
   const nums = [...new Set([1, S.pPage - 1, S.pPage, S.pPage + 1, pages])].filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
   const TYPECLS = {member: "r-team", first_timer: "r-pastor", visitor: "r-bishop"};
   const DOT = {member: "r-team", first: "r-pastor", visitor: "r-bishop", nopastor: "r-admin", female: "r-lead", male: "r-lead", adult: "", child: ""};
-  el.innerHTML = head("Congregation", esc(S.church), `<button class="pill-btn" id="dl">Download</button>`) + `
+  el.innerHTML = head("Congregation", esc(S.church), `${["admin", "lead", "team"].includes(S.me.role) ? `<button class="pill-btn" id="bulk-add">${svg("plus")}Add many</button>` : ""}<button class="pill-btn" id="dl">Download</button>`) + `
     <div class="tiles">${[["Total people", everyone.length, "In " + S.church], ["Members", everyone.filter(SHOW.member[1]).length, "Regular members"],
         ["First-timers & visitors", everyone.filter(m => m.type === "first_timer" || m.type === "visitor").length, "Still getting to know us"],
         ["No pastor yet", everyone.filter(SHOW.nopastor[1]).length, "Need a pastor assigned"]]
@@ -1876,6 +1949,7 @@ function people(el) {
   el.querySelectorAll("[data-role]").forEach(b => b.onclick = () => { S.roleF = b.dataset.role; render(); });
   const moreB = el.querySelector(".chips [data-more]"); if (moreB) moreB.onclick = () => { S.roleMore = !S.roleMore; render(); };
   el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => editPerson(S.members.find(x => x.id === b.dataset.edit)));
+  el.querySelector("#bulk-add")?.addEventListener("click", bulkAdd);
   el.querySelector("#dl").onclick = () => download(`people_${S.church}_${today()}.csv`, [["Church", "Name", "Pastor assigned", "Type", "Age group", "Gender", "Status", "Phone", "Roles"],
     ...mine.map(m => [S.church, m.full_name, pastorsOf(m).join(", "), typeOf(m), ageOf(m), genderOf(m), m.status || "Active", m.phone || "", rolesOf(m).join(", ")])]);
 }
