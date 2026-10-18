@@ -1153,7 +1153,7 @@ const WIDGETS = {
             const s = await call({}, `&from=${from}&to=${to}`).catch(() => null);
             if (!box.isConnected) return;
             if (!s && seen) return;  // keep showing what we had
-            const list = (s?.services || []).filter(x => !early(x.start)).sort((a, b) => a.start - b.start);
+            const list = (s?.services || []).filter(x => !early(x.start) && (x.youtube > 0 || x.facebook > 0 || x.zoom > 2)).sort((a, b) => a.start - b.start);  // not just the host and co-host on Zoom
             const hm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
             const name = back === 0 ? "Today" : back === 1 ? "Yesterday" : day.toLocaleDateString([], {weekday: "long", day: "numeric", month: "short"});
             const best = list.reduce((m, x) => Math.max(m, x.total), 0);
