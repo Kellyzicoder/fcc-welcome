@@ -693,7 +693,9 @@ async function load() {
 // A day split into services (two or more): each one's name and how many of this church's people came to it.
 // The day's own ticks still decide who was there, so someone at both services counts once in the day's total.
 const partsOf = d => (S.parts?.[d] || []).length > 1 ? S.parts[d] : [];
-const partName = (d, n) => partsOf(d).find(x => x.part === n)?.name || `Service ${n}`;
+const ORDINAL = ["", "First", "Second", "Third", "Fourth", "Fifth"];
+// A service's name on a day with more than one: the name it was given, or "First service", "Second service"…
+const partName = (d, n) => { const x = partsOf(d).find(x => x.part === n)?.name; return x && x !== "Service" ? x : `${ORDINAL[n] || "Another"} service`; };
 function partCounts(p, d) {
   const day = p.byDate[d] || {};
   return partsOf(d).map(x => ({...x, n: new Set(S.pticks.filter(t => t.service_date === d && t.part === x.part && day[t.member_id]).map(t => t.member_id)).size}));
@@ -1461,7 +1463,7 @@ function checkin(el) {
       <div class="card tile"><div class="label">Adults</div><div class="num" id="n-ad">0</div></div>
       <div class="card tile"><div class="label">Kids</div><div class="num" id="n-kid">0</div></div>
       <div class="card tile"><div class="label">Not yet</div><div class="num" id="n-not">0</div></div></div>
-    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span><button type="button" class="pill-btn sm" id="ci-lock">${svg("lock")}Save &amp; lock</button></div>
+    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span><button type="button" class="pill-btn sm" id="ci-list">${svg("checkin")}Tick from a list</button><button type="button" class="pill-btn sm" id="ci-lock">${svg("lock")}Save &amp; lock</button></div>
       <label class="find-bar">${svg("search")}<input id="q" type="search" placeholder="Search by name, phone or team" value="${esc(S.q)}" aria-label="Search by name, phone or team" autocomplete="off"></label>
       <div class="rpills ci-teams" id="ci-teams" aria-label="Teams" hidden></div>
       <div class="bulk" id="ci-bulk" hidden style="position:static;box-shadow:none"><b id="ci-count"></b><span class="gap"></span><button type="button" class="pill-btn sm primary" id="ci-all">Tick all</button><button type="button" class="pill-btn sm" id="ci-none">Untick all</button></div>
@@ -1478,18 +1480,17 @@ function checkin(el) {
       </form>`}`;
   const box = el.querySelector("#names");
   // A day can hold more than one service: pick which one you're ticking for, or the whole day
-  const curPart = () => { const ps = partsOf(S.date); if (!ps.length) return 0; const v = S.ciParts?.[S.date]; return v === undefined || (v && !ps.some(x => x.part === v)) ? ps[0].part : v; };
+  const curPart = () => { const ps = partsOf(S.date); if (!ps.length) return 0; const v = S.ciParts?.[S.date]; return v && ps.some(x => x.part === v) ? v : ps[0].part; };
   let armedPart = false;
   const drawParts = () => {
     const ps = partsOf(S.date), n = curPart(), wrap = el.querySelector("#ci-parts"), boss = ["admin", "lead"].includes(S.me.role);
     if (!S.partsOk || (pastor && !ps.length)) { wrap.innerHTML = ""; return; }
     wrap.innerHTML = ps.length ? `<div class="ci-parts"><span class="f">Ticking for</span><div class="seg" role="group" aria-label="Which service">${ps.map(x =>
-        `<button type="button" data-part="${x.part}" aria-pressed="${n === x.part}">${esc(x.name || "Service " + x.part)}</button>`).join("")}
-        <button type="button" data-part="0" aria-pressed="${n === 0}">Whole day</button></div>
-        ${pastor ? "" : `<span class="gap" style="flex:1"></span>${ps.length < 5 ? `<button type="button" class="link-btn" data-split>+ Add another service</button>` : ""}
-        ${n && boss ? `<button type="button" class="link-btn danger-link" data-unsplit>${armedPart ? "Tap again to remove it" : "Remove this service"}</button>` : ""}`}</div>
-        <p class="note" style="margin:8px 0 0">${n ? `Ticks here are for ${esc(partName(S.date, n))}. Someone at more than one service counts once in the day's total.` : "The whole day: everyone at any of today's services."}</p>`
-      : pastor ? "" : `<button type="button" class="link-btn" data-split style="margin-top:10px">+ Two services today? Add another service</button>`;
+        `<button type="button" data-part="${x.part}" aria-pressed="${n === x.part}">${esc(partName(S.date, x.part))}</button>`).join("")}</div>
+        ${pastor ? "" : `<div class="ci-part-acts">${ps.length < 3 ? `<button type="button" class="pill-btn sm" data-split>${svg("plus")}Add ${ORDINAL[ps.length + 1].toLowerCase()} service</button>` : ""}
+        ${boss ? `<button type="button" class="pill-btn sm ci-remove" data-unsplit>${armedPart ? `Tap again to remove ${esc(partName(S.date, n))}` : `Remove ${esc(partName(S.date, n))}`}</button>` : ""}</div>`}</div>
+        <p class="note" style="margin:8px 0 0">Ticks here are for <b>${esc(partName(S.date, n))}</b>. Someone who comes to two or three services is counted once in the day's total.</p>`
+      : pastor ? "" : `<button type="button" class="pill-btn sm" data-split style="margin-top:12px">${svg("plus")}Two services today? Add a second service</button>`;
     wrap.querySelectorAll("[data-part]").forEach(b => b.onclick = () => { (S.ciParts ??= {})[S.date] = +b.dataset.part; armedPart = false; here = {}; svc.value = svcLabel(); drawParts(); draw(); pull(); });
     wrap.querySelector("[data-split]")?.addEventListener("click", split);
     wrap.querySelector("[data-unsplit]")?.addEventListener("click", unsplit);
@@ -1500,8 +1501,10 @@ function checkin(el) {
     if (lock) return toast("This service is locked. Unlock it to make changes.");
     const day = S.date, have = S.parts[day] || [], first = svcName(day);
     const next = have.length > 1 ? Math.max(...have.map(x => x.part)) + 1 : 2;
-    const rows = have.length > 1 ? [{church: S.church, service_date: day, part: next, name: `Service ${next}`}]
-      : [{church: S.church, service_date: day, part: 1, name: first}, {church: S.church, service_date: day, part: 2, name: "Second service"}];
+    if (have.length >= 3) return toast("Three services is the most for one day.");
+    const name1 = S.names[day] || S.titles?.[day] ? first : "First service";  // the first follows the service's title, if it has one
+    const rows = have.length > 1 ? [{church: S.church, service_date: day, part: next, name: `${ORDINAL[next] || "Another"} service`}]
+      : [{church: S.church, service_date: day, part: 1, name: name1}, {church: S.church, service_date: day, part: 2, name: "Second service"}];
     try {
       await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: day, name: first}});
       await api("service_parts?on_conflict=church,service_date,part", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: rows});
@@ -1511,7 +1514,7 @@ function checkin(el) {
           body: ticked.map(([id, at]) => ({service_date: day, part: 1, member_id: id, checked_at: at}))});
         S.pticks.push(...ticked.map(([id]) => ({service_date: day, part: 1, member_id: id})));
       }
-      S.parts[day] = [...(have.length > 1 ? have : [{part: 1, name: first}]), {part: next, name: rows.at(-1).name}];
+      S.parts[day] = [...(have.length > 1 ? have : [{part: 1, name: name1}]), {part: next, name: rows.at(-1).name}];
       (S.ciParts ??= {})[day] = next; log("edit", "", "done", `${S.church} · ${day}: added ${rows.at(-1).name}`);
       toast(have.length > 1 ? "Service added. Rename it in the Service box." : "Two services today. Everyone ticked so far is in the first one. Rename this one in the Service box.");
       here = {}; svc.value = svcLabel(); drawParts(); draw(); pull();
@@ -1652,6 +1655,75 @@ function checkin(el) {
       toast(`Ticked ${todo.length} ${todo.length === 1 ? "person" : "people"}. Untick anyone who isn't here.`);
     } catch (err) { toast("Not saved: " + err.message); }
     busy = false; draw(); pull();
+  };
+  // Tick from a list: paste names (from a sign-in sheet, a WhatsApp message or a file) and everyone found is ticked at once.
+  // Names are matched to this church's list however they're written ("MENSAH Ama", "ama mensah", "Ama K. Mensah").
+  el.querySelector("#ci-list").onclick = () => {
+    if (lock) return toast("This service is locked. Unlock it to make changes.");
+    document.querySelectorAll(".modal").forEach(m => m.remove());
+    const d = document.createElement("div"); d.className = "modal";
+    d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="Tick from a list">
+      <div class="card-head"><h2>Tick from a list</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+      <div class="fields">
+        <p class="note" style="margin:0">For <b>${esc(curPart() ? partName(S.date, curPart()) : svcName(S.date))}</b>, ${esc(nice(S.date, true))}. Paste names one per line (or separated by commas), or pick a file.</p>
+        <label class="bk-drop" style="padding:12px"><input type="file" id="tl-file" accept=".csv,.txt,text/csv,text/plain"><span class="bk-drop-btn" style="font-size:15px;padding:10px 18px">${svg("upload")}<span>Choose a file</span></span></label>
+        <textarea class="in" id="tl-text" rows="6" placeholder="Ama Mensah&#10;Kofi Boateng&#10;Efua Owusu"></textarea>
+        <div id="tl-prev"></div>
+      </div>
+      <div class="modal-foot"><button type="button" class="pill-btn" data-x>Cancel</button><button class="pill-btn primary" id="tl-go" disabled>Tick people</button></div></form>`;
+    document.body.append(d);
+    const $ = id => d.querySelector("#" + id), close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
+    d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
+    document.addEventListener("keydown", onKey);
+    const words = x => norm(x).replace(/[^\p{L}\s'-]/gu, " ").split(/\s+/).filter(w => w.length > 1);
+    const byFull = new Map(mine.map(m => [words(m.full_name).sort().join(" "), m]));
+    const find = name => {  // same words in any order, or the same first and last name
+      const w = words(name); if (!w.length) return null;
+      const k = byFull.get([...w].sort().join(" ")); if (k) return k;
+      const hits = mine.filter(m => { const mw = words(m.full_name); return mw.length && w.includes(mw[0]) && w.includes(mw.at(-1)); });
+      return hits.length === 1 ? hits[0] : null;
+    };
+    let found = [], missing = [];
+    const read = () => {
+      const lines = $("tl-text").value.split(/\r?\n|,(?![^"]*")/).map(x => x.replace(/^\s*\d+[.)]\s*/, "").replace(/["*]/g, "").trim())
+        .filter(x => x && !/^(name|names|full name)$/i.test(x) && /\p{L}/u.test(x) && !/^\+?[\d\s()-]+$/.test(x));
+      const seen = new Set(); found = []; missing = [];
+      for (const l of lines) { const m = find(l); if (m) { if (!seen.has(m.id)) { seen.add(m.id); found.push(m); } } else if (!missing.some(x => norm(x) === norm(l))) missing.push(l); }
+      const already = found.filter(m => here[m.id]);
+      $("tl-prev").innerHTML = lines.length ? `<div class="bk-prev tl"><b>${found.length - already.length} to tick</b>${already.length ? ` · ${already.length} already ticked` : ""}${missing.length ? ` · <span style="color:var(--red)">${missing.length} not found</span>` : ""}
+        <ul>${found.map(m => `<li><span>${esc(m.full_name)}</span><small>${here[m.id] ? "already ticked" : "will be ticked"}</small></li>`).join("")}
+        ${missing.map(x => `<li class="skip"><span>${esc(x)}</span><small>not on ${esc(S.church)}'s list</small></li>`).join("")}</ul>
+        ${missing.length && !pastor ? `<label class="tl-add"><input type="checkbox" id="tl-new"> Add the ${missing.length} not found as first-timers and tick them too</label>` : ""}</div>` : "";
+      const go = () => { const n = found.length - already.length + ($("tl-new")?.checked ? missing.length : 0); $("tl-go").disabled = !n; $("tl-go").textContent = n ? `Tick ${n} ${n === 1 ? "person" : "people"}` : "Tick people"; };
+      $("tl-new")?.addEventListener("change", go); go();
+    };
+    $("tl-text").oninput = read;
+    $("tl-file").onchange = async e => { const f = e.target.files[0]; if (!f) return; if (f.size > 2e6) return toast("That file is too big."); $("tl-text").value = await f.text(); read(); };
+    $("tl-text").focus();
+    d.querySelector("form").onsubmit = async e => {
+      e.preventDefault(); if (busy) return;
+      const go = $("tl-go"); go.disabled = true; go.textContent = "Ticking…"; busy = true;
+      try {
+        const at = isoLocal(), added = [];
+        if ($("tl-new")?.checked && missing.length) {
+          for (const raw of missing) { const name = raw.replace(/\s+/g, " ").slice(0, 80);
+            added.push({id: newId(), full_name: name, phone: "", type: "first_timer", status: "", age_group: "Adult", church: S.church, created_at: at, first_visit: S.date}); }
+          await api("members", {method: "POST", prefer: "return=minimal", body: added});
+          S.members.push(...added); mine.push(...added);
+        }
+        const todo = [...found.filter(m => !here[m.id]), ...added];
+        await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, name: svcName(S.date)}});
+        for (let i = 0; i < todo.length; i += 200) {
+          const part = todo.slice(i, i + 200);
+          await api("attendance?on_conflict=service_date,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: part.map(m => ({service_date: S.date, member_id: m.id, checked_at: at}))});
+          if (curPart()) await api("service_ticks?on_conflict=service_date,part,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal",
+            body: part.map(m => ({service_date: S.date, part: curPart(), member_id: m.id, checked_at: at}))});
+        }
+        for (const m of todo) { here[m.id] = at; log("tick", m.id, "done", "from a list"); }
+        close(); toast(`Ticked ${todo.length} ${todo.length === 1 ? "person" : "people"}${added.length ? `, ${added.length} of them new` : ""}.`);
+      } catch (err) { toast("Not saved: " + err.message); go.disabled = false; go.textContent = "Try again"; }
+      busy = false; draw(); pull();
+    };
   };
   el.querySelector("#ci-none").onclick = async () => {
     const todo = showing().filter(m => here[m.id]); if (!todo.length || busy) return;
