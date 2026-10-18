@@ -278,6 +278,19 @@ html.strong {--ink-2: #2b3441; --ink-3: #4b5666; --line: #bcc6d3;}
 html.strong[data-theme="dark"] {--ink-2: #d3dae4; --ink-3: #aab4c2; --line: #3e4b5e;}
 .preview {margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
           background: var(--soft); border-radius: 12px; padding: 14px; max-height: 46vh; overflow-y: auto; color: var(--ink); user-select: text; -webkit-user-select: text;}
+.prev-top {display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;}
+.pv-seg {display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--soft); border: 1px solid var(--line);}
+.pv-seg button {font: inherit; font-size: 12.5px; border: 0; background: none; color: var(--ink-2); padding: 4px 10px; border-radius: 999px; cursor: pointer;}
+.pv-seg button[aria-pressed="true"] {background: var(--card); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.08);}
+.preview.nice {white-space: normal; font: 14px/1.45 inherit; font-family: inherit; padding: 16px 18px;}
+.pm-title {font-weight: 700; font-size: 16px; letter-spacing: .01em; padding-bottom: 10px; margin-bottom: 6px; border-bottom: 1px solid var(--line);}
+.pm-field {display: grid; grid-template-columns: max-content 1fr; gap: 14px; padding: 5px 0;} .pm-field span {white-space: nowrap; min-width: 92px;} .pm-field span {color: var(--ink-3); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; padding-top: 2px;}
+.pm-field b {font-weight: 600;}
+.pm-sec {margin: 16px 0 6px; padding: 6px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 12.5px; letter-spacing: .05em; text-transform: uppercase;}
+.pm-row {display: flex; justify-content: space-between; gap: 10px; padding: 4px 0;} .pm-row b {font-variant-numeric: tabular-nums;}
+.pm-total {font-weight: 700; padding-top: 8px; border-top: 1px dashed var(--line);} .pm-total span {font-weight: 700;} .pm-total b {font-size: 18px;}
+.pm-sub {padding: 2px 0 2px 14px; color: var(--ink-2); font-size: 13.5px;} .pm-sub b {font-weight: 500; color: var(--ink);}
+.pm-line {padding: 3px 0; color: var(--ink-2);} .pm-gap {margin-top: 10px;} .pm-total.pm-gap {margin-top: 12px;} .pm-field.pm-gap {margin-top: 0;}
 .tag {display: inline-block; background: var(--accent-soft); color: var(--ink); border-radius: 999px; padding: 3px 9px; font-size: 12.5px; font-weight: 500; margin: 1px 4px 1px 0;}
 .suggest {display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px;} .suggest:empty {display: none;} .chip.sm {padding: 5px 11px; font-size: 13px;}
 .bulk > * {white-space: nowrap;} .bulk {flex-wrap: wrap; display: flex; align-items: center; gap: 8px; position: sticky; top: 8px; z-index: 5; background: var(--card); border: 1px solid var(--accent); border-radius: 14px; padding: 8px 10px 8px 14px; margin-bottom: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.12);}
@@ -574,6 +587,8 @@ button.ov-cell {cursor: pointer;} button.ov-cell:hover {background: var(--soft);
 .ld-days {display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x proximity; padding: 2px 2px 8px; margin: 0 -2px 6px; scrollbar-width: none;} .ld-days::-webkit-scrollbar {display: none;}
 .ld-days button {flex: none; scroll-snap-align: end; display: grid; gap: 1px; text-align: left; font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 12px; padding: 7px 12px;}
 .ld-days button small {color: var(--ink-3); font-size: 12px;} .ld-days button.on {background: var(--accent); border-color: transparent; color: var(--accent-ink);} .ld-days button.on small {color: var(--accent-ink); opacity: .85;}
+.svc-top {display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;} .svc-time {display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 13px;}
+.svc-time .in.sm {width: auto; padding: 6px 10px; font-size: 14px; min-height: 0; height: auto;}
 .svc-live {display: flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 13px; padding-top: 2px;} .svc-live svg {width: 15px; height: 15px; flex: none;}
 .live-spark {display: flex; align-items: flex-end; gap: 2px; height: 44px; margin-top: 14px;}
 .live-spark i {flex: 1; min-width: 0; border-radius: 2px 2px 0 0; background: color-mix(in srgb, var(--wc) 55%, transparent);}
