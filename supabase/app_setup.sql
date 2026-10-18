@@ -133,6 +133,7 @@ create policy "app: pastors untick their people" on attendance for delete to aut
 grant select, insert, update, delete on churches, app_users to authenticated;
 -- Gender (Female / Male / blank) for the Congregation's Show and Sort. Someone's pastors are kept comma-separated in "pastor".
 alter table members add column if not exists gender text;
+alter table members add column if not exists address text;  -- home address (Congregation → Import people, and Edit)
 grant select, insert, update on members to authenticated;
 -- Deleting someone from the register (their ticks go with them): the admin, or that church's admin.
 drop policy if exists "app: church admins delete people" on members;
