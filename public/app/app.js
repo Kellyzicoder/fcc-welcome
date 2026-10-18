@@ -1141,24 +1141,32 @@ const WIDGETS = {
             ${j.channel ? `<div class="live-ch"><small>YouTube channel: <b>${esc(j.channel)}</b></small><button type="button" class="link-btn" data-change>Change</button></div>` : ""}`;
           el.querySelector("[data-change]")?.addEventListener("click", () => connect(j.channel));
           if (j.home) {  // the day's services, which the live dashboard keeps for 30 days: check them any time, even after the stream ends
-            const early = t => { const x = new Date(t), m = x.getHours() * 60 + x.getMinutes(); return m >= 270 && m < 390; };  // morning prayers, left out
             const back = S.liveBack = Math.min(29, Math.max(0, S.liveBack || 0)), day = new Date(); day.setHours(0, 0, 0, 0); day.setDate(day.getDate() - back);
+            const box = document.createElement("div"); box.className = "live-day"; el.querySelector(".live-nums").after(box);
+            const LD = S.liveDays ??= {}, seen = LD[back];
+            box.innerHTML = seen?.html || `<p class="note">Loading the day's numbers…</p>`;  // the last numbers stay up while they refresh, so nothing jumps
+            const wire = () => box.querySelectorAll("[data-lday]").forEach(b => b.onclick = () => { S.liveBack = back + Number(b.dataset.lday); pull(); });
+            wire();
+            if (seen && Date.now() - seen.at < (back ? 600000 : 60000)) return;  // today: fresh each minute; past days hardly change
+            const early = t => { const x = new Date(t), m = x.getHours() * 60 + x.getMinutes(); return m >= 270 && m < 390; };  // morning prayers, left out
             const from = day.getTime(), to = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime();
             const s = await call({}, `&from=${from}&to=${to}`).catch(() => null);
-            if (!el.isConnected || !el.querySelector(".live-nums")) return;
+            if (!box.isConnected) return;
+            if (!s && seen) return;  // keep showing what we had
             const list = (s?.services || []).filter(x => !early(x.start)).sort((a, b) => a.start - b.start);
             const hm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
             const name = back === 0 ? "Today" : back === 1 ? "Yesterday" : day.toLocaleDateString([], {weekday: "long", day: "numeric", month: "short"});
             const best = list.reduce((m, x) => Math.max(m, x.total), 0);
-            el.querySelector(".live-nums").insertAdjacentHTML("afterend", `<div class="live-day">
-              <div class="live-day-top"><button type="button" class="link-btn" data-lday="1" ${back >= 29 ? "disabled" : ""} aria-label="The day before">‹ Earlier</button>
+            const num = (v, t, big) => `<div class="${big ? "big" : ""}"><b>${v}</b><small>${t}</small></div>`;
+            const html = `<div class="live-day-top"><button type="button" class="link-btn" data-lday="1" ${back >= 29 ? "disabled" : ""} aria-label="The day before">‹ Earlier</button>
                 <b>${esc(name)}</b><button type="button" class="link-btn" data-lday="-1" ${back === 0 ? "disabled" : ""} aria-label="The day after">Later ›</button></div>
               ${!s ? `<p class="note">The saved numbers couldn't be loaded. Try again in a minute.</p>`
-                : list.length ? `${list.length > 1 ? `<p class="note" style="margin:0 0 6px">Highest of the day: <b>${best}</b> watching</p>` : ""}${list.map(x => `<div class="live-last">
+                : list.length ? `${list.length > 1 ? `<p class="note">Highest of the day: <b>${best}</b> watching</p>` : ""}${list.map(x => `<div class="ld-svc">
                   <small>${hm(x.start)}${x.end ? ` to ${hm(x.end)}` : " · still going"}</small>
-                  <span>Peak <b>${x.total}</b> · YouTube ${x.youtube} · Facebook ${x.facebook} · Zoom ${x.zoom}${x.zoom > 2 ? ` (${x.zoom - 2} without the host and co-host)` : ""}</span></div>`).join("")}`
-                : `<p class="note">No livestream ${back ? "that day" : "yet today"}${back ? "" : ": the numbers stay here after it ends"}.</p>`}</div>`);
-            el.querySelectorAll("[data-lday]").forEach(b => b.onclick = () => { S.liveBack = back + Number(b.dataset.lday); pull(); });
+                  <div class="ld-nums">${num(x.total, "peak", 1)}${num(x.youtube, "YouTube")}${num(x.facebook, "Facebook")}${num(x.zoom > 2 ? x.zoom - 2 : x.zoom, "Zoom")}</div></div>`).join("")}${list.some(x => x.zoom > 2) ? `<p class="note">Zoom has 2 taken off for the host and co-host.</p>` : ""}`
+                : `<p class="note">No livestream ${back ? "that day" : "yet today"}${back ? "" : ": the numbers stay here after it ends"}.</p>`}`;
+            LD[back] = {html, at: Date.now()};
+            if (html !== box.innerHTML) { box.innerHTML = html; wire(); }
           }
         } catch (e) { el.innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
       };
