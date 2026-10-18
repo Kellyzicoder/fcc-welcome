@@ -564,6 +564,10 @@ button.ov-cell {cursor: pointer;} button.ov-cell:hover {background: var(--soft);
 .ld-nums .big b {font-size: 32px;} .ld-nums small {color: var(--ink-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;} .live-day .note {margin: 0 0 8px;}
 .live-day-top {display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px;} .live-day-top b {font-size: 15px;}
 .live-day-top .link-btn:disabled {opacity: .35; pointer-events: none;}
+.ld-days {display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x proximity; padding: 2px 2px 8px; margin: 0 -2px 6px; scrollbar-width: none;} .ld-days::-webkit-scrollbar {display: none;}
+.ld-days button {flex: none; scroll-snap-align: end; display: grid; gap: 1px; text-align: left; font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 12px; padding: 7px 12px;}
+.ld-days button small {color: var(--ink-3); font-size: 12px;} .ld-days button.on {background: var(--accent); border-color: transparent; color: var(--accent-ink);} .ld-days button.on small {color: var(--accent-ink); opacity: .85;}
+.svc-live {display: flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 13px; padding-top: 2px;} .svc-live svg {width: 15px; height: 15px; flex: none;}
 .live-spark {display: flex; align-items: flex-end; gap: 2px; height: 44px; margin-top: 14px;}
 .live-spark i {flex: 1; min-width: 0; border-radius: 2px 2px 0 0; background: color-mix(in srgb, var(--wc) 55%, transparent);}
 .wico {width: 56px; height: 56px; border-radius: 14px; background: var(--wb, var(--accent-soft)); color: var(--wc, var(--accent)); display: grid; place-items: center;} .wico svg {width: 26px; height: 26px;}
