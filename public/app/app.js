@@ -728,6 +728,7 @@ function picture(upTo = today()) {  // everything the pages show, as things stoo
 
 // ---------------------------------------------------------------- page frame
 const ICON = {
+  upload: '<path d="M12 15V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>',
   dashboard: '<path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   live: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
   checkin: '<path d="M5 12l5 5 9-10"/>',
@@ -1756,20 +1757,23 @@ function followup(el) {
 function bulkAdd() {
   document.querySelectorAll(".modal").forEach(m => m.remove());
   const d = document.createElement("div"); d.className = "modal";
-  d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="Add many people">
-    <div class="card-head"><h2>Add many people</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+  d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="Import people">
+    <div class="card-head"><h2>Import people</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
     <div class="fields">
+      <label class="bk-drop" id="bk-drop"><input type="file" id="bk-file" accept=".csv,.txt,text/csv,text/plain">
+        <span class="bk-drop-btn">${svg("upload")}<span>Import a CSV file</span></span>
+        <small>Or drop it here. It needs a <b>Name</b> column; Phone, Type, Age group and Gender are used if they're there (the Download file works).</small></label>
+      <div class="bk-or"><span>or type the names</span></div>
       <div><label class="f" for="bk-text">Names, one per line</label>
         <textarea class="in" id="bk-text" rows="7" placeholder="Ama Mensah, 021 555 0101&#10;Kofi Boateng&#10;Efua Owusu, 022 555 0123"></textarea>
-        <p class="note" style="margin:6px 2px 0">Add a phone number after a comma if you have it, and "child" or "first-timer" for anyone who is. You can also change each person in the list below. Or <button type="button" class="link-btn" id="bk-pick">choose a CSV file</button> with a Name column (Phone, Type, Age group and Gender too, if you have them).</p>
-        <input type="file" id="bk-file" accept=".csv,.txt,text/csv,text/plain" hidden></div>
+        <p class="note" style="margin:6px 2px 0">Add a phone number after a comma if you have it, and "child" or "first-timer" for anyone who is. You can also change each person in the list below.</p></div>
       <div class="bk-two"><div><label class="f" for="bk-type">They are</label><select class="in" id="bk-type">${typeOpts.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("")}</select></div>
         <div><label class="f" for="bk-age">Age group</label><select class="in" id="bk-age"><option>Adult</option><option>Child</option></select></div></div>
       <p class="note" style="margin:0 2px">They go on <b>${esc(S.church)}</b>'s list. A CSV's own Type or Age group column wins over these.</p>
       <div id="bk-prev"></div>
     </div>
     <div class="msg bad" id="bk-err" hidden></div>
-    <div class="modal-foot"><button type="button" class="pill-btn" data-x>Cancel</button><button class="pill-btn primary" id="bk-go" disabled>Add people</button></div></form>`;
+    <div class="modal-foot"><button type="button" class="pill-btn" data-x>Cancel</button><button class="pill-btn primary" id="bk-go" disabled>Import people</button></div></form>`;
   document.body.append(d);
   const $ = id => d.querySelector("#" + id), close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
   d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
@@ -1800,6 +1804,7 @@ function bulkAdd() {
     }).filter(r => r.name || r.phone);
     const ok = rows.filter(r => !r.why), skip = rows.filter(r => r.why);
     $("bk-prev").innerHTML = rows.length ? `<div class="bk-prev"><b>${ok.length} to add</b>${skip.length ? ` · ${skip.length} skipped` : ""}
+      <div class="bk-cols" aria-hidden="true"><span>Name and phone</span><span>Age group</span><span>Type</span></div>
       <ul>${rows.slice(0, 200).map((r, i) => r.why ? `<li class="skip"><span>${esc(r.name || "(no name)")}</span><small>${esc(r.why)}</small></li>`
         : `<li><span>${esc(r.name)}${r.phone ? `<small>${esc(r.phone)}</small>` : ""}</span><span class="bk-own">
           <select class="in sm" data-own-age="${i}" aria-label="Age group for ${esc(r.name)}">${["Adult", "Child"].map(a => `<option ${(r.age || $("bk-age").value) === a ? "selected" : ""}>${a}</option>`).join("")}</select>
@@ -1808,11 +1813,13 @@ function bulkAdd() {
     $("bk-prev").querySelectorAll("[data-own-age],[data-own-type]").forEach(s => s.onchange = () => {
       const r = rows[+(s.dataset.ownAge ?? s.dataset.ownType)], k = norm(r.name), o = own[k] ??= {};
       if (s.dataset.ownAge !== undefined) o.age = s.value; else o.type = s.value; read(); });
-    $("bk-go").disabled = !ok.length; $("bk-go").textContent = ok.length ? `Add ${ok.length} ${ok.length === 1 ? "person" : "people"}` : "Add people";
+    $("bk-go").disabled = !ok.length; $("bk-go").textContent = ok.length ? `Import ${ok.length} ${ok.length === 1 ? "person" : "people"}` : "Import people";
   };
   $("bk-text").oninput = read; $("bk-age").onchange = $("bk-type").onchange = read;
-  $("bk-pick").onclick = () => $("bk-file").click();
-  $("bk-file").onchange = async e => { const f = e.target.files[0]; if (!f) return;
+  const drop = $("bk-drop");
+  drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); }; drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); const f = e.dataTransfer.files[0]; if (f) $("bk-file").onchange({target: {files: [f]}}); };
+  $("bk-file").onchange = async e => { const f = e.target.files[0]; if (!f) return; drop.querySelector(".bk-drop-btn span").textContent = f.name;
     if (f.size > 2e6) { $("bk-err").textContent = "That file is too big: keep it under 2 MB."; $("bk-err").hidden = false; return; }
     $("bk-text").value = await f.text(); $("bk-err").hidden = true; read(); };
   $("bk-text").focus();
@@ -1823,7 +1830,7 @@ function bulkAdd() {
     const list = ok.map(r => { const type = r.type || type0;
       return {id: newId(), full_name: r.name, phone: r.phone, type, status: "", age_group: r.age || age0, ...(r.gender ? {gender: r.gender} : {}),
               church: S.church, created_at: at, [type === "member" ? "date_joined" : "first_visit"]: day}; });
-    go.disabled = true; err.hidden = true; go.textContent = "Adding…";
+    go.disabled = true; err.hidden = true; go.textContent = "Importing…";
     try {
       for (let i = 0; i < list.length; i += 200) {  // 200 at a time; each lot is on the list as soon as it's saved
         await api("members", {method: "POST", prefer: "return=minimal", body: list.slice(i, i + 200)}); S.members.push(...list.slice(i, i + 200)); }
@@ -1865,7 +1872,7 @@ function people(el) {
   const nums = [...new Set([1, S.pPage - 1, S.pPage, S.pPage + 1, pages])].filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
   const TYPECLS = {member: "r-team", first_timer: "r-pastor", visitor: "r-bishop"};
   const DOT = {member: "r-team", first: "r-pastor", visitor: "r-bishop", nopastor: "r-admin", female: "r-lead", male: "r-lead", adult: "", child: ""};
-  el.innerHTML = head("Congregation", esc(S.church), `${["admin", "lead", "team"].includes(S.me.role) ? `<button class="pill-btn" id="bulk-add">${svg("plus")}Add many</button>` : ""}<button class="pill-btn" id="dl">Download</button>`) + `
+  el.innerHTML = head("Congregation", esc(S.church), `${["admin", "lead", "team"].includes(S.me.role) ? `<button class="pill-btn primary" id="bulk-add">${svg("upload")}Import people</button>` : ""}<button class="pill-btn" id="dl">Download</button>`) + `
     <div class="tiles">${[["Total people", everyone.length, "In " + S.church], ["Members", everyone.filter(SHOW.member[1]).length, "Regular members"],
         ["First-timers & visitors", everyone.filter(m => m.type === "first_timer" || m.type === "visitor").length, "Still getting to know us"],
         ["No pastor yet", everyone.filter(SHOW.nopastor[1]).length, "Need a pastor assigned"]]
