@@ -498,19 +498,20 @@ td .x {border: 0; background: none; color: var(--red); font-weight: 600;}
   .rpills {flex-wrap: nowrap; overflow-x: auto; width: 100%; padding-bottom: 4px;} .rpill {flex: none;}
   .u-tools {flex-basis: 100%; flex-wrap: wrap;}
   .u-tools select, .u-tools select#sort, .u-tools select#teamF {flex: 1 1 calc(50% - 4px); min-width: 0; padding-right: 34px; text-overflow: ellipsis;}
-  .u-tools input, .u-tools /* Check-in: a day with more than one service */
-.ci-parts {display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px;} .ci-parts > .f {margin: 0;}
+  .u-tools input, .u-tools .find-bar {flex: 1 1 100%; min-width: 0;}
+  .u-tools select:only-of-type {flex-basis: 100%;}
+  .pager > .muted:first-child {flex-basis: 100%;}
+}
+/* Check-in: a day with more than one service */
+.ci-parts {display: flex; align-items: flex-end; justify-content: space-between; gap: 16px 28px; flex-wrap: wrap; margin-top: 24px; padding: 20px 4px 4px; border-top: 1px solid var(--line);}
+.ci-pick {display: grid; gap: 10px; min-width: 0;} .ci-pick > .f {margin: 0;} .ci-part-note {margin: 16px 4px 2px;}
 .ci-parts .seg {flex-wrap: wrap;} .danger-link {color: var(--red);}
-.ci-part-acts {display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto;} .ci-part-acts .pill-btn svg, [data-split] svg {width: 16px; height: 16px;}
+.ci-part-acts {display: flex; gap: 12px; flex-wrap: wrap;} .ci-part-acts .pill-btn {padding: 10px 18px;} .ci-part-acts .pill-btn svg, [data-split] svg {width: 16px; height: 16px;}
 .tl-add {display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 14px;} .tl-add input {width: 18px; height: 18px; accent-color: var(--accent);}
 .pill-btn.ci-remove {color: var(--red); border-color: color-mix(in srgb, var(--red) 35%, var(--line));} .pill-btn.ci-remove:hover {background: color-mix(in srgb, var(--red) 8%, transparent);}
 .bk-prev.tl li:not(.skip), .bk-prev.tl li {display: flex; justify-content: space-between; gap: 10px;} .bk-prev.tl li small {white-space: nowrap;}
 #tl-prev, .fields:has(#tl-prev) > * {min-width: 0; max-width: 100%;}
 .ov-parts {margin: 0; padding: 12px 18px 14px; color: var(--ink-2); font-size: 13.5px; border-top: 1px solid var(--line);} .ov-parts b {color: var(--ink);}
-.find-bar {flex: 1 1 100%; min-width: 0;}
-  .u-tools select:only-of-type {flex-basis: 100%;}
-  .pager > .muted:first-child {flex-basis: 100%;}
-}
 /* Dashboard widgets: a white card each, with a coloured icon, title and line under it, then the content */
 .wgrid {display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; grid-auto-flow: row dense;}
 .w {position: relative; min-width: 0; padding: 0; overflow: visible; border: 1px solid var(--line); display: flex; flex-direction: column;} .w-full {grid-column: 1 / -1;} .w-wide {grid-column: span 2;} .w-narrow {grid-column: span 1;}
@@ -573,6 +574,8 @@ button.ov-cell {cursor: pointer;} button.ov-cell:hover {background: var(--soft);
 .seg {display: inline-flex; border: 1px solid var(--line); border-radius: 10px; padding: 2px; background: var(--card);}
 .seg button {display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; font: inherit; font-size: 13.5px; color: var(--ink-2); padding: 6px 10px; border-radius: 8px; cursor: pointer;}
 .seg button svg {width: 15px; height: 15px;} .seg button[aria-pressed="true"] {background: var(--soft); color: var(--ink); font-weight: 600;}
+.seg.ci-seg {padding: 4px; gap: 4px; border-radius: 12px;} .seg.ci-seg button {padding: 10px 20px; font-size: 14.5px; border-radius: 9px;}
+@media (max-width: 600px) { .ci-pick {width: 100%;} .seg.ci-seg {display: flex; flex-wrap: nowrap; width: 100%;} .seg.ci-seg button {flex: 1 1 0; justify-content: center; padding: 10px 6px; text-align: center;} }
 .wlist {display: grid; gap: 10px; max-height: 60vh; overflow: auto;}
 @media (max-width: 720px) { .wlist {max-height: calc(100dvh - 330px);} }  /* phones: the list scrolls, the note and button below stay in view */
 .witem {display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 14px; align-items: center; border: 1px solid var(--line); border-radius: 16px; padding: 12px;

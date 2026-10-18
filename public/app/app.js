@@ -1485,11 +1485,11 @@ function checkin(el) {
   const drawParts = () => {
     const ps = partsOf(S.date), n = curPart(), wrap = el.querySelector("#ci-parts"), boss = ["admin", "lead"].includes(S.me.role);
     if (!S.partsOk || (pastor && !ps.length)) { wrap.innerHTML = ""; return; }
-    wrap.innerHTML = ps.length ? `<div class="ci-parts"><span class="f">Ticking for</span><div class="seg" role="group" aria-label="Which service">${ps.map(x =>
-        `<button type="button" data-part="${x.part}" aria-pressed="${n === x.part}">${esc(partName(S.date, x.part))}</button>`).join("")}</div>
+    wrap.innerHTML = ps.length ? `<div class="ci-parts"><div class="ci-pick"><span class="f">Ticking for</span><div class="seg ci-seg" role="group" aria-label="Which service">${ps.map(x =>
+        `<button type="button" data-part="${x.part}" aria-pressed="${n === x.part}">${esc(partName(S.date, x.part))}</button>`).join("")}</div></div>
         ${pastor ? "" : `<div class="ci-part-acts">${ps.length < 3 ? `<button type="button" class="pill-btn sm" data-split>${svg("plus")}Add ${ORDINAL[ps.length + 1].toLowerCase()} service</button>` : ""}
         ${boss ? `<button type="button" class="pill-btn sm ci-remove" data-unsplit>${armedPart ? `Tap again to remove ${esc(partName(S.date, n))}` : `Remove ${esc(partName(S.date, n))}`}</button>` : ""}</div>`}</div>
-        <p class="note" style="margin:8px 0 0">Ticks here are for <b>${esc(partName(S.date, n))}</b>. Someone who comes to two or three services is counted once in the day's total.</p>`
+        <p class="note ci-part-note">Ticks here are for <b>${esc(partName(S.date, n))}</b>. Someone who comes to two or three services is counted once in the day's total.</p>`
       : pastor ? "" : `<button type="button" class="pill-btn sm" data-split style="margin-top:12px">${svg("plus")}Two services today? Add a second service</button>`;
     wrap.querySelectorAll("[data-part]").forEach(b => b.onclick = () => { (S.ciParts ??= {})[S.date] = +b.dataset.part; armedPart = false; here = {}; svc.value = svcLabel(); drawParts(); draw(); pull(); });
     wrap.querySelector("[data-split]")?.addEventListener("click", split);
