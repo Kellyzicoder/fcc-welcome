@@ -1170,9 +1170,9 @@ const WIDGETS = {
           const peakNow = live ? Math.max(j.total, ...h.filter(x => prayer(x.t) === prayer(Date.now())).map(x => x.total)) : null;
           el.innerHTML = `<div class="live-top"><span class="live-dot ${live ? "on" : ""}">${live ? "Live now" : "Not live right now"}</span><span class="gap" style="flex:1"></span>
               <small>Updated ${new Date(j.updatedAt).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"})}</small></div>
-            <div class="live-nums"><div><b>${j.total}</b><small>watching now</small></div><div><b>${peakNow ?? "–"}</b><small>peak this service</small></div></div>
-            <div class="live-pl">${PL.map(([k, t]) => { const x = j.platforms[k]; return `<div class="${x.status === "live" ? "on" : ""}"><small>${t}</small>
-              <b>${x.status === "live" && x.viewers !== null ? x.viewers : "–"}</b><em>${word(x)}</em></div>`; }).join("")}</div>
+            <div class="live-nums"><div class="lv-row ${live ? "hot" : ""}"><span>Watching now</span><b>${j.total}</b></div><div class="lv-row"><span>Peak this service</span><b>${peakNow ?? "–"}</b></div></div>
+            <div class="live-pl">${PL.map(([k, t]) => { const x = j.platforms[k]; return `<div class="lv-row ${x.status === "live" ? "on" : ""}"><em>${word(x)}</em><span>${t}</span>
+              <b>${x.status === "live" && x.viewers !== null ? x.viewers : "–"}</b></div>`; }).join("")}</div>
             ${j.platforms.zoom.status === "live" ? `<p class="note" style="margin:10px 0 0">Zoom includes the host and co-host: take 2 off for the attendance count.</p>` : ""}
             ${h.length > 1 ? `<div class="live-spark" aria-hidden="true">${h.map(x => `<i style="height:${Math.max(3, x.total / top * 100)}%"></i>`).join("")}</div>` : ""}
             ${j.channel ? `<div class="live-ch"><small>YouTube channel: <b>${esc(j.channel)}</b></small><button type="button" class="link-btn" data-change>Change</button></div>` : ""}`;
@@ -1182,7 +1182,8 @@ const WIDGETS = {
             const DAY = 864e5, dkey = t => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
             const hm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
             const sum = x => x.youtube + x.facebook + x.zoom;  // each platform's own peak, added together
-            const num = (v, t, big) => `<div class="${big ? "big" : ""}"><b>${v}</b><small>${t}</small></div>`;
+            const num = (v, t) => `<span class="ld-pl"><small>${t}</small><b>${v}</b></span>`;
+            const wk = k => k === dkey(Date.now()) ? "Today" : new Date(k + "T12:00:00").toLocaleDateString([], {weekday: "short"});
             const show = () => {
               const L = S.liveAll, todayK = dkey(Date.now()), yK = dkey(Date.now() - DAY);
               if (!L) { box.innerHTML = `<p class="note">Loading the saved numbers…</p>`; return; }
@@ -1192,11 +1193,13 @@ const WIDGETS = {
               const list = by[sel] || [], best = Math.max(0, ...list.map(sum));
               const label = k => k === todayK ? "Today" : k === yK ? "Yesterday" : (d => `${d.toLocaleDateString([], {weekday: "short"})} ${d.getDate()}`)(new Date(k + "T12:00:00"));
               box.innerHTML = `<div class="ld-days" role="tablist" aria-label="Pick a day">${days.map(k => `<button type="button" role="tab" class="${k === sel ? "on" : ""}" aria-selected="${k === sel}" data-lk="${k}">
-                  <b>${esc(label(k))}</b><small>${by[k] ? `${Math.max(...by[k].map(sum))} watching` : "no stream yet"}</small></button>`).join("")}</div>
+                  <i>${+k.slice(8)}</i><b>${esc(wk(k))}</b><small>${by[k] ? `${Math.max(...by[k].map(sum))} watched` : "none"}</small></button>`).join("")}</div>
+                <p class="ld-when">${esc(label(sel) === "Today" || label(sel) === "Yesterday" ? label(sel) : nice(sel, true))}</p>
                 ${L.failed ? `<p class="note">Some days couldn't be loaded. Try again in a minute.</p>` : ""}
                 ${list.length ? `${list.length > 1 ? `<p class="note">Highest of the day: <b>${best}</b> watching</p>` : ""}${list.map(x => `<div class="ld-svc">
-                  <small>${hm(x.start)}${x.end ? ` to ${hm(x.end)}` : " · still going"}</small>
-                  <div class="ld-nums">${num(sum(x), "total", 1)}${num(x.youtube, "YouTube")}${num(x.facebook, "Facebook")}${num(x.zoom, "Zoom")}</div></div>`).join("")}`
+                  <div class="ld-time"><b>${hm(x.start)}</b><small>${x.end ? `to ${hm(x.end)}` : "still going"}</small></div>
+                  <div class="ld-nums">${num(x.youtube, "YouTube")}${num(x.facebook, "Facebook")}${num(x.zoom, "Zoom")}</div>
+                  <div class="ld-total"><b>${sum(x)}</b><small>total</small></div></div>`).join("")}`
                 : `<p class="note">No livestream yet today: the numbers stay here after it ends.</p>`}`;
               const row = box.querySelector(".ld-days"), on = row.querySelector(".on");
               row.scrollLeft = S.liveScroll ?? (on ? on.offsetLeft - row.clientWidth + on.offsetWidth + 8 : row.scrollWidth);
