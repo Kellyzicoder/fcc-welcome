@@ -63,6 +63,9 @@ button:disabled, [aria-disabled="true"] {cursor: default;}
          border: 0; background: none; width: 100%; text-align: left; font-weight: 500;}
 .church i {width: 8px; height: 8px; border-radius: 50%; background: var(--line);}
 .church.on {color: var(--ink); background: var(--soft);} .church.on i {background: var(--accent);}
+/* The church being worked in sits at the top of the menu, above Dashboard */
+.side-church {margin: 0 0 6px;} .side .side-church .church {border: 1px solid var(--line); background: var(--card); min-height: 40px;}
+.side .side-church .church span {color: var(--ink); font-weight: 600;} .side-church button.church:hover {border-color: var(--accent);}
 .side-foot {margin-top: auto; padding-top: 16px; display: grid; gap: 4px;}
 .nav.out {color: var(--red);}
 
