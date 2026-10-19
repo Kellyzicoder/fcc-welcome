@@ -1342,6 +1342,34 @@ async function dashboard(el) {
   await loadPrefs();
   if (S.view !== "dashboard") return;
   drawBoard(el.querySelector("#wgrid"), "home", p);
+  liveBoard(el);
+}
+// Keeps the dashboard up to date without a refresh: every 15 seconds (and as soon as the app is opened again) it checks
+// the last few days' check-ins, and redraws only when an usher has ticked or unticked someone. It waits while a
+// pop-up is open or a widget is being dragged, and keeps the page where it was scrolled to.
+function liveBoard(el) {
+  clearInterval(S.poll);
+  const since = new Date(Date.now() - 3 * 864e5).toISOString().slice(0, 10);
+  const sig = r => r.map(t => t.service_date + t.member_id).sort().join();
+  let last = sig(S.ticks.filter(t => t.service_date >= since)), busy = false;
+  const check = async () => {
+    if (busy || S.view !== "dashboard" || !el.isConnected || document.hidden) return;
+    if (document.querySelector(".modal, .w-hole") || el.contains(document.activeElement) && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+    busy = true;
+    try {
+      let [r, pt] = await Promise.all([all(`attendance?select=service_date,member_id,checked_at&service_date=gte.${since}&order=service_date`),
+        all(`service_ticks?select=service_date,part,member_id&service_date=gte.${since}`).catch(() => null)]);
+      r = r.filter(t => t.service_date >= since); const s = sig(r);
+      if (s === last || S.view !== "dashboard" || !el.isConnected) return;
+      last = s;
+      S.ticks = [...S.ticks.filter(t => t.service_date < since), ...r];
+      if (pt) S.pticks = [...S.pticks.filter(t => t.service_date < since), ...pt];
+      if (document.querySelector(".modal, .w-hole")) return;  // a pop-up opened meanwhile: the next check redraws
+      const y = scrollY; await dashboard(el); scrollTo(0, y);
+    } catch {} finally { busy = false; }
+  };
+  S.poll = setInterval(check, 15000);
+  S.boardCheck = check;
 }
 // Draws one board's widgets into grid: each a card with a drag handle, coloured icon, title, tools and a ⋯ menu.
 function drawBoard(grid, b, ctx) {
@@ -3189,6 +3217,6 @@ async function freshCheck() {
     location.reload();
   } catch {}
 }
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") freshCheck(); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { freshCheck(); if (S.view === "dashboard") S.boardCheck?.(); } });
 setTimeout(freshCheck, 3000);
 start().catch(e => fatal(e.message));
