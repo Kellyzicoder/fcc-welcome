@@ -270,6 +270,17 @@ begin
   return n;
 end $$;
 
+-- The Activity log keeps 12 months: each time something is added, entries older than that are removed (the index on "at"
+-- makes this quick, and almost always there is nothing to remove). Nothing else is ever deleted from the log.
+create or replace function app_trim_activity() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  delete from activity_log where at < to_char(now() - interval '12 months', 'YYYY-MM-DD');
+  return null;
+end $$;
+revoke all on function app_trim_activity() from public, anon, authenticated;
+drop trigger if exists app_trim_activity on activity_log;
+create trigger app_trim_activity after insert on activity_log for each statement execute function app_trim_activity();
+
 revoke all on function app_day_parts(text, date), app_add_service(text, date, text, text), app_remove_service(text, date),
   app_rename_service(text, date, int, text), app_clear_service(date, text[], int) from public, anon;
 grant execute on function app_day_parts(text, date), app_add_service(text, date, text, text), app_remove_service(text, date),
