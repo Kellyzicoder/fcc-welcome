@@ -858,6 +858,20 @@ input.in::placeholder, textarea.in::placeholder {color: var(--ink-3); opacity: 1
 .wa-page .share-row {padding: 0 2px;}
 .svc-times {display: inline-flex; gap: 8px 12px; flex-wrap: wrap;}
 .wa-page .live-note span {font-weight: 500; font-size: 13.5px;}
+/* The Summary page's side column (like a documentation page's): sending, and links to each part */
+.wa-page .modal-grid {grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);}
+.wa-side {display: grid; gap: 14px; align-content: start; position: sticky; top: 16px;}
+.wa-side-card {background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px;}
+.wa-eyebrow {display: block; color: var(--accent); font-weight: 600; font-size: 13.5px; margin-bottom: 10px;}
+.wa-state {margin: 0 0 12px; font-size: 13.5px; line-height: 1.45; color: var(--ink-2);} .wa-state.muted {color: var(--ink-3);}
+.wa-side .modal-foot {display: grid; gap: 8px; border: 0; padding: 0; margin: 0; position: static; background: none; grid-template-columns: 1fr;}
+.wa-side .modal-foot .pill-btn {width: 100%;}
+.wa-side .share-row {margin-top: 12px; padding: 0;}
+.wa-toc {display: grid; gap: 2px;} .wa-toc button {text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 8px; color: var(--ink-2); font: inherit; font-size: 14px;}
+.wa-toc button:hover {background: color-mix(in srgb, var(--accent) 8%, var(--card)); color: var(--accent);}
+#wa-the-message .prev-top {margin: 10px 0;} #wa-the-message .prev-top small {color: var(--ink-3);}
+@media (max-width: 900px) { .wa-page .modal-grid {grid-template-columns: minmax(0, 1fr);} .wa-side {position: static;} .wa-side-card:last-child {display: none;}
+  .wa-side .modal-foot {grid-template-columns: 1fr 1fr;} }
 .draft-line {display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--ink-3); font-size: 13px;} .draft-line:empty {display: none;}
 .set-card .chips {margin: 0;} .chip[aria-pressed="true"] {background: var(--accent); color: var(--accent-ink); border-color: transparent;}
 .share-row {display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px;} .share-row small {color: var(--ink-3); margin-right: 2px;}

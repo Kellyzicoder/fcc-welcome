@@ -255,7 +255,7 @@ function waDialog(title, build, opts = {}) {
     ...(opts.follow ? [["m-follow", "Follow-up", false, "Follow-up lists who missed services."]] : []),
     ...(opts.noEmoji ? [] : [["m-emoji", "Emojis", S.emoji, ""]])];
   // On the Summary page each part is a card that opens and closes; in a pop-up the parts just follow each other
-  const acc = (title, body, open = true) => opts.into ? `<details class="wa-acc" ${open ? "open" : ""}><summary><span>${title}</span>${svg("caret")}</summary><div class="wa-acc-b">${body}</div></details>` : body;
+  const acc = (title, body, open = true) => opts.into ? `<details class="wa-acc" id="wa-${title.toLowerCase().replace(/[^a-z]+/g, "-")}" ${open ? "open" : ""}><summary><span>${title}</span>${svg("caret")}</summary><div class="wa-acc-b">${body}</div></details>` : body;
   const toggle = (id, label, hint, on) => `<label class="switch"><span><b>${label}</b><small>${hint}</small></span><input type="checkbox" id="${id}" ${on ? "checked" : ""}><i></i></label>`;
   d.className = opts.into ? "wa-page" : "modal";  // opts.into: shown on a page (the Summary tab) instead of as a pop-up
   d.innerHTML = `<div class="${opts.into ? "card" : "sheet"} wa-sheet" ${opts.into ? "" : `role="dialog" aria-modal="true"`} aria-label="${esc(title)}">
@@ -268,14 +268,23 @@ function waDialog(title, build, opts = {}) {
           <div class="wa-chips">${incl.map(([id, t, on]) => `<label class="wa-chip"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>${svg("tick")}${t}</span></label>`).join("")}</div></div>`) : ""}
         ${opts.link ? acc("Livestream link", `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-link">Livestream link</label></b><small>Optional. It goes at the end of the message</small></div><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>`, false) : ""}
         ${opts.fields ? `<div class="draft-line"><span id="m-draft"></span><button type="button" class="link-btn" data-clear hidden>Start again</button></div>` : ""}
+        ${opts.into ? acc("The message", `<div class="prev-top"><small>Exactly what Copy and WhatsApp send.</small><div class="pv-seg" role="group" aria-label="Message style"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Easy to read</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">As sent</button></div></div>
+          <div class="preview ${S.pvRaw ? "" : "nice"}" id="m-text" tabindex="0"></div>`, false) : ""}
       </div>
-      <div class="opt"><div class="prev-top"><span class="f">Preview</span><div class="pv-seg" role="group" aria-label="Preview style"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Easy to read</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">As sent</button></div></div>
-        <div class="preview ${S.pvRaw ? "" : "nice"}" id="m-text" tabindex="0"></div></div></div>
+      ${opts.into ? `<aside class="wa-side"><div class="wa-side-card"><span class="wa-eyebrow">Send</span><p id="wa-state" class="wa-state"></p><div id="wa-actions"></div></div>
+        <div class="wa-side-card"><span class="wa-eyebrow">On this page</span><nav class="wa-toc">${[opts.day || opts.fields ? "Service" : "", opts.fields ? "Service details" : "", incl.length ? "Include in the message" : "", opts.link ? "Livestream link" : "", "The message"].filter(Boolean)
+          .map(t => `<button type="button" data-jump="wa-${t.toLowerCase().replace(/[^a-z]+/g, "-")}">${t}</button>`).join("")}</nav></div></aside>` : ""}
+      ${opts.into ? "" : `<div class="opt"><div class="prev-top"><span class="f">Preview</span><div class="pv-seg" role="group" aria-label="Preview style"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Easy to read</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">As sent</button></div></div>
+        <div class="preview ${S.pvRaw ? "" : "nice"}" id="m-text" tabindex="0"></div></div>`}</div>
     ${others.length || native ? `<div class="share-row"><small>Send to</small>${others.map(k => `<button type="button" class="chip" data-share="${k}">${SHARE.find(s => s[0] === k)[1]}</button>`).join("")}
       ${native ? `<button type="button" class="chip" data-share="native">More apps…</button>` : ""}</div>` : ""}
     <div class="modal-foot">${opts.fields ? `<button class="pill-btn" id="m-save">Save draft</button>` : `<button class="pill-btn" data-x>Close</button>`}<button class="pill-btn ${onPhone() ? "" : "primary"}" id="m-copy">Copy</button>${onPhone() ? `<button class="pill-btn primary" id="m-send">Open in WhatsApp</button>` : ""}</div></div>`;
   (opts.into || document.body).append(d);
   calPick(d.querySelector("#m-day"));
+  if (opts.into) {  // on the page: Copy / WhatsApp / Send to live in the side column, and its links open and show each part
+    const acts = d.querySelector("#wa-actions"); acts.append(...[d.querySelector(".modal-foot"), d.querySelector(".share-row")].filter(Boolean));
+    d.querySelectorAll("[data-jump]").forEach(b => b.onclick = () => { const c = d.querySelector("#" + b.dataset.jump); if (!c) return; c.open = true; c.scrollIntoView({behavior: "smooth", block: "start"}); });
+  }
   const text = d.querySelector("#m-text");
   let turn = 0, msg = "";  // msg: the message exactly as it's copied and sent; the preview can show it laid out for reading
   const show = () => { text.classList.toggle("nice", !S.pvRaw && !text.classList.contains("muted"));
@@ -288,7 +297,8 @@ function waDialog(title, build, opts = {}) {
     if (mine !== turn) return;
     const none = out == null;
     msg = none ? (text.dataset.why || `No summary for ${st.day ? nice(st.day, true) : "this day"}. No service was recorded.`) : out;
-    delete text.dataset.why; text.classList.toggle("muted", none); show(); copy.disabled = none; if (send) send.disabled = none;
+    delete text.dataset.why; text.classList.toggle("muted", none); show(); copy.disabled = none;
+    const ws = d.querySelector("#wa-state"); if (ws) { ws.textContent = none ? msg : "The message is ready. Copy it, or open WhatsApp and pick the chat."; ws.classList.toggle("muted", none); } if (send) send.disabled = none;
     d.querySelectorAll("[data-share]").forEach(b => b.disabled = none);
   };
   // Drafts: what's typed is kept for this church and day, so it can be closed, checked and finished later
@@ -334,9 +344,9 @@ function waDialog(title, build, opts = {}) {
   const drawFields = () => {
     const box = d.querySelector("#m-fields"); if (!box) return;
     st.groups = Array.from({length: st.count}, (_, j) => groupName(j + 1));  // the services' names, for the message
-    const set = (sfx, head) => `<div class="opt fields-grid">${head || ""}${opts.fields.map(([k, label, kind]) => `<div class="${kind === "num" ? "" : "wide"}"><label class="f" for="m-${k}${sfx}">${label}</label>
+    const set = (sfx, head) => `<div class="opt fields-grid">${head || ""}${head && liveOk() ? `<div class="wide live-note live-ask" data-ask="${sfx ? sfx.slice(1) : 1}" hidden></div>` : ""}${opts.fields.map(([k, label, kind]) => `<div class="${kind === "num" ? "" : "wide"}"><label class="f" for="m-${k}${sfx}">${label}</label>
       <input class="in" id="m-${k}${sfx}" data-field="${k}${sfx}" ${kind === "num" ? `type="number" inputmode="numeric" min="0" placeholder="0"` : `maxlength="80"`} value="${esc(st[k + sfx] ?? "")}"></div>`).join("")}${sfx ? liveUnder(+sfx.slice(1) - 1) : ""}
-      ${liveOk() ? `<div class="wide live-note live-ask" data-ask="${sfx ? sfx.slice(1) : 1}" hidden></div>` : ""}</div>`;
+</div>`;
     // one service: its start time too, so the livestream that goes with it can be offered
     const times = (n, start) => `<span class="svc-times"><label class="svc-time">Starts <input class="in sm" type="time" data-time="${n}" value="${esc(start)}" aria-label="Service ${n} start time"></label>
         <label class="svc-time">Ends <input class="in sm" type="time" data-end="${n}" value="${esc(st[`end_${n}`] || "")}" aria-label="Service ${n} end time"></label></span>`;
@@ -344,8 +354,12 @@ function waDialog(title, build, opts = {}) {
       : Array.from({length: st.count}, (_, j) => set("_" + (j + 1), `<div class="wide svc-top"><b class="svc-head">${esc(groupName(j + 1))}</b>${times(j + 1, startOf(j + 1))}</div>`)).join("")
       + `<div class="svc-more">${st.count < 3 ? `<button type="button" class="link-btn" data-svc-add>+ Add a third service</button>` : `<button type="button" class="link-btn" data-svc-less>Only two services</button>`}</div>`;
     box.querySelectorAll("[data-field]").forEach(i => i.oninput = () => { st[i.dataset.field] = i.value.trim(); keepDraft(); draw(); });
-    box.querySelectorAll("[data-time]").forEach(i => i.onchange = () => { st["time_" + i.dataset.time] = i.value; keepDraft(); drawFields(); draw(); offerLive(+i.dataset.time); });
-    box.querySelectorAll("[data-end]").forEach(i => i.onchange = () => { st["end_" + i.dataset.end] = i.value; keepDraft(); drawFields(); draw(); offerLive(+i.dataset.end); });
+    // a time changed: keep it, rename that service, and offer its livestream; the boxes aren't redrawn, so typing the time isn't interrupted
+    let wait; const timed = (k, n, v) => { st[`${k}_${n}`] = v; keepDraft(); st.groups = Array.from({length: st.count}, (_, j) => groupName(j + 1));
+      if (st.multi) { const h = box.querySelectorAll(".svc-head")[n - 1]; if (h) h.textContent = groupName(n); }
+      draw(); clearTimeout(wait); wait = setTimeout(() => offerLive(n), 350); };
+    box.querySelectorAll("[data-time]").forEach(i => i.onchange = i.oninput = () => timed("time", +i.dataset.time, i.value));
+    box.querySelectorAll("[data-end]").forEach(i => i.onchange = i.oninput = () => timed("end", +i.dataset.end, i.value));
     box.querySelector("[data-svc-add]")?.addEventListener("click", () => { st.count = 3; keepDraft(); drawFields(); liveNote(); draw(); });
     box.querySelector("[data-svc-less]")?.addEventListener("click", () => { st.count = 2; keepDraft(); drawFields(); liveNote(); draw(); });
   };
@@ -363,7 +377,7 @@ function waDialog(title, build, opts = {}) {
   // and Zoom has 2 taken off each service for the host and co-host. They're shown as a note, or filled in for you (Settings → Sharing summaries).
   const prayers = t => { const x = new Date(t), m = x.getHours() * 60 + x.getMinutes(); return m >= 270 && m < 390; };
   const liveNote = async () => {
-    d.querySelector(".live-note")?.remove();
+    d.querySelector(".live-note:not(.live-ask)")?.remove();  // the old note, not the boxes that offer a service's livestream
     if (!opts.fields?.some(f => f[0] === "yt") || !["admin", "lead"].includes(S.me.role) || !st.day || !S.session) return;
     const day = st.day, from = new Date(day + "T00:00:00").getTime(), to = from + 86400000;  // that day, on this phone's clock
     const get = async q => { const r = await fetch("/app-live?church=" + encodeURIComponent(S.church) + q, {cache: "no-store",
@@ -1446,7 +1460,7 @@ async function saveBoard(b, list) {
 // The WhatsApp summary, as its own page: the settings on the left, the message's preview on the right, Copy / Open in WhatsApp under them
 function summaryPage(el) {
   const p = picture();
-  el.innerHTML = head("Summary", "The service summary for WhatsApp. Fill in the details, check the preview, then copy or send it.") + `<div id="sumbox"></div>`;
+  el.innerHTML = head("Summary", "The service summary for WhatsApp. Fill in each part, then copy it or send it from the side.") + `<div id="sumbox"></div>`;
   waDialog("Summary for WhatsApp", o => !p.dates.includes(o.day) ? null : report(o.day !== p.last ? picture(o.day) : p, o), {names: true, link: true, follow: true, noEmoji: true, day: p.last || today(),
     fields: [["preacher", "Preacher name"], ["sermon", "Sermon title"], ["zoomA", "Zoom: adults", "num"], ["zoomK", "Zoom: children", "num"], ["yt", "YouTube", "num"], ["fb", "Facebook", "num"], ["converts", "New converts", "num"]],
     into: el.querySelector("#sumbox")});
