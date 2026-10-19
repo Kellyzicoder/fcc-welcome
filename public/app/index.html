@@ -63,6 +63,22 @@ button:disabled, [aria-disabled="true"] {cursor: default;}
          border: 0; background: none; width: 100%; text-align: left; font-weight: 500;}
 .church i {width: 8px; height: 8px; border-radius: 50%; background: var(--line);}
 .church.on {color: var(--ink); background: var(--soft);} .church.on i {background: var(--accent);}
+/* Livestream: one big number; the 24-hour graph scrolls sideways (opens at now) */
+.lv-pair.lv-one {grid-template-columns: 1fr;}
+.lv-scroll {grid-column: 2; grid-row: 1 / span 2; overflow-x: auto; overflow-y: hidden; padding-top: 48px; margin-top: -48px; scrollbar-width: thin; overscroll-behavior-x: contain;}
+.lv-wide {display: grid; grid-template-rows: 170px auto; min-width: 100%;} .lv-wide .lv-x {grid-column: 1;}
+.lv-hint {margin: 8px 0 0; font-size: var(--fs-xs, 12px); color: var(--ink-3); text-align: center;}
+/* A page is loading what changed before it opens: a thin moving line at the top */
+body.going {cursor: progress;}
+body.going::after {content: ""; position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 200; background: linear-gradient(90deg, transparent, var(--accent), transparent) no-repeat; background-size: 40% 100%; animation: going 1s linear infinite;}
+@keyframes going {from {background-position: -40% 0;} to {background-position: 140% 0;}}
+/* Your account: two columns of cards on a computer, one on a phone */
+.acct-page {columns: 2 420px; column-gap: 14px;}
+.acct-page .card {break-inside: avoid; max-width: none; margin: 0 0 14px; display: block;} .acct-page #look {display: contents;}
+/* Summary: other platforms (TikTok, Instagram...) under Service details */
+.plat-row {display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 2px;} .plat-t {font-size: var(--fs-sm, 13px); color: var(--ink-2); font-weight: 600; margin-right: 2px;}
+.plat-row .chip {padding-right: 6px;} .plat-x {border: 0; background: none; color: var(--ink-3); font: inherit; font-size: 15px; line-height: 1; cursor: pointer; padding: 2px 6px; border-radius: 999px;}
+.plat-x:hover {color: var(--red); background: var(--soft);} .plat-x[data-sure] {font-size: 12px; color: var(--red);}
 /* The church being worked in sits at the top of the menu, above Dashboard */
 .side-church {margin: 0 0 6px;} .side .side-church .church {border: 1px solid var(--line); background: var(--card); min-height: 40px;}
 .side .side-church .church span {color: var(--ink); font-weight: 600;} .side-church button.church:hover {border-color: var(--accent);}
