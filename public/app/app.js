@@ -962,9 +962,11 @@ function render() {
     <div class="scrim" data-close></div>
     <aside class="side" id="menu"><div class="brand"><span class="brand-mark">✝</span><span class="brand-txt">Favourite Child Church</span>
         <button type="button" class="side-tg" data-mini aria-label="${S.mini ? "Show menu names" : "Icons only"}" title="${S.mini ? "Show menu names" : "Icons only"}" aria-pressed="${!!S.mini}">${svg("panel")}</button></div>
+      ${S.me.role === "bishop" ? "" : `<div class="side-church">${S.me.role === "admin"  // the church being worked in, at the top; only an admin can change it
+        ? `<button type="button" class="church on" data-chpick aria-haspopup="listbox" aria-expanded="false" title="Working in ${esc(S.church)}: tap to switch church"><i></i><span>${esc(S.church)}</span><em>Change</em></button>`
+        : `<div class="church on" title="Your church"><i></i><span>${esc(S.church)}</span></div>`}</div>`}
       ${groups.map(([h, items]) => (h ? `<h6>${h}</h6>` : "") + items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" title="${t}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}<span class="nl">${t}</span>${
         k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : ""}</button>`).join("")).join("")}
-      ${S.me.role === "admin" ? `<h6>CHURCH</h6><div class="ch-pick"><button type="button" class="church on" data-chpick aria-haspopup="listbox" aria-expanded="false" title="Switch to another church"><i></i><span>${esc(S.church)}</span><em>Change</em></button></div>` : ""}
       <div class="side-foot">${S.me.base === "admin" ? (S.preview ? `<button class="nav" data-unpreview title="Back to Admin">${svg("back")}<span class="nl">Back to Admin</span></button>`
           : `<button class="nav" data-viewas title="View as another role">${svg("eye")}<span class="nl">View as another role</span></button>`) : ""}${S.canSwitch ? `<button class="nav" data-switch title="${switchLabel()}">${svg("pastors")}<span class="nl">${switchLabel()}</span></button>` : ""}<button class="nav out" data-out title="Log out">${svg("out")}<span class="nl">Log out</span></button></div></aside>
     <main class="main">${S.preview ? `<div class="preview-bar">${svg("eye")}<span>Viewing as <b>${esc(previewName())}</b>. View only: nothing you do here is saved.</span>
