@@ -1422,7 +1422,8 @@ const WIDGETS = {
         const a0 = a[i - 2] || a[i - 1], a1 = a[i - 1], a3 = a[i + 1] || q, f = v => v.toFixed(1);
         const cy = v => f(Math.min(200, Math.max(0, v)));  // never dips below 0 or over the top
         return `C${f(a1[0] + (q[0] - a0[0]) / 6)},${cy(a1[1] + (q[1] - a0[1]) / 6)} ${f(q[0] - (a3[0] - a1[0]) / 6)},${cy(q[1] - (a3[1] - a1[1]) / 6)} ${f(q[0])},${f(q[1])}`; }).join(" ");
-      const progChart = (pts, empty, wide = 0) => {  // wide: the graph's width in pixels, to swipe back through
+      const progChart = (pts, empty, wide = 0, col = "", noHint = false) => {  // wide: the graph's width in pixels, to swipe back through; col: its colour
+        const gid = "lvp" + (col || "red").replace(/\W/g, ""), line = col || "var(--red)";
         if (pts.length < 2) return `<p class="lv-empty">${empty}</p>`;
         const max = Math.max(1, ...pts.map(p => p.v)), step = Math.max(1, Math.ceil(max / 4)), top = step * 4, W = 600, H = 200;
         const xy = pts.map((p, i) => [i / (pts.length - 1) * W, H - p.v / top * H]), every = Math.max(1, Math.ceil(pts.length / 7)), keep = new Set();
@@ -1435,14 +1436,14 @@ const WIDGETS = {
           .map(([k, f]) => { const q = pts.map((p, i) => [i / (pts.length - 1) * W, H - f(p) / top * H]);
             return `<path d="${curve(q)} L${W},${H} L0,${H} Z" style="fill:color-mix(in srgb, ${PC[k]} 20%, var(--card))"/><path d="${curve(q)}" class="lv-path lv-pl" style="stroke:${PC[k]}" vector-effect="non-scaling-stroke"/>`; }).join("");
         return `<div class="lv-chart" data-n="${pts.length}"><div class="lv-y">${[4, 3, 2, 1, 0].map(k => `<span>${k * step}</span>`).join("")}</div>
-          ${wide ? `<div class="lv-scroll"><div class="lv-wide" style="width:${wide}px">` : ""}<div class="lv-plot"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="lvp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--red)" stop-opacity=".28"/><stop offset="1" stop-color="var(--red)" stop-opacity="0"/></linearGradient></defs>
+          ${wide ? `<div class="lv-scroll"><div class="lv-wide" style="width:${wide}px">` : ""}<div class="lv-plot"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${line}" stop-opacity=".28"/><stop offset="1" stop-color="${line}" stop-opacity="0"/></linearGradient></defs>
             ${[0, 1, 2, 3, 4].map(k => `<line x1="0" x2="${W}" y1="${k * H / 4}" y2="${k * H / 4}" class="lv-grid" vector-effect="non-scaling-stroke"/>`).join("")}
-            ${split ? bands : `<path d="${curve(xy)} L${W},${H} L0,${H} Z" fill="url(#lvp)"/><path d="${curve(xy)}" class="lv-path" vector-effect="non-scaling-stroke"/>`}</svg>
-            ${xy.map(([x, y], i) => keep.has(i) && !split && !(wide && !pts[i].v) ? `<i class="lv-dot" style="left:${x / W * 100}%;top:${y / H * 100}%"></i>` : "").join("")}
+            ${split ? bands : `<path d="${curve(xy)} L${W},${H} L0,${H} Z" fill="url(#${gid})"/><path d="${curve(xy)}" class="lv-path" ${col ? `style="stroke:${col};filter:none"` : ""} vector-effect="non-scaling-stroke"/>`}</svg>
+            ${xy.map(([x, y], i) => keep.has(i) && !split && !(wide && !pts[i].v) ? `<i class="lv-dot" style="left:${x / W * 100}%;top:${y / H * 100}%${col ? `;border-color:${col};box-shadow:none` : ""}"></i>` : "").join("")}
             <i class="lv-guide" hidden></i><div class="lv-tip" hidden></div><div class="lv-hit"></div></div>
           <div class="lv-x">${pts.map((p, i) => keep.has(i) ? `<span style="left:${i / (pts.length - 1) * 100}%">${esc(p.label)}</span>` : "").join("")}</div>${wide ? "</div></div>" : ""}</div>
           ${split ? `<div class="lv-legend lv-chart-key">${[["youtube", "YouTube"], ["facebook", "Facebook"], ["zoom", "Zoom"]].map(([k, t]) => `<span><i style="background:${PC[k]}"></i>${t}</span>`).join("")}</div>` : ""}
-          ${wide ? `<p class="lv-hint">Swipe the graph sideways to go back through the last 24 hours.</p>` : ""}`;
+          ${wide && !noHint ? `<p class="lv-hint">Swipe the graph sideways to move through the day.</p>` : ""}`;
       };
       const ring = (rows, note) => { const all = rows.reduce((s, r) => s + r[2], 0); let at = 0;
         return `<div class="lv-ring-wrap"><b class="lv-side-t">Platforms</b><div class="lv-ring"><svg viewBox="0 0 42 42" aria-hidden="true"><circle cx="21" cy="21" r="15.9" class="lv-ring-bg"/>
@@ -1499,8 +1500,8 @@ const WIDGETS = {
             <div class="lv-card live-nums">
               <div class="lv-pair lv-one"><div><span class="lv-key"><i class="ring hot"></i>Watching now</span><b class="lv-big">${j.total}</b><small class="${live ? "lv-up" : ""}">${live ? "right now" : "not live"}</small></div></div>
               ${PL.some(([k]) => j.platforms[k].status !== "live") ? `<p class="lv-off">${PL.filter(([k]) => j.platforms[k].status !== "live").map(([k, t]) => `${t}: ${word(j.platforms[k])}`).join(" · ")}</p>` : ""}</div>
-            <div class="lv-prog"><div class="lv-prog-main"><div class="lv-prog-top"><b class="lv-side-t">Viewers</b>
-                  ${j.home ? `<select class="in sel lv-range" aria-label="Show"><option value="day">Last 24 hours</option><option value="week" ${S.lvRange === "week" ? "selected" : ""}>This week</option></select>` : ""}</div>
+            <div class="lv-prog"><div class="lv-prog-main"><div class="lv-prog-top"><b class="lv-side-t">Viewers <small class="lv-when"></small></b>
+                  ${j.home ? `<select class="in sel lv-range" aria-label="Show"><option value="day">The day picked above</option><option value="week" ${S.lvRange === "week" ? "selected" : ""}>Last 7 days</option></select>` : ""}</div>
                 <div class="lv-prog-body"></div></div></div>
             ${j.platforms.zoom.status === "live" ? `<p class="note" style="margin:10px 0 0">Zoom includes the host and co-host: take 2 off for the attendance count.</p>` : ""}
             ${j.channel ? `<div class="live-ch"><small>YouTube channel: <b>${esc(j.channel)}</b></small><button type="button" class="link-btn" data-change>Change</button></div>` : ""}`;
@@ -1509,49 +1510,70 @@ const WIDGETS = {
           const hmm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
           const drawProg = () => {
             const body = el.querySelector(".lv-prog-body"); if (!body) return;
-            const week = S.lvRange === "week" && j.home, L = S.liveAll, DAYMS = 864e5;
-            let pts, wide = 0;
+            const week = S.lvRange === "week" && j.home, L = S.liveAll, DAYMS = 864e5, when = el.querySelector(".lv-when");
+            const dk = t => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+            let pts, wide = 0, skey = "h", firstAt = -1;
             if (week) {
+              skey = "week"; if (when) when.textContent = "· last 7 days";
               if (!L) { body.innerHTML = `<p class="lv-empty">Loading the week…</p>`; }
-              else { const dk = t => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+              else {
                 pts = Array.from({length: 7}, (_, i) => { const t = Date.now() - (6 - i) * DAYMS, k = dk(t), best = L.list.filter(x => dk(x.start) === k).reduce((b, x) => !b || x.youtube + x.facebook + x.zoom > b.youtube + b.facebook + b.zoom ? x : b, null),
                     v = best ? best.youtube + best.facebook + best.zoom : 0;
                   return {v, yt: best?.youtube || 0, fb: best?.facebook || 0, zm: best?.zoom || 0, label: new Date(t).toLocaleDateString([], {weekday: "short"}), tip: `${new Date(t).toLocaleDateString([], {weekday: "short", day: "numeric", month: "short"})} · ${v} watched`}; }); }
-            } else if (j.home) {  // the last 24 hours in 5-minute steps; the graph opens at now and swipes back
-              const D = S.lvDay, now = Date.now();
-              if ((!D || now - D.at > 60000) && !S.lvDayBusy) {
-                S.lvDayBusy = true; const to = now, from = to - DAYMS;
-                call({}, `&from=${from}&to=${to}&minutes=1`).then(r => { S.lvDay = {at: Date.now(), to, list: Array.isArray(r.points) ? r.points : null}; })
-                  .catch(() => { S.lvDay = {at: Date.now(), to, list: null}; }).finally(() => { S.lvDayBusy = false; if (body.isConnected) drawProg(); });
+            } else if (j.home) {  // the day picked in the row above, in 5-minute steps; swipe sideways through it
+              const key = S.lvDayKey || dk(Date.now()), now = Date.now(), isToday = key === dk(now);
+              const from = new Date(key + "T00:00:00").getTime(), to = isToday ? now : from + DAYMS, D = (S.lvDays ??= {})[key];
+              skey = key;
+              if (when) when.textContent = "· " + (isToday ? "today" : new Date(key + "T12:00:00").toLocaleDateString([], {weekday: "short", day: "numeric", month: "short"}));
+              if ((!D || (isToday && now - D.at > 60000)) && !(S.lvDayBusy ??= {})[key]) {  // a past day is loaded once; today again each minute
+                S.lvDayBusy[key] = true;
+                call({}, `&from=${from}&to=${to}&minutes=1`).then(r => { S.lvDays[key] = {at: Date.now(), to, list: Array.isArray(r.points) ? r.points : null}; })
+                  .catch(() => { S.lvDays[key] = {at: Date.now(), to, list: null}; })
+                  .finally(() => { delete S.lvDayBusy[key]; if (body.isConnected && (S.lvDayKey || dk(Date.now())) === key) drawProg(); });
               }
-              if (!D) body.innerHTML = `<p class="lv-empty">Loading the last 24 hours…</p>`;
+              if (!D) body.innerHTML = `<p class="lv-empty">Loading ${isToday ? "today" : "that day"}…</p>`;
               else if (D.list) {
-                const step = 3e5, end = Math.floor(D.to / step) * step, by = new Map();
-                const pl = D.list.some(p => p.youtube != null);  // the dashboard gives each platform (since its update)
+                const step = 3e5, n = Math.max(2, Math.floor((D.to - from) / step) + 1), by = new Map(), pl = D.list.some(p => p.youtube != null);
                 for (const p of D.list) { const k = Math.floor(p.t / step) * step, o = by.get(k), v = Number(p.total) || 0;
                   if (!o || v > o.v) by.set(k, {v, yt: Number(p.youtube) || 0, fb: Number(p.facebook) || 0, zm: Number(p.zoom) || 0}); }
-                pts = Array.from({length: 289}, (_, i) => { const t = end - (288 - i) * step, o = by.get(t) || {v: 0, yt: 0, fb: 0, zm: 0}, v = o.v;
+                pts = Array.from({length: n}, (_, i) => { const t = from + i * step, o = by.get(t) || {v: 0, yt: 0, fb: 0, zm: 0}, v = o.v;
                   return {v, ...(pl ? {yt: o.yt, fb: o.fb, zm: o.zm} : {}), label: hmm(t), hour: new Date(t).getMinutes() === 0, tip: `${hmm(t)} · ${v} watching`}; });
-                wide = 289 * 8;  // 8 pixels for each 5 minutes: about 2½ hours on a phone, 8 on a computer
+                wide = n * 8;  // 8 pixels for each 5 minutes: about 2½ hours on a phone, 8 on a computer
+                if (!isToday) firstAt = pts.findIndex(p => p.v > 0);  // a past day opens at its first stream
               } else pts = h.map(x => ({v: x.total, label: hmm(x.t), tip: `${hmm(x.t)} · ${x.total} watching`}));  // the dashboard can't give the day yet: the last few hours
             } else pts = h.map(x => ({v: x.total, label: hmm(x.t), tip: `${hmm(x.t)} · ${x.total} watching`}));
             if (pts && !week && !wide && h.length === pts.length && h[0]?.youtube != null) pts = pts.map((p, i) => ({...p, yt: h[i].youtube || 0, fb: h[i].facebook || 0, zm: h[i].zoom || 0}));
-            if (pts) body.innerHTML = progChart(pts, live ? "The line starts after a minute or two of the livestream." : "Not live right now. Pick This week to see the last seven days.", wide);
-            const sc = body.querySelector(".lv-scroll");  // opens at now; stays where it was swiped to when the numbers update
-            if (sc) {
-              const place = () => { sc.scrollLeft = sc.scrollWidth - sc.clientWidth - (S.lvBack || 0); };
+            if (!pts) return;
+            // One graph for each platform, in its own colour, one under the other (they move together when swiped)
+            const empty = live ? "The line starts after a minute or two of the livestream." : "Not live right now. Pick This week to see the last seven days.";
+            const sets = pts.some(p => p.yt != null) ? [["youtube", "YouTube", "yt"], ["facebook", "Facebook", "fb"], ["zoom", "Zoom", "zm"]]
+              .map(([k, t, f]) => ({k, t, ps: pts.map(p => ({v: p[f] || 0, label: p.label, hour: p.hour, tip: p.tip.split(" · ")[0]}))})) : [{k: "", t: "", ps: pts}];
+            body.innerHTML = sets.map(s => s.k ? `<div class="lv-mini"><div class="lv-mini-t"><span><i style="background:${PC[s.k]}"></i>${s.t}</span><small>highest <b>${Math.max(0, ...s.ps.map(p => p.v))}</b></small></div>${progChart(s.ps, empty, wide, PC[s.k], true)}</div>`
+              : progChart(s.ps, empty, wide, "", true)).join("") + (wide ? `<p class="lv-hint">Swipe sideways to move through the day.</p>` : "");
+            const scs = [...body.querySelectorAll(".lv-scroll")];
+            if (scs.length) {  // opens at now (or a past day's first stream); stays where it was swiped to when the numbers update
+              const back = (S.lvBackBy ??= {})[skey];
+              const place = () => scs.forEach(sc => { sc.scrollLeft = back != null ? sc.scrollWidth - sc.clientWidth - back
+                : firstAt > 0 ? firstAt / (pts.length - 1) * sc.scrollWidth - 40 : firstAt === -1 && skey !== "h" && skey !== dk(Date.now()) ? 0 : sc.scrollWidth; });
               place(); requestAnimationFrame(place);
-              const mine = () => { sc.dataset.user = "1"; };  // only a person's own swipe moves where it opens next time
-              for (const ev of ["pointerdown", "touchstart", "wheel"]) sc.addEventListener(ev, mine, {passive: true});
-              sc.onscroll = () => { if (sc.dataset.user) S.lvBack = sc.scrollWidth - sc.clientWidth - sc.scrollLeft; };
+              let sync = false;
+              scs.forEach(sc => {
+                const mine = () => { sc.dataset.user = "1"; };  // only a person's own swipe moves where it opens next time
+                for (const ev of ["pointerdown", "touchstart", "wheel"]) sc.addEventListener(ev, mine, {passive: true});
+                sc.onscroll = () => { if (sync) return; sync = true; scs.forEach(o => { if (o !== sc) o.scrollLeft = sc.scrollLeft; }); sync = false;
+                  if (sc.dataset.user) S.lvBackBy[skey] = sc.scrollWidth - sc.clientWidth - sc.scrollLeft; };
+              });
             }
-            const chart = body.querySelector(".lv-chart"); if (!chart) return;
-            const plot = chart.querySelector(".lv-plot"), tip = chart.querySelector(".lv-tip"), guide = chart.querySelector(".lv-guide"), n = pts.length;
-            const at = e => { const r = plot.getBoundingClientRect(), x = ((e.touches?.[0] || e).clientX - r.left) / r.width, i = Math.max(0, Math.min(n - 1, Math.round(x * (n - 1))));
-              const p = pts[i], top = Math.max(1, Math.ceil(Math.max(1, ...pts.map(q => q.v)) / 4)) * 4, left = i / (n - 1) * 100, y = 100 - p.v / top * 100;
-              guide.hidden = tip.hidden = false; guide.style.left = left + "%"; tip.style.left = Math.max(12, Math.min(88, left)) + "%"; tip.style.top = y + "%"; tip.innerHTML = `<b>${p.v}</b>${esc(p.tip.split(" · ")[0])}${p.yt != null ? `<span class="lv-tip-pl">${[["youtube", "YouTube", p.yt], ["facebook", "Facebook", p.fb], ["zoom", "Zoom", p.zm]].map(([k, t, n]) => `<em><i style="background:${PC[k]}"></i>${t} ${n}</em>`).join("")}</span>` : ""}`; };
-            const hit = chart.querySelector(".lv-hit"); hit.onmousemove = at; hit.ontouchstart = hit.ontouchmove = at;
-            hit.onmouseleave = () => { guide.hidden = tip.hidden = true; };
+            body.querySelectorAll(".lv-chart").forEach((chart, ci) => {
+              const ps = sets[ci]?.ps; if (!ps) return;
+              const plot = chart.querySelector(".lv-plot"), tip = chart.querySelector(".lv-tip"), guide = chart.querySelector(".lv-guide"), n = ps.length;
+              const at = e => { const r = plot.getBoundingClientRect(), x = ((e.touches?.[0] || e).clientX - r.left) / r.width, i = Math.max(0, Math.min(n - 1, Math.round(x * (n - 1))));
+                const p = ps[i], top = Math.max(1, Math.ceil(Math.max(1, ...ps.map(q => q.v)) / 4)) * 4, left = i / (n - 1) * 100, y = 100 - p.v / top * 100;
+                guide.hidden = tip.hidden = false; guide.style.left = left + "%"; tip.style.left = Math.max(12, Math.min(88, left)) + "%"; tip.style.top = y + "%";
+                tip.innerHTML = `<b>${p.v}</b>${esc(p.tip.split(" · ")[0])}`; };
+              const hit = chart.querySelector(".lv-hit"); hit.onmousemove = at; hit.ontouchstart = hit.ontouchmove = at;
+              hit.onmouseleave = () => { guide.hidden = tip.hidden = true; };
+            });
           };
           drawProg();
           el.querySelector(".lv-range")?.addEventListener("change", e => { S.lvRange = e.target.value; drawProg(); });
@@ -1561,26 +1583,27 @@ const WIDGETS = {
             const hm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
             const sum = x => x.youtube + x.facebook + x.zoom;  // each platform's own peak, added together
             const show = () => {
-              drawProg();
               const L = S.liveAll, todayK = dkey(Date.now()), yK = dkey(Date.now() - DAY);
-              if (!L) { box.innerHTML = `<p class="note">Loading the saved numbers…</p>`; return; }
+              if (!L) { drawProg(); box.innerHTML = `<p class="note">Loading the saved numbers…</p>`; return; }
               const by = {}; for (const x of L.list) (by[dkey(x.start)] ??= []).push(x);
               const days = [...new Set([...Object.keys(by), todayK])].sort();
               const sel = S.liveSel && days.includes(S.liveSel) ? S.liveSel : by[todayK] ? todayK : days.filter(k => by[k]).pop() || todayK;
               const list = by[sel] || [], best = Math.max(0, ...list.map(sum));
+              S.lvDayKey = sel; drawProg();  // the graph shows the day picked in this row
               const label = k => k === todayK ? "Today" : k === yK ? "Yesterday" : (d => `${d.toLocaleDateString([], {weekday: "short"})} ${d.getDate()}`)(new Date(k + "T12:00:00"));
               box.innerHTML = `<div class="ld-days" role="tablist" aria-label="Pick a day">${days.map(k => `<button type="button" role="tab" class="${k === sel ? "on" : ""}" aria-selected="${k === sel}" data-lk="${k}">
                   <b>${esc(label(k))}</b></button>`).join("")}</div>
                 ${L.failed ? `<p class="note">Some days couldn't be loaded. Try again in a minute.</p>` : ""}
                 ${list.length ? `${`<div class="lv-svcs">${list.map(x => `<div class="lv-card">
                   <div class="lv-svc-top"><b>${hm(x.start)} – ${x.end ? hm(x.end) : "now"}</b>${x.end ? "" : "<small>still going</small>"}</div>
+                  <div class="lv-svc-date">${new Date(x.start).toLocaleDateString([], {weekday: "short", day: "numeric", month: "short", year: "numeric"})}</div>
                   <b class="lv-big">${sum(x)} <small>watched</small></b>
                   ${split([["youtube", "YouTube", x.youtube, x.youtube], ["facebook", "Facebook", x.facebook, x.facebook], ["zoom", "Zoom", x.zoom, x.zoom]])}</div>`).join("")}</div>`}`
                 : `<p class="note">No livestream yet today: the numbers stay here after it ends.</p>`}`;
               const row = box.querySelector(".ld-days"), on = row.querySelector(".on");
               row.scrollLeft = S.liveScroll ?? (on ? on.offsetLeft - row.clientWidth + on.offsetWidth + 8 : row.scrollWidth);
               row.onscroll = () => { S.liveScroll = row.scrollLeft; };
-              row.querySelectorAll("[data-lk]").forEach(b => b.onclick = () => { S.liveSel = b.dataset.lk; show(); });  // already loaded: no waiting
+              row.querySelectorAll("[data-lk]").forEach(b => b.onclick = () => { S.liveSel = b.dataset.lk; if (S.lvRange === "week") { S.lvRange = "day"; const r = el.querySelector(".lv-range"); if (r) r.value = "day"; } show(); });  // already loaded: no waiting
             };
             show();
             const L = S.liveAll, now = Date.now();
@@ -2485,8 +2508,11 @@ function people(el) {
       <div class="find-row"><label class="find-bar">${svg("search")}<input id="find" type="search" placeholder="Search by name, phone or pastor" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off"></label>
         <div class="u-tools">${roleKeys.length ? `<select class="in" id="teamF" aria-label="Team"><option value="">All teams</option>${roleKeys.map(k => `<option value="${esc(k)}" ${S.roleF === k ? "selected" : ""}>${esc(counts[k].label)} · ${counts[k].n}</option>`).join("")}</select>` : ""}
           <select class="in" id="sort" aria-label="Sort by">${Object.entries(SORT).map(([k, [t]]) => `<option value="${k}" ${S.sortBy === k ? "selected" : ""}>${t}</option>`).join("")}</select></div></div>
-      <div class="rpills u-pills" role="tablist" aria-label="Show">${Object.entries(SHOW).map(([k, [t, f]]) =>
-          `<button type="button" class="rpill ${DOT[k] || ""}" role="tab" data-show="${k}" aria-selected="${S.showF === k}">${k === "all" || !DOT[k] ? "" : "<i></i>"}${t} <span>${inRole.filter(f).length}</span></button>`).join("")}</div>
+      <div class="rpills u-pills" role="tablist" aria-label="Show">${(() => {  // the first six (and the one picked), then "+ n more", as on Check-in
+          const all = Object.entries(SHOW), vis = S.pMore ? all : all.filter(([k], i) => i < 6 || k === S.showF), more = all.length - vis.length;
+          return vis.map(([k, [t, f]]) =>
+          `<button type="button" class="rpill ${DOT[k] || ""}" role="tab" data-show="${k}" aria-selected="${S.showF === k}">${k === "all" || !DOT[k] ? "" : "<i></i>"}${t} <span>${inRole.filter(f).length}</span></button>`).join("")
+            + (more ? `<button type="button" class="rpill more" data-pmore>+ ${more} more</button>` : S.pMore && all.length > 6 ? `<button type="button" class="rpill more" data-pmore>Show less</button>` : ""); })()}</div>
       ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><button class="pill-btn sm" id="bulk-see">${S.selOnly ? "Show all" : "View"}</button><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-set">Set details</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
       <div class="scroll"><table class="utable"><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select all ${mine.length} shown" title="Select all ${mine.length} shown" ${mine.length && shownPicked === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Type</th><th>Pastor assigned</th><th>Age group</th><th>Gender</th><th>Status</th><th>Roles</th></tr></thead><tbody>
       ${shown.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}
@@ -2502,6 +2528,7 @@ function people(el) {
         ${nums.map((n, i) => (i && n - nums[i - 1] > 1 ? `<span class="muted">…</span>` : "") + `<button class="pg ${n === S.pPage ? "on" : ""}" data-ppg="${n}">${n}</button>`).join("")}
         <button class="pg" data-ppg="${S.pPage + 1}" ${S.pPage === pages ? "disabled" : ""} aria-label="Next page">${svg("next")}</button></div>` : ""}</div>`;
   el.querySelectorAll("[data-show]").forEach(b => b.onclick = () => { S.showF = b.dataset.show; S.pPage = 1; render(); });
+  el.querySelector("[data-pmore]")?.addEventListener("click", () => { S.pMore = !S.pMore; render(); });
   el.querySelectorAll("[data-ppg]").forEach(b => b.onclick = () => { S.pPage = +b.dataset.ppg; render(); el.scrollIntoView?.({block: "start"}); });
   const teamF = el.querySelector("#teamF"); if (teamF) teamF.onchange = e => { S.roleF = e.target.value; S.pPage = 1; render(); };
   el.querySelector("#sort").onchange = e => { S.sortBy = e.target.value; S.pPage = 1; render(); };
