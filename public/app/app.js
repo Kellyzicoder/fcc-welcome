@@ -730,6 +730,11 @@ async function start() {
     if (as && PREVIEW[as.role]) { S.preview = as; S.canSwitch = false; Object.assign(S.me, {role: as.role, church: as.church || null, pastor: as.role === "pastor" ? as.pastor : S.me.pastor, title: null}); } }
   S.view = S.me.role === "bishop" ? "overview" : S.view;
   if (!S.landed) { S.landed = true; const st = look().start; if (st) S.view = st; }  // the start page this person picked in Settings
+  let back = null; try { back = JSON.parse(sessionStorage.getItem("fcc-back") || "null"); sessionStorage.removeItem("fcc-back"); } catch {}
+  if (back) {  // just loaded a newer version: open where they were
+    if (back.view) S.view = back.view; if (back.date) S.date = back.date; if (back.repTab) S.repTab = back.repTab; if (back.church) S.church = back.church;
+    if (back.y) for (const ms of [300, 900, 1800]) setTimeout(() => { if (scrollY < 10) scrollTo(0, back.y); }, ms);  // once the page has drawn
+  }
   if (S.me.role !== "bishop") {
     S.churches = (await api("churches?select=name,livestream&order=name")).map(c => c.name);
     S.church = S.me.role === "admin" ? (S.churches.includes(S.church) ? S.church : S.me.home) : S.me.church || S.me.home;
@@ -1094,7 +1099,7 @@ function render() {
   // so no battery use and the page never moves while someone is working on it). The page stays where it was scrolled to.
   root.querySelectorAll("[data-refresh]").forEach(b => { if (S.newVersion) { b.classList.add("new"); b.title = "A newer version of the app is ready: tap to load it"; } });
   root.querySelectorAll("[data-refresh]").forEach(b => b.onclick = async () => {
-    if (S.newVersion) { try { history.scrollRestoration = "manual"; } catch {} location.reload(); return; }  // a newer version is waiting
+    if (S.newVersion || await freshCheck(true)) return reloadApp();  // a newer version is out: load it, on this same page
     if (b.classList.contains("busy")) return;
     b.classList.add("busy");
     try {
@@ -1155,7 +1160,7 @@ function greeting() {
   const part = S.greet || (h < 5 ? "Good evening" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening");
   return `${part}${name ? `, ${esc(name)}` : ""}`;
 }
-const head = (title, sub, buttons = "") => `<div class="head">${ICON[S.view] ? `<span class="hico" style="--wc:var(--h${NAVHUE[S.view] || 1});--wb:var(--h${NAVHUE[S.view] || 1}b)">${svg(S.view)}</span>` : ""}<div><h1>${["dashboard", "mine", "overview"].includes(S.view) ? greeting() : title}</h1>${sub ? `<p>${sub}</p>` : ""}</div><span class="gap" style="flex:1"></span>${buttons}</div>`;
+const head = (title, sub, buttons = "") => `<div class="head">${ICON[S.view] ? `<span class="hico" style="--wc:var(--h${NAVHUE[S.view] || 1});--wb:var(--h${NAVHUE[S.view] || 1}b)">${svg(S.view)}</span>` : ""}<div><h1>${["dashboard", "mine"].includes(S.view) ? greeting() : title}</h1>${sub ? `<p>${sub}</p>` : ""}</div><span class="gap" style="flex:1"></span>${buttons}</div>`;
 const badge = f => `<span class="badge ${f}">${FLAG[f]}</span>`;
 
 // ---------------------------------------------------------------- dashboard
@@ -3720,10 +3725,24 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catc
 // Phones (iPhones especially) can keep running an old copy of the app for days. Each time the app is opened or
 // brought back to the front, compare the copy we have with the one on the server; if a newer one exists, reload.
 let lastCheck = 0;
-async function freshCheck() {
-  if (Date.now() - lastCheck < 60000) return;
+// Loads the newer version and opens it on the same page, day and place (instead of starting again on the Dashboard)
+function reloadApp() {
+  try { sessionStorage.setItem("fcc-back", JSON.stringify({view: S.view, date: S.date, church: S.church, repTab: S.repTab, y: scrollY})); history.scrollRestoration = "manual"; } catch {}
+  location.reload();
+}
+// The server says which version it has (app-config); the phone remembers which one it started with. Different: a newer one is out.
+async function freshCheck(force = false) {
+  if (!force && Date.now() - lastCheck < 60000) return !!S.newVersion;
   lastCheck = Date.now();
-  try {
+  if (S.cfg?.version) {
+    try {
+      const live = (await fetch("/app-config", {cache: "no-store"}).then(r => r.json())).version || "";
+      if (!live || live === S.cfg.version) return false;
+      S.newVersion = true; document.querySelectorAll("[data-refresh]").forEach(b => { b.classList.add("new"); b.title = "A newer version of the app is ready: tap to load it"; });
+      return true;
+    } catch { return false; }
+  }
+  try {  // a server without the version yet: compare the stored copy of app.js with the server's
     const tag = r => r.headers.get("etag") || r.headers.get("last-modified") || "";
     const have = tag(await fetch("app.js", {cache: "force-cache"}));
     const live = tag(await fetch("app.js", {cache: "reload"}));   // also refreshes the phone's stored copy
@@ -3738,6 +3757,14 @@ async function freshCheck() {
     S.newVersion = true; document.querySelectorAll("[data-refresh]").forEach(b => { b.classList.add("new"); b.title = "A newer version of the app is ready: tap to load it"; });
   } catch {}
 }
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { freshCheck(); S.onShow?.(); } });
+// Back to the app after 10 minutes or more away (phone unlocked, app reopened): a newer version loads straight away, on the
+// same page, as nobody is in the middle of anything. Back sooner: Refresh gets a dot instead, so nothing jumps.
+let hiddenAt = 0;
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") { hiddenAt = Date.now(); return; }
+  const long = hiddenAt && Date.now() - hiddenAt > 600000; hiddenAt = 0;
+  freshCheck(long).then(n => { if (n && long && !document.querySelector(".modal")) reloadApp(); });
+  S.onShow?.();
+});
 setTimeout(freshCheck, 3000);
 start().catch(e => fatal(e.message));

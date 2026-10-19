@@ -8,6 +8,8 @@ export function GET() {
     {
       url: (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/+$/, ""),
       key: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "",
+      // which version of the app is on the server, so a phone running an older copy knows to load the new one
+      version: process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.VERCEL_DEPLOYMENT_ID ?? "",
     },
     { headers: { "Cache-Control": "no-store" } },
   );
