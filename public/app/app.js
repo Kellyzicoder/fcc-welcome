@@ -1134,6 +1134,16 @@ const WIDGETS = {
     only: () => ["admin", "lead"].includes(S.me.role),  // the home church uses the main live dashboard; other churches connect their YouTube channel
     draw(el) {
       const PL = [["youtube", "YouTube"], ["facebook", "Facebook"], ["zoom", "Zoom"]];
+      // A platform split bar with its legend, and a line of the numbers through the service
+      const PC = {youtube: "#f0483e", facebook: "#6a7cf6", zoom: "#38bdf8"};
+      const split = rows => { const all = rows.reduce((s, r) => s + r[2], 0);
+        return `<div class="lv-bar" aria-hidden="true">${all ? rows.filter(r => r[2] > 0).map(r => `<i style="flex-grow:${r[2]};background:${PC[r[0]]}"></i>`).join("") : "<i></i>"}</div>
+          <div class="lv-legend">${rows.map(r => `<span><i style="background:${PC[r[0]]}"></i>${r[1]} <b>${r[3]}</b>${r[4] ? ` <em>${r[4]}</em>` : ""}</span>`).join("")}</div>`; };
+      const line = v => { const top = Math.max(1, ...v), n = v.length - 1, X = i => i / n * 96, Y = y => 6 + (1 - y / top) * 80, last = v[n];
+        const pts = v.map((y, i) => `${X(i).toFixed(2)},${Y(y).toFixed(2)}`).join(" ");
+        return `<div class="lv-line" aria-hidden="true"><svg viewBox="0 0 100 90" preserveAspectRatio="none"><defs><linearGradient id="lvg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--red)" stop-opacity=".22"/><stop offset="1" stop-color="var(--red)" stop-opacity="0"/></linearGradient></defs>
+          <polygon points="0,90 ${pts} 96,90" fill="url(#lvg)"/><polyline points="${pts}" fill="none" stroke="var(--red)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>
+          <span class="lv-now" style="top:${Y(last) / 90 * 100}%"><em>now ${last}</em></span></div>`; };
       const word = x => x.status === "live" ? (x.viewers === null ? "Hidden" : "Live") : {offline: "Offline", not_configured: "Not set up", error: "Error"}[x.status] || "Off";
       const church = S.church, call = async (init = {}, q = "") => {
         if (S.session.expires_at - Date.now() < 60000) await refresh();
@@ -1170,11 +1180,12 @@ const WIDGETS = {
           const peakNow = live ? Math.max(j.total, ...h.filter(x => prayer(x.t) === prayer(Date.now())).map(x => x.total)) : null;
           el.innerHTML = `<div class="live-top"><span class="live-dot ${live ? "on" : ""}">${live ? "Live now" : "Not live right now"}</span><span class="gap" style="flex:1"></span>
               <small>Updated ${new Date(j.updatedAt).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"})}</small></div>
-            <div class="live-nums"><div class="lv-row ${live ? "hot" : ""}"><span>Watching now</span><b>${j.total}</b></div><div class="lv-row"><span>Peak this service</span><b>${peakNow ?? "–"}</b></div></div>
-            <div class="live-pl">${PL.map(([k, t]) => { const x = j.platforms[k]; return `<div class="lv-row ${x.status === "live" ? "on" : ""}"><em>${word(x)}</em><span>${t}</span>
-              <b>${x.status === "live" && x.viewers !== null ? x.viewers : "–"}</b></div>`; }).join("")}</div>
+            <div class="lv-card live-nums">
+              <div class="lv-pair"><div><span class="lv-key"><i class="ring hot"></i>Watching now</span><b class="lv-big">${j.total}</b><small class="${live ? "lv-up" : ""}">${live ? "right now" : "not live"}</small></div>
+                <div><span class="lv-key"><i class="ring"></i>Peak</span><b class="lv-big">${peakNow ?? "–"}</b><small>this service</small></div></div>
+              ${h.length > 1 ? line(h.map(x => x.total)) : ""}
+              ${split(PL.map(([k, t]) => { const x = j.platforms[k], on = x.status === "live" && x.viewers !== null; return [k, t, on ? x.viewers : 0, on ? x.viewers : "–", x.status === "live" ? "" : word(x)]; }))}</div>
             ${j.platforms.zoom.status === "live" ? `<p class="note" style="margin:10px 0 0">Zoom includes the host and co-host: take 2 off for the attendance count.</p>` : ""}
-            ${h.length > 1 ? `<div class="live-spark" aria-hidden="true">${h.map(x => `<i style="height:${Math.max(3, x.total / top * 100)}%"></i>`).join("")}</div>` : ""}
             ${j.channel ? `<div class="live-ch"><small>YouTube channel: <b>${esc(j.channel)}</b></small><button type="button" class="link-btn" data-change>Change</button></div>` : ""}`;
           el.querySelector("[data-change]")?.addEventListener("click", () => connect(j.channel));
           if (j.home) {  // the services the live dashboard keeps (30 days): pick a day from the row; the numbers stay after a stream ends
@@ -1182,8 +1193,6 @@ const WIDGETS = {
             const DAY = 864e5, dkey = t => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
             const hm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
             const sum = x => x.youtube + x.facebook + x.zoom;  // each platform's own peak, added together
-            const num = (v, t) => `<span class="ld-pl"><small>${t}</small><b>${v}</b></span>`;
-            const wk = k => k === dkey(Date.now()) ? "Today" : new Date(k + "T12:00:00").toLocaleDateString([], {weekday: "short"});
             const show = () => {
               const L = S.liveAll, todayK = dkey(Date.now()), yK = dkey(Date.now() - DAY);
               if (!L) { box.innerHTML = `<p class="note">Loading the saved numbers…</p>`; return; }
@@ -1193,13 +1202,12 @@ const WIDGETS = {
               const list = by[sel] || [], best = Math.max(0, ...list.map(sum));
               const label = k => k === todayK ? "Today" : k === yK ? "Yesterday" : (d => `${d.toLocaleDateString([], {weekday: "short"})} ${d.getDate()}`)(new Date(k + "T12:00:00"));
               box.innerHTML = `<div class="ld-days" role="tablist" aria-label="Pick a day">${days.map(k => `<button type="button" role="tab" class="${k === sel ? "on" : ""}" aria-selected="${k === sel}" data-lk="${k}">
-                  <i>${+k.slice(8)}</i><b>${esc(wk(k))}</b><small>${by[k] ? `${Math.max(...by[k].map(sum))} watched` : "none"}</small></button>`).join("")}</div>
-                <p class="ld-when">${esc(label(sel) === "Today" || label(sel) === "Yesterday" ? label(sel) : nice(sel, true))}</p>
+                  ${esc(label(k))}${by[k] ? ` <small>${Math.max(...by[k].map(sum))}</small>` : ""}</button>`).join("")}</div>
                 ${L.failed ? `<p class="note">Some days couldn't be loaded. Try again in a minute.</p>` : ""}
-                ${list.length ? `${list.length > 1 ? `<p class="note">Highest of the day: <b>${best}</b> watching</p>` : ""}${list.map(x => `<div class="ld-svc">
-                  <div class="ld-time"><b>${hm(x.start)}</b><small>${x.end ? `to ${hm(x.end)}` : "still going"}</small></div>
-                  <div class="ld-nums">${num(x.youtube, "YouTube")}${num(x.facebook, "Facebook")}${num(x.zoom, "Zoom")}</div>
-                  <div class="ld-total"><b>${sum(x)}</b><small>total</small></div></div>`).join("")}`
+                ${list.length ? `${list.length > 1 ? `<p class="note">Highest of the day: <b>${best}</b> watching</p>` : ""}${`<div class="lv-svcs">${list.map(x => `<div class="lv-card">
+                  <div class="lv-svc-top"><b>${hm(x.start)} service</b><small>${x.end ? `to ${hm(x.end)}` : "still going"}</small></div>
+                  <b class="lv-big">${sum(x)} <small>watched</small></b>
+                  ${split([["youtube", "YouTube", x.youtube, x.youtube], ["facebook", "Facebook", x.facebook, x.facebook], ["zoom", "Zoom", x.zoom, x.zoom]])}</div>`).join("")}</div>`}`
                 : `<p class="note">No livestream yet today: the numbers stay here after it ends.</p>`}`;
               const row = box.querySelector(".ld-days"), on = row.querySelector(".on");
               row.scrollLeft = S.liveScroll ?? (on ? on.offsetLeft - row.clientWidth + on.offsetWidth + 8 : row.scrollWidth);

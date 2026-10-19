@@ -590,41 +590,42 @@ button.ov-cell {cursor: pointer;} button.ov-cell:hover {background: var(--soft);
 .live-dot::before {content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--ink-3);}
 .live-dot.on {color: var(--red);} .live-dot.on::before {background: var(--red); box-shadow: 0 0 0 4px var(--red-bg); animation: livepulse 1.6s ease-in-out infinite;}
 @keyframes livepulse {50% {box-shadow: 0 0 0 7px transparent;}}
-/* Livestream: red accent; rows instead of boxes, and a capsule per day */
-.w[data-w="live"] {--wc: var(--red); --wb: var(--red-bg); border-top: 3px solid var(--red);}
-.lv-row {display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 16px; background: var(--soft); min-width: 0;}
-.lv-row span {flex: 1; min-width: 0; color: var(--ink-2); font-weight: 500;} .lv-row b {font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1;}
-.live-nums {display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;}
-.live-nums .lv-row.hot {background: var(--red); color: #fff;} .live-nums .lv-row.hot span {color: #fff; opacity: .9;}
-.live-nums .lv-row b {font-size: 28px;}
-.live-pl {display: grid; gap: 8px;}
-.live-pl em {font-style: normal; font-size: 12.5px; font-weight: 600; color: var(--ink-3); min-width: 58px;}
-.live-pl .on em {color: var(--red);} .live-pl .on {box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--red) 35%, transparent);}
+/* Livestream: big numbers, a platform split bar with a legend, and a line through the service; red accent */
+.w[data-w="live"] {--wc: var(--red); --wb: var(--red-bg);}
+.lv-card {position: relative; display: grid; gap: 14px; padding: 18px 20px; border-radius: 18px; border: 1px solid var(--line); background: var(--soft); min-width: 0;}
+.lv-pair {display: grid; grid-template-columns: 1fr 1fr; gap: 12px; text-align: center;}
+.lv-pair > div {display: grid; gap: 6px; justify-items: center;}
+.lv-key {display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 15px;}
+.lv-key .ring {width: 12px; height: 12px; border-radius: 50%; border: 2.5px solid var(--ink-3);} .lv-key .ring.hot {border-color: var(--red);}
+.lv-big {font-size: 38px; font-weight: 600; letter-spacing: -.02em; line-height: 1.05; font-variant-numeric: tabular-nums;} .lv-big small {font-size: 15px; font-weight: 500; color: var(--ink-3); letter-spacing: 0;}
+.lv-pair small {font-size: 13px; color: var(--ink-3); font-family: ui-monospace, "SF Mono", Menlo, monospace;} .lv-pair small.lv-up {color: var(--red); font-weight: 600;}
+.lv-line {position: relative; height: 110px; margin: 0 -20px -4px;} .lv-line svg {width: 100%; height: 100%; display: block;}
+.lv-now {position: absolute; right: 4%; width: 0; height: 0;}
+.lv-now::before {content: ""; position: absolute; left: -6px; top: -6px; width: 12px; height: 12px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 6px color-mix(in srgb, var(--red) 22%, transparent);}
+.lv-now em {position: absolute; right: 14px; bottom: 8px; font-style: normal; font-size: 12px; color: var(--ink-3); white-space: nowrap;}
+.lv-bar {display: flex; gap: 5px; height: 9px;} .lv-bar i {flex: 1 1 0; min-width: 6px; border-radius: 999px; background: color-mix(in srgb, var(--ink) 15%, transparent);}
+.lv-legend {display: flex; flex-wrap: wrap; gap: 8px 22px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 14px; color: var(--ink-3);}
+.lv-legend span {display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;} .lv-legend span > i {width: 11px; height: 11px; border-radius: 50%;}
+.lv-legend b {color: var(--ink); font-weight: 500;} .lv-legend em {font-style: normal; font-size: 12px;}
+.lv-svcs {display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px;}
+.lv-svc-top {display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;} .lv-svc-top b {font-size: 16px; font-weight: 500; color: var(--ink-2);} .lv-svc-top small {color: var(--ink-3); font-size: 13px;}
+.lv-svcs .lv-big {font-size: 36px;}
+.live-nums {margin-bottom: 12px;}
 .live-set p {margin: 0 0 12px; color: var(--ink-2); line-height: 1.5;} .live-set .note {margin: 12px 0 0;}
 .live-row {display: flex; gap: 8px;} .live-row .in {flex: 1; min-width: 0;}
 .live-ch {display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--ink-3);} .live-ch b {color: var(--ink-2); font-weight: 600;}
 .link-btn {border: 0; background: none; padding: 0; color: var(--accent); font-weight: 600; font-size: 13px; cursor: pointer;} .live-set .link-btn {margin-top: 10px;}
 .live-last {display: grid; gap: 2px; border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; margin: -2px 0 14px;}
 .live-last small {color: var(--ink-3); font-size: 12.5px;} .live-last span {color: var(--ink-2); font-size: 14px;} .live-last b {color: var(--ink);}
-.live-day {margin: 0 0 14px;}
-.ld-svc {display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 12px 12px 12px 18px; margin: 0 0 8px; border-radius: 18px; background: var(--soft);}
-.ld-time {display: grid; gap: 1px;} .ld-time b {font-size: 15px; font-weight: 600; white-space: nowrap;} .ld-time small {color: var(--ink-3); font-size: 12px; white-space: nowrap;}
-.ld-nums {display: flex; justify-content: center; gap: 6px 18px; flex-wrap: wrap;}
-.ld-pl {display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap;} .ld-pl small {color: var(--ink-2); font-size: 13px;} .ld-pl b {font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums;}
-.ld-total {display: grid; justify-items: center; min-width: 56px; padding: 6px 10px; border-radius: 14px; background: var(--red); color: #fff;}
-.ld-total b {font-size: 24px; line-height: 1.05; font-variant-numeric: tabular-nums;} .ld-total small {font-size: 11px; opacity: .9;}
-.ld-when {margin: 4px 2px 10px; font-weight: 600; font-size: 15px;} .live-day .note {margin: 0 0 8px;}
-@media (max-width: 600px) {
-  .ld-svc {grid-template-columns: minmax(0, 1fr) auto; padding: 12px 12px 12px 16px;} .ld-nums {grid-column: 1 / -1; grid-row: 2; justify-content: space-between;}
-  .live-nums .lv-row {padding: 10px 14px;} .live-nums .lv-row b {font-size: 24px;}}
+.live-day {margin: 0 0 14px;} .live-day .note {margin: 0 0 8px;}
+@media (max-width: 600px) {.lv-card {padding: 16px;} .lv-line {margin: 0 -16px -2px;} .lv-big {font-size: 32px;} .lv-legend {gap: 8px 16px; font-size: 13px;}}
 .live-day-top {display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px;} .live-day-top b {font-size: 15px;}
 .live-day-top .link-btn:disabled {opacity: .35; pointer-events: none;}
-.ld-days {display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x proximity; padding: 4px 2px 10px; margin: 0 -2px 4px; scrollbar-width: none;} .ld-days::-webkit-scrollbar {display: none;}
-.ld-days button {flex: none; width: 80px; scroll-snap-align: end; display: grid; justify-items: center; gap: 4px; font: inherit; cursor: pointer; border: 0; background: var(--soft); color: var(--ink-2); border-radius: 999px; padding: 8px 4px 14px;}
-.ld-days button i {font-style: normal; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--card); color: var(--ink); font-size: 18px; font-weight: 700; margin-bottom: 4px; box-shadow: 0 1px 2px rgba(0,0,0,.06);}
-.ld-days button b {font-size: 13px; font-weight: 600;} .ld-days button small {color: var(--ink-3); font-size: 11px; white-space: nowrap;}
-.ld-days button:hover {background: color-mix(in srgb, var(--red) 10%, var(--soft));}
-.ld-days button.on {background: var(--red); color: #fff; box-shadow: 0 8px 18px color-mix(in srgb, var(--red) 30%, transparent);} .ld-days button.on i {color: var(--red);} .ld-days button.on small {color: #fff; opacity: .85;}
+.ld-days {display: flex; gap: 2px; overflow-x: auto; scroll-snap-type: x proximity; padding: 4px; margin: 0 0 12px; border-radius: 999px; background: var(--soft); border: 1px solid var(--line); scrollbar-width: none;} .ld-days::-webkit-scrollbar {display: none;}
+.ld-days button {flex: none; scroll-snap-align: end; font: inherit; font-size: 14.5px; cursor: pointer; border: 0; background: none; color: var(--ink-2); border-radius: 999px; padding: 9px 16px; white-space: nowrap;}
+.ld-days button small {margin-left: 4px; font-size: 12px; color: var(--ink-3); font-family: ui-monospace, "SF Mono", Menlo, monospace;}
+.ld-days button:hover {color: var(--ink);}
+.ld-days button.on {background: var(--card); color: var(--ink); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.12);} .ld-days button.on small {color: var(--red);}
 .svc-top {display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;} .svc-time {display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 13px;}
 .svc-time .in.sm {width: auto; padding: 6px 10px; font-size: 14px; min-height: 0; height: auto;}
 .svc-live {display: flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 13px; padding-top: 2px;} .svc-live svg {width: 15px; height: 15px; flex: none;}
