@@ -69,6 +69,14 @@ export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams, from = Number(sp.get("from")), to = Number(sp.get("to"));
   if (from > 0 && to > from) {
     if (w.c !== w.me.home) return Response.json({ church: w.c, services: null });
+    // ...or, with minutes=1, the numbers through those times in 5-minute steps (the Livestream graph's last 24 hours)
+    if (sp.get("minutes") === "1") {
+      const r = await ask(`${d.base}/api/minutes?${d.q}from=${from}&to=${to}`);
+      const s = r?.ok ? await r.json().catch(() => null) : null;
+      if (!s || !Array.isArray(s.points)) return say("The live dashboard needs updating to give the last 24 hours.", 502);
+      return Response.json({ church: w.c, points: s.points.slice(0, 400).map((x: Record<string, unknown>) => ({ t: Number(x.t) || 0, total: Number(x.total) || 0 })) },
+        { headers: { "cache-control": "no-store" } });
+    }
     // ...or, with peaks=1, the highest on each platform between the two times (a service's own start and end)
     if (sp.get("peaks") === "1") {
       const r = await ask(`${d.base}/api/peaks?${d.q}from=${from}&to=${to}`);
