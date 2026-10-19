@@ -7,9 +7,12 @@ const AWAY = new Set(["inactive", "moved", "left", "deceased", "transferred", "a
 const ROLE = {admin: "Admin", bishop: "Bishop", lead: "Church admin", team: "Team", pastor: "Pastor"};
 const ROLE_OPTS = [["team", "Team (ushers)"], ["pastor", "Pastor (only their own people)"], ["lead", "Church admin (whole church, follow-up)"],
   ["lead_pastor", "Lead pastor (whole church, plus their own people)"],
-  ["bishop", "Bishop (numbers only, all churches)"], ["admin", "Admin (everything, all churches)"]];
-// A lead pastor is a church admin with the title "Lead pastor" (they also get the Pastor view for their own people)
-const roleName = u => u?.role === "lead" && u?.title === "Lead pastor" ? "Lead pastor" : ROLE[u?.role] || u?.role || "";
+  ["bishop", "Bishop (numbers only, all churches)"], ["admin", "Admin (everything, all churches)"],
+  ["tech_admin", "Tech admin (everything an admin can do; shown as Tech admin)"]];
+// A lead pastor is a church admin with the title "Lead pastor" (they also get the Pastor view for their own people).
+// A tech admin is an admin with the title "Tech admin": the same rights, but named apart from the church's own admins
+// (in the Activity log, Sign-ins and the top bar).
+const roleName = u => u?.role === "lead" && u?.title === "Lead pastor" ? "Lead pastor" : u?.role === "admin" && u?.title === "Tech admin" ? "Tech admin" : ROLE[u?.role] || u?.role || "";
 const baseName = () => roleName({role: S.me.base, title: S.me.title});
 const FLAG = {red: "Red", yellow: "Yellow", blue: "Blue", ok: "On track"};
 const root = document.getElementById("root");
@@ -2996,8 +2999,8 @@ async function admin(el) {
   // One popup to add someone or change them: main role, an optional second role (Pastor), and the pastor name when needed.
   function userDialog(u) {
     document.querySelectorAll(".modal").forEach(m => m.remove());
-    const two = r => ["admin", "lead"].includes(r), noChurch = r => ["admin", "bishop"].includes(r);
-    const role0 = roleName(u) === "Lead pastor" ? "lead_pastor" : u?.role || "team", second0 = u && two(u.role) && u.pastor && role0 !== "lead_pastor" ? "pastor" : "";
+    const two = r => ["admin", "lead", "tech_admin"].includes(r), noChurch = r => ["admin", "bishop", "tech_admin"].includes(r);
+    const role0 = roleName(u) === "Lead pastor" ? "lead_pastor" : roleName(u) === "Tech admin" ? "tech_admin" : u?.role || "team", second0 = u && two(u.role) && u.pastor && role0 !== "lead_pastor" ? "pastor" : "";
     const d = document.createElement("div"); d.className = "modal";
     d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="${u ? "Change sign-in" : "Add a person"}">
       <div class="card-head"><h2>${u ? `Change ${esc(u.name || u.email)}` : "Add a person"}</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
@@ -3025,8 +3028,8 @@ async function admin(el) {
     (u ? $("ud-name") : $("ud-email")).focus();
     d.querySelector("form").onsubmit = async e => {
       e.preventDefault();
-      const go = $("ud-go"), err = $("ud-err"), pick = $("ud-role").value, r = pick === "lead_pastor" ? "lead" : pick, needP = pick === "pastor" || pick === "lead_pastor" || (two(pick) && $("ud-2").value === "pastor");
-      const title = pick === "lead_pastor" ? "Lead pastor" : null;
+      const go = $("ud-go"), err = $("ud-err"), pick = $("ud-role").value, r = pick === "lead_pastor" ? "lead" : pick === "tech_admin" ? "admin" : pick, needP = pick === "pastor" || pick === "lead_pastor" || (two(pick) && $("ud-2").value === "pastor");
+      const title = pick === "lead_pastor" ? "Lead pastor" : pick === "tech_admin" ? "Tech admin" : null;
       const more = title || u?.title ? {title} : {};  // only sent when used, so it works before the new setup SQL
       const email = $("ud-email").value.trim().toLowerCase(), name = $("ud-name").value.trim().replace(/\s+/g, " ").slice(0, 80);
       const pastor = needP ? $("ud-p").value.trim().replace(/\s+/g, " ") : "", church = noChurch(r) ? null : $("ud-c").value;
@@ -3045,7 +3048,7 @@ async function admin(el) {
           toast(`Added. ${name || email} can now sign in with ${email}.`);
         }
         close(); render();
-      } catch (ex) { fail(/duplicate|already exists|23505/i.test(ex.message) ? "That email can already sign in." : /title|column/i.test(ex.message) ? "Lead pastor needs the latest setup SQL: run it in Supabase once, then try again." : ex.message); }
+      } catch (ex) { fail(/duplicate|already exists|23505/i.test(ex.message) ? "That email can already sign in." : /title|column/i.test(ex.message) ? `${title || "This role"} needs the latest setup SQL: run it in Supabase once, then try again.` : ex.message); }
     };
   }
   drawUsers();
