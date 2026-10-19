@@ -1604,11 +1604,12 @@ function checkin(el) {
   const pastor = S.me.role === "pastor";  // a pastor ticks their own people only (locks work as for ushers): no adding or renaming
   // Laid out like Admin → Sign-ins: numbers on top, then pills to filter, team and search on the right, a table of names, 25 a page
   el.innerHTML = head("Check-in", pastor ? "Your people" : esc(S.church)) + `
-    <div class="card" style="margin-bottom:14px"><div class="row">
+    <details class="card ci-top" style="margin-bottom:14px" ${(() => { try { return localStorage.getItem("fcc-ci-top") === "closed" ? "" : "open"; } catch { return "open"; } })()}>
+      <summary><span class="ci-top-t"><b>Service</b><small id="ci-top-sum"></small></span>${svg("caret")}</summary><div class="row">
       <div style="flex:0 0 170px"><label class="f" for="d">Service date</label><input class="in" id="d" type="date" value="${S.date}"></div>
       <div><label class="f" for="svc">Service</label><input class="in" id="svc" list="svc-list" maxlength="60" autocomplete="off" value="${esc(svcName(S.date))}" ${pastor ? "readonly" : ""}>
         <datalist id="svc-list">${[...new Set(["Sunday Service", "Midweek Service", "Prayer Meeting", "Special Service", ...Object.values(S.names)])].map(n => `<option value="${esc(n)}">`).join("")}</datalist></div></div>
-      <div id="ci-parts"></div></div>
+      <div id="ci-parts"></div></details>
     <div class="tiles"><div class="card tile"><div class="label">Checked in</div><div class="num" id="n-in">0</div></div>
       <div class="card tile"><div class="label">Adults</div><div class="num" id="n-ad">0</div></div>
       <div class="card tile"><div class="label">Kids</div><div class="num" id="n-kid">0</div></div>
@@ -1632,7 +1633,13 @@ function checkin(el) {
   // A day can hold more than one service: pick which one you're ticking for, or the whole day
   const curPart = () => { const ps = partsOf(S.date); if (!ps.length) return 0; const v = S.ciParts?.[S.date]; return v && ps.some(x => x.part === v) ? v : ps[0].part; };
   let armedPart = false;
+  // The top card folds away: its title line still shows the day and the service being ticked
+  const topSum = () => { const s = el.querySelector("#ci-top-sum"); if (!s) return; const ps = partsOf(S.date);
+    s.textContent = `${nice(S.date, true)} · ${ps.length ? partName(S.date, curPart()) : el.querySelector("#svc")?.value || svcName(S.date)}`; };
+  el.querySelector(".ci-top")?.addEventListener("toggle", e => { try { localStorage.setItem("fcc-ci-top", e.target.open ? "open" : "closed"); } catch {} });
+  el.querySelector("#svc")?.addEventListener("input", topSum);
   const drawParts = () => {
+    topSum();
     const ps = partsOf(S.date), n = curPart(), wrap = el.querySelector("#ci-parts"), boss = ["admin", "lead"].includes(S.me.role);
     if (!S.partsOk || (pastor && !ps.length)) { wrap.innerHTML = ""; return; }
     wrap.innerHTML = ps.length ? `<div class="ci-parts"><div class="ci-pick"><span class="f">Ticking for</span><div class="seg ci-seg" role="group" aria-label="Which service">${ps.map(x =>

@@ -947,6 +947,12 @@ button.chip:not(.on):hover, .wa-chip:hover span {border-color: var(--accent); co
 [data-theme="dark"] .rpill.tint[aria-selected="true"]:not([style]), [data-theme="dark"] .rpill.tint[aria-pressed="true"]:not([style]) {background: var(--accent); color: var(--accent-ink);}
 /* A date pill never gets cut short by a narrow column */
 div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
+/* Check-in: the top card (date, service, which service) folds away */
+.ci-top > summary {list-style: none; display: flex; align-items: center; gap: 10px; cursor: pointer; margin: -2px 0 0;}
+.ci-top > summary::-webkit-details-marker {display: none;}
+.ci-top-t {display: grid; gap: 2px; min-width: 0;} .ci-top-t b {font-size: var(--fs-lg, 17px); font-weight: 600;} .ci-top-t small {color: var(--ink-3); font-size: var(--fs-sm, 13px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.ci-top > summary svg {width: 18px; height: 18px; margin-left: auto; flex: none; color: var(--ink-2); transition: transform .2s;} .ci-top[open] > summary svg {transform: rotate(180deg);}
+.ci-top[open] > summary {margin-bottom: 14px;}
 </style>
 </head>
 <body>
