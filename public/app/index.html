@@ -1006,6 +1006,19 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 .ch-pop small {font-size: var(--fs-xs, 12px); color: var(--ink-3);} .ch-pop svg {width: 16px; height: 16px; flex: none;}
 .ch-pop .ch-all {margin-top: 4px; border-top: 1px solid var(--line); border-radius: 0 0 10px 10px; color: var(--accent); font-weight: 600;}
 .church[data-chpick] {cursor: pointer; width: 100%; border: 0; background: none; font: inherit; text-align: left;}
+/* Livestream: numbers, then the day tabs and services, then the graph (full width, no circle) */
+.w .lv-prog {grid-template-columns: minmax(0, 1fr); margin-top: 4px;}
+/* The day tabs as they were before: a row of small cards, the day and how many watched; the chosen one filled */
+.live-day .ld-days {display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x proximity; padding: 2px 2px 8px; margin: 0 -2px 6px; border: 0; border-radius: 0; background: none; scrollbar-width: none;}
+.live-day .ld-days button {flex: none; scroll-snap-align: end; display: grid; gap: 1px; min-height: 0; text-align: left; font: inherit; font-size: var(--fs, 15px); cursor: pointer; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 12px; padding: 7px 12px; box-shadow: none; white-space: nowrap;}
+.live-day .ld-days button b {font-weight: 600;}
+.live-day .ld-days button small {margin: 0; color: var(--ink-3); font-size: var(--fs-xs, 12px); font-family: inherit;}
+.live-day .ld-days button:hover {border-color: var(--ink-3);}
+.live-day .ld-days button.on {background: var(--accent); border-color: transparent; color: var(--accent-ink); box-shadow: none;} .live-day .ld-days button.on small {color: var(--accent-ink); opacity: .85;}
+/* The yellow note on the Summary: picking the times fills in the livestream */
+.live-fill {display: flex; align-items: flex-start; gap: 10px; margin: 4px 0 14px; padding: 12px 14px; border-radius: 12px; background: var(--yellow-bg); border: 1px solid color-mix(in srgb, var(--yellow) 55%, transparent); color: var(--ink); font-size: var(--fs-sm, 13px); line-height: 1.45;}
+.live-fill svg {width: 18px; height: 18px; flex: none; margin-top: 1px; color: #b07800;} [data-theme="dark"] .live-fill svg {color: var(--yellow);}
+.live-fill b {font-weight: 600;}
 </style>
 </head>
 <body>
