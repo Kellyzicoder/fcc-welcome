@@ -984,6 +984,17 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 .ci-top-t {display: grid; gap: 2px; min-width: 0;} .ci-top-t b {font-size: var(--fs-lg, 17px); font-weight: 600;} .ci-top-t small {color: var(--ink-3); font-size: var(--fs-sm, 13px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
 .ci-top > summary svg {width: 18px; height: 18px; margin-left: auto; flex: none; color: var(--ink-2); transition: transform .2s;} .ci-top[open] > summary svg {transform: rotate(180deg);}
 .ci-top[open] > summary {margin-bottom: 14px;}
+/* Reports tabs; the summary/email pages' own titles are hidden inside them */
+.rep-tabs {display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; margin: 0 0 16px; border-radius: 999px; background: var(--soft); border: 1px solid var(--line); max-width: 100%;}
+.rep-tabs button {border: 0; background: none; font: inherit; font-size: var(--pill-fs-sm, 13px); font-weight: 600; color: var(--ink-2); min-height: 32px; padding: 0 14px; border-radius: 999px; cursor: pointer;}
+.rep-tabs button[aria-selected="true"] {background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(8, 15, 30, .14);}
+.rep-body > .head {display: none;}
+.rep-body[data-tab="email"] #dls, .rep-body[data-tab="downloads"] #to, .rep-body[data-tab="downloads"] #sent {display: none;}
+/* Churches: manage them */
+.ch-manage {margin-top: 16px;} .ch-list {display: grid; margin: 4px 0 14px;}
+.ch-row {display: flex; align-items: center; gap: 10px; padding: 12px 2px; border-top: 1px solid var(--line); flex-wrap: wrap;} .ch-row:first-child {border-top: 0;}
+.ch-name {flex: 1 1 200px; min-width: 0; display: grid; gap: 2px;} .ch-name small {color: var(--ink-3); font-size: var(--fs-sm, 13px);}
+.ch-add {margin-top: 4px;}
 </style>
 </head>
 <body>
