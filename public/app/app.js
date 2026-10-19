@@ -2979,13 +2979,24 @@ async function admin(el) {
       ${shown.map(u => `<tr><td><div class="who-cell"><span class="ava" ${avaStyle(u.name || u.email)}>${esc(initials(u.name || u.email))}</span><span><b>${esc(u.name || u.email.split("@")[0])}</b><small>${esc(u.email)}</small></span></div></td>
         <td><span class="rbadge ${roleCls(u.role)}">${esc(roleName(u))}</span>${u.pastor && u.role !== "pastor" && roleName(u) !== "Lead pastor" ? ` <span class="rbadge r-pastor">+ Pastor</span>` : ""}</td>
         <td class="muted">${esc(u.church || "All churches")}</td><td class="muted hide-sm">${esc(u.pastor || (u.role === "pastor" ? "Not set yet" : ""))}</td>
-        <td style="white-space:nowrap;text-align:right">${u.email === S.me.email ? `<span class="muted">You</span>` : `<button class="pill-btn sm" data-chg="${esc(u.email)}">${svg("edit")}Change</button> <button class="x" data-del="${esc(u.email)}">Remove</button>`}</td></tr>`).join("")}</tbody></table></div>
+        <td style="white-space:nowrap;text-align:right">${u.email === S.me.email ? (u.role === "admin" && !S.preview  // your own row: only switch between Admin and Tech admin (same rights), never lose admin by mistake
+            ? `<span class="muted">You</span> <button class="pill-btn sm" data-me-title="${u.title === "Tech admin" ? "" : "Tech admin"}" title="Same rights either way: this only changes how you're named">${svg("edit")}Show me as ${u.title === "Tech admin" ? "Admin" : "Tech admin"}</button>`
+            : `<span class="muted">You</span>`) : `<button class="pill-btn sm" data-chg="${esc(u.email)}">${svg("edit")}Change</button> <button class="x" data-del="${esc(u.email)}">Remove</button>`}</td></tr>`).join("")}</tbody></table></div>
       ${pages > 1 ? `<div class="pager"><span class="muted">Page ${S.uPage} of ${pages} · ${list.length} people</span><span class="gap"></span>
         <button class="pg" data-pg="${S.uPage - 1}" ${S.uPage === 1 ? "disabled" : ""} aria-label="Previous page">${svg("prev")}</button>
         ${nums.map((n, i) => (i && n - nums[i - 1] > 1 ? `<span class="muted">…</span>` : "") + `<button class="pg ${n === S.uPage ? "on" : ""}" data-pg="${n}">${n}</button>`).join("")}
         <button class="pg" data-pg="${S.uPage + 1}" ${S.uPage === pages ? "disabled" : ""} aria-label="Next page">${svg("next")}</button></div>` : ""}`;
     el.querySelectorAll("#u-list [data-pg]").forEach(b => b.onclick = () => { S.uPage = +b.dataset.pg; drawUsers(); });
     el.querySelectorAll("#u-list [data-chg]").forEach(b => b.onclick = () => change(b.dataset.chg));
+    el.querySelectorAll("#u-list [data-me-title]").forEach(b => b.onclick = async () => {
+      const t = b.dataset.meTitle || null; b.disabled = true;
+      try {
+        const rows = await api(`app_users?email=eq.${encodeURIComponent(S.me.email)}`, {method: "PATCH", prefer: "return=representation", body: {title: t}});
+        if (!rows?.length) throw new Error("Not saved. Check you are still signed in as an admin.");
+        S.me.title = t; log("role_change", "", "done", `${S.me.email}: ${t || "Admin"}`);
+        toast(`Saved. You're now shown as ${t || "Admin"}, with the same rights.`); render();
+      } catch (err) { b.disabled = false; toast(/title|column/i.test(err.message) ? "Run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
+    });
     el.querySelectorAll("#u-list [data-del]").forEach(b => { let armed = false; b.onclick = () => {
       if (!armed) { armed = true; b.textContent = "Tap again to remove"; setTimeout(() => { armed = false; b.textContent = "Remove"; }, 4000); return; }
       again(() => api(`app_users?email=eq.${encodeURIComponent(b.dataset.del)}`, {method: "DELETE", prefer: "return=minimal"})); }; });
