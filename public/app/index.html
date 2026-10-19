@@ -63,6 +63,30 @@ button:disabled, [aria-disabled="true"] {cursor: default;}
          border: 0; background: none; width: 100%; text-align: left; font-weight: 500;}
 .church i {width: 8px; height: 8px; border-radius: 50%; background: var(--line);}
 .church.on {color: var(--ink); background: var(--soft);} .church.on i {background: var(--accent);}
+/* Summary and Email reports: the preview sits on the side like a page, the form on the left */
+.wa-page .modal-grid {grid-template-columns: minmax(0, 1fr) minmax(320px, 430px);}
+.wa-prev-head {display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px;} .wa-prev-head > b {font-size: var(--fs-lg, 17px); font-weight: 600;}
+.wa-paper {position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 24px 24px 20px; box-shadow: 0 12px 32px rgba(8, 15, 30, .08); overflow: auto; max-height: calc(100dvh - 260px);}
+.wa-paper::after {content: ""; position: absolute; top: 0; right: 0; width: 26px; height: 26px; background: linear-gradient(225deg, var(--soft) 50%, var(--line) 50%, var(--card) 56%); border-radius: 0 16px 0 6px;}
+.wa-paper .preview {margin: 0; border: 0; background: none; padding: 0; max-height: none; box-shadow: none;}
+.wa-paper .preview:not(.nice) {font-size: 13px;}
+.wa-paper-note {margin: 8px 2px 12px; font-size: var(--fs-xs, 12px); color: var(--ink-3);}
+.wa-side .wa-send {display: block;}
+.preview.nice .pm-title {font-size: 19px; line-height: 1.25; font-weight: 700; border: 0; padding: 0 30px 4px 0; margin: 0 0 4px;}
+.pm-fields {display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; padding: 12px 0 16px; margin: 0 0 6px; border-bottom: 1px solid var(--line);}
+.pm-fields .pm-field {display: grid; grid-template-columns: 1fr; gap: 2px; padding: 0; margin: 0; min-width: 0;}
+.pm-fields .pm-field span {min-width: 0; font-size: 12px; color: var(--ink-3); text-transform: none; letter-spacing: 0;} .pm-fields .pm-field b {overflow-wrap: anywhere;}
+.wa-paper .pm-total {border-top: 0; border-bottom: 1px solid var(--line); padding: 12px 0 6px; margin-top: 6px;}
+.wa-paper .pm-sub {padding: 4px 0 4px 2px; border-bottom: 1px dashed color-mix(in srgb, var(--line) 70%, transparent);}
+.wa-paper .pm-sec {margin-top: 18px;}
+.rep-split {display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 430px); gap: 18px; align-items: start; margin: 0 0 14px;} .rep-split > .card {margin: 0;}
+.rep-prev {position: sticky; top: 16px;} .rep-body[data-tab="downloads"] .rep-split {display: none;}
+@media (max-width: 900px) { .wa-page .modal-grid, .rep-split {grid-template-columns: minmax(0, 1fr);} .rep-prev {position: static;} .wa-paper {max-height: none;} }
+/* Congregation: the search bar on top (as on Check-in), the sort boxes beside it, the pills under it */
+.find-row {display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; margin: 4px 0 12px;} .find-row .find-bar {flex: 1 1 300px; margin: 0;}
+.find-row .u-tools {flex: 0 1 auto; justify-content: flex-start;} .find-row .u-tools select {min-height: 100%;}
+.u-pills {margin: 0 0 14px;}
+@media (max-width: 640px) { .find-row .u-tools {flex: 1 1 100%;} }
 /* Livestream: one big number; the 24-hour graph scrolls sideways (opens at now) */
 .lv-pair.lv-one {grid-template-columns: 1fr;}
 .lv-scroll {grid-column: 2; grid-row: 1 / span 2; overflow-x: auto; overflow-y: hidden; padding-top: 48px; margin-top: -48px; scrollbar-width: thin; overscroll-behavior-x: contain;}
