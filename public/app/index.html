@@ -973,6 +973,17 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 .lv-ring-legend {display: grid; gap: 6px; width: 100%; font-size: var(--fs-sm, 13px);} .lv-ring-legend span {display: flex; align-items: center; gap: 8px;} .lv-ring-legend i {width: 9px; height: 9px; border-radius: 50%;}
 .lv-ring-legend em {margin-left: auto; font-style: normal; color: var(--ink-3); font-variant-numeric: tabular-nums;}
 @container (max-width: 560px) { .lv-prog {grid-template-columns: minmax(0, 1fr);} .lv-ring-wrap {grid-template-columns: auto 1fr; align-items: center; justify-items: start;} .lv-ring-wrap .lv-side-t {grid-column: 1 / -1;} .lv-ring {width: 110px; height: 110px;} }
+/* A newer version is ready: a small dot on Refresh */
+.refresh-btn.new {position: relative;} .refresh-btn.new::after {content: ""; position: absolute; top: 4px; right: 4px; width: 9px; height: 9px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 2px var(--card);}
+.w-body {overflow-anchor: none;} .wgrid {overflow-anchor: auto;}
+.head p.greet {margin: 0 0 2px; font-size: 16px; font-weight: 600; color: var(--accent);}
+.svc-more {display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 4px;} .svc-more svg {width: 15px; height: 15px;}
+/* Check-in: the top card (date, service, which service) folds away */
+.ci-top > summary {list-style: none; display: flex; align-items: center; gap: 10px; cursor: pointer; margin: -2px 0 0;}
+.ci-top > summary::-webkit-details-marker {display: none;}
+.ci-top-t {display: grid; gap: 2px; min-width: 0;} .ci-top-t b {font-size: var(--fs-lg, 17px); font-weight: 600;} .ci-top-t small {color: var(--ink-3); font-size: var(--fs-sm, 13px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.ci-top > summary svg {width: 18px; height: 18px; margin-left: auto; flex: none; color: var(--ink-2); transition: transform .2s;} .ci-top[open] > summary svg {transform: rotate(180deg);}
+.ci-top[open] > summary {margin-bottom: 14px;}
 </style>
 </head>
 <body>
