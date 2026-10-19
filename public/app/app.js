@@ -310,7 +310,7 @@ function waDialog(title, build, opts = {}) {
   // the boxes: one set, or one set per service. With more than one, each service's livestream peaks show under its own boxes.
   // Livestream peaks as they go in the boxes. Zoom counts the host and co-host as viewers, so 2 are taken off (never below 0).
   const liveNums = x => ({yt: x.youtube > 0 ? x.youtube : null, fb: x.facebook > 0 ? x.facebook : null, zoomA: x.zoom > 0 ? Math.max(0, x.zoom - 2) : null});
-  const zoomWhy = x => x.zoom > 0 ? `Zoom showed ${x.zoom}; 2 are taken off for the host and co-host, so ${Math.max(0, x.zoom - 2)}.` : "";
+  const zoomWhy = x => x.zoom > 0 ? `Zoom ${x.zoom} − 2 for the host and co-host = ${Math.max(0, x.zoom - 2)}` : "";
   // the livestream that goes with a service starting at t ("HH:MM"): the one whose start is nearest, within 2 hours (or that was running then)
   const liveAt = (t, e) => { if (!t || !liveList.length || !st.day) return null; const ms = v => { const [h, m] = v.split(":").map(Number); return new Date(st.day + "T00:00:00").setHours(h, m); }, at = ms(t);
     if (e && ms(e) > at) { const to = ms(e), over = x => Math.min(to, x.end || x.start + 36e5) - Math.max(at, x.start);  // with an end time: the stream that overlaps the service most
@@ -320,20 +320,32 @@ function waDialog(title, build, opts = {}) {
     return Math.abs(x.start - at) <= 2 * 3600e3 ? x : null; };
   const liveUnder = j => { const x = liveAt(st[`time_${j + 1}`], st[`end_${j + 1}`]) || liveList[j]; return x ? `<small class="wide svc-live">${svg("live")}Livestream ${hm(x.start)}: YouTube ${x.youtube} · Facebook ${x.facebook} · Zoom ${x.zoom} (${Math.max(0, x.zoom - 2)} without the host and co-host)</small>` : ""; };
   // When a service's start time is picked: offer that time's livestream peaks for its boxes
-  const offerLive = n => {
+  // When a service's times are picked: offer the highest on each platform between those times (the livestream's own peaks
+  // if the live dashboard can't give them for part of a stream), Zoom 2 less for the host and co-host
+  let askTurn = 0;
+  const offerLive = async n => {
     const box = d.querySelector(`[data-ask="${n}"]`), t = st[`time_${n}`], e = st[`end_${n}`]; if (!box || !t || !liveOk()) return;
-    const x = liveAt(t, e), sfx = st.multi ? "_" + n : "", when = e ? `${clock(t)} to ${clock(e)}` : clock(t);
+    const x = liveAt(t, e), sfx = st.multi ? "_" + n : "", when = e ? `${clock(t)} to ${clock(e)}` : clock(t), mine = ++askTurn;
+    box.hidden = false;
     if (!x) { box.innerHTML = liveList.length ? `<span>No livestream ${e ? "during" : "near"} ${when}. The day's livestreams started at ${liveList.map(y => hm(y.start)).join(", ")}.</span><button type="button" class="link-btn" data-no>OK</button>`
-        : `<span>No livestream numbers for this day.</span><button type="button" class="link-btn" data-no>OK</button>`; }
-    else { const v = liveNums(x);
-      box.innerHTML = `<b>${svg("live")}Fill in the livestream for the ${when} service?</b>
-        <small>Each one's peak from the livestream that started at ${hm(x.start)}${x.end ? ` and ended ${hm(x.end)}` : ""}:</small>
-        <div class="ask-nums"><i>YouTube<em>${v.yt ?? 0}</em></i><i>Facebook<em>${v.fb ?? 0}</em></i><i>Zoom<em>${v.zoomA ?? 0}</em></i></div>
-        ${x.zoom > 0 ? `<small>${zoomWhy(x)}</small>` : ""}
-        <div class="live-ask-btns"><button type="button" class="pill-btn primary sm" data-yes>Fill in these numbers</button><button type="button" class="pill-btn sm" data-no>Not now</button></div>`;
-      box.querySelector("[data-yes]").onclick = () => { for (const [k, val] of Object.entries(v)) { st[k + sfx] = val === null ? "" : String(val); const i = d.querySelector(`#m-${k}${sfx}`); if (i) i.value = st[k + sfx]; }
-        keepDraft(); draw(); box.hidden = true; toast("Filled in from the livestream. Check them before sending."); }; }
-    box.hidden = false; box.querySelector("[data-no]").onclick = () => { box.hidden = true; };
+        : `<span>No livestream numbers for this day.</span><button type="button" class="link-btn" data-no>OK</button>`;
+      box.querySelector("[data-no]").onclick = () => { box.hidden = true; }; return; }
+    const ms = v => { const [h, m] = v.split(":").map(Number); return new Date(st.day + "T00:00:00").setHours(h, m); };
+    const from = ms(t), to = e && ms(e) > from ? ms(e) : (x.end || x.start + 36e5);
+    box.innerHTML = `<span>Checking the livestream for ${when}…</span>`;
+    let p = null;
+    try { const r = await fetch(`/app-live?church=${encodeURIComponent(S.church)}&from=${from}&to=${to}&peaks=1`, {cache: "no-store", headers: {Authorization: "Bearer " + S.session.access_token}});
+      const j = r.ok ? await r.json() : null; if (j?.peaks?.minutes > 0) p = j.peaks; } catch {}
+    if (mine !== askTurn || !box.isConnected) return;
+    const src = p || x, v = liveNums(src), zoomA = Math.max(0, src.zoom - 2);
+    box.innerHTML = `<b>${svg("live")}Fill in the livestream for the ${when} service?</b>
+      <small>${p ? `Highest on each between ${clock(t)} and ${hm(to)}:` : `Highest on each during the livestream (${hm(x.start)} to ${x.end ? hm(x.end) : "now"}):`}</small>
+      <div class="ask-nums"><i>YouTube<em>${v.yt ?? 0}</em></i><i>Facebook<em>${v.fb ?? 0}</em></i><i>Zoom<em>${v.zoomA ?? 0}</em></i></div>
+      ${src.zoom > 0 ? `<small>Zoom ${src.zoom} − 2 for the host and co-host = ${zoomA}</small>` : ""}
+      <div class="live-ask-btns"><button type="button" class="pill-btn primary sm" data-yes>Fill in these numbers</button><button type="button" class="pill-btn sm" data-no>Not now</button></div>`;
+    box.querySelector("[data-yes]").onclick = () => { for (const [k, val] of Object.entries(v)) { st[k + sfx] = val === null ? "" : String(val); const i = d.querySelector(`#m-${k}${sfx}`); if (i) i.value = st[k + sfx]; }
+      keepDraft(); draw(); box.hidden = true; toast("Filled in from the livestream. Check them before sending."); };
+    box.querySelector("[data-no]").onclick = () => { box.hidden = true; };
   };
   const liveOk = () => opts.fields?.some(f => f[0] === "yt") && ["admin", "lead"].includes(S.me.role);
   // Each service's start time can be set by hand (it starts as the livestream's start, if there was one) and names the service in the message
@@ -399,6 +411,7 @@ function waDialog(title, build, opts = {}) {
       const put = (got, sfx) => { for (const [k, v] of Object.entries(got)) if (v !== null && !st[k + sfx]) { st[k + sfx] = String(v); const i = d.querySelector(`#m-${k}${sfx}`); if (i) i.value = v; } };
       const fill = () => { if (st.multi) Array.from({length: st.count}, (_, i) => liveAt(st[`time_${i + 1}`], st[`end_${i + 1}`]) || list[i]).forEach((x, i) => x && put(nums(x), "_" + (i + 1)));
         else put(nums(list.length === 1 ? list[0] : [...list].sort((a, b) => (b.youtube + b.facebook + b.zoom) - (a.youtube + a.facebook + a.zoom))[0]), ""); keepDraft(); draw(); };
+      if (opts.into) return;  // the Summary page offers each service's livestream under its times instead of this note
       const box = document.createElement("div"); box.className = "live-note";
       const zoomNote = `<small>Zoom counts the host and co-host as viewers, so 2 are taken off what Zoom showed. Split adults and children yourself. Morning prayers (5 to 6 am) aren't counted. Pick a service's start time to fill in the livestream from that time.</small>`;
       if (!st.multi && list.length > 1) {  // the livestream saw more than one service, but the boxes are for one: ask
