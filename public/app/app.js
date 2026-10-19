@@ -267,7 +267,7 @@ function waDialog(title, build, opts = {}) {
           <div class="wa-chips">${incl.map(([id, t, on]) => `<label class="wa-chip"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>${svg("tick")}${t}</span></label>`).join("")}</div></div>`) : ""}
         ${opts.link ? acc("Livestream link", `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-link">Livestream link</label></b><small>Optional. It goes at the end of the message</small></div><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>`, false) : ""}
         ${opts.fields ? `<div class="draft-line"><span id="m-draft"></span><button type="button" class="link-btn" data-clear hidden>Start again</button></div>` : ""}
-        ${opts.into ? acc("The message", `<div class="prev-top"><small>Exactly what Copy and WhatsApp send.</small><div class="pv-seg" role="group" aria-label="Message style"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Easy to read</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">As sent</button></div></div>
+        ${opts.into ? acc("The message", `<div class="prev-top"><small>This is the message that Copy and WhatsApp will send.</small><div class="pv-seg" role="group" aria-label="Message style"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Easy to read</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">As sent</button></div></div>
           <div class="preview ${S.pvRaw ? "" : "nice"}" id="m-text" tabindex="0"></div>`, false) : ""}
       </div>
       ${opts.into ? `<aside class="wa-side"><div class="wa-side-card"><span class="wa-eyebrow">Send</span><p id="wa-state" class="wa-state"></p><div id="wa-actions"></div></div>
@@ -905,10 +905,12 @@ function pages() {  // the menu, in groups; what each role can actually load is 
   const r = S.me.role;
   if (r === "bishop") return [["", [["overview", "All churches"], ["help", "Help"]]]];
   if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people
-  return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["summary", "Summary"], ["followup", "Follow-up"], ["pastors", "Pastors"]]],
-          ["PEOPLE", [["people", "Congregation"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ["archive", "Archive"]]],
-          ...(r === "team" ? [] : [["RECORDS", [["activity", "Activity"], ["reports", "Reports"],
-            ...(r === "admin" ? [["overview", "Churches"], ["admin", "Admin"]] : [])]]]),
+  // Grouped by what people come to do: take attendance, look after people, share the numbers, run the churches, settings
+  return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["followup", "Follow-up"]]],
+          ["PEOPLE", [["people", "Congregation"], ["pastors", "Pastors"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ["archive", "Archive"]]],
+          ["SHARE", [["reports", "Reports"]]],
+          ...(r === "admin" ? [["CHURCHES", [["overview", "Churches"]]]] : []),
+          ...(r === "team" ? [] : [["SETTINGS", [...(r === "admin" ? [["admin", "Settings"]] : []), ["activity", "Activity log"]]]]),
           ["", [["ask", "Ask a question"], ["help", "Help"]]]];
 }
 // Settings each person picks for themselves: colour, theme, text size and so on. Kept on this phone or laptop, per person.
@@ -947,6 +949,7 @@ function render() {
   }
   S.goingBack = false; S.shown = S.view;
   const groups = pages(), who = S.me.name || S.me.email, allowed = [...groups.flatMap(g => g[1].map(x => x[0])), "account", ...(S.me.role === "bishop" ? [] : ["person"])];
+  if (S.view === "summary") { S.view = "reports"; S.repTab = "summary"; }  // the WhatsApp summary is a tab on Reports now
   if (!allowed.includes(S.view)) S.view = allowed[0];
   const short = {dashboard: "Home", overview: "Churches", people: "People", followup: "Follow-up"};  // the bottom bar on phones: the four most-used pages, then More
   const dock = groups.flatMap(g => g[1]).filter(x => ["mine", "dashboard", "checkin", "followup", "people", "overview"].includes(x[0])).slice(0, 4).map(([k, t]) => [k, short[k] || t]);
@@ -1571,7 +1574,7 @@ async function dashboard(el) {
   const p = picture();
   el.innerHTML = head("Dashboard", p.last ? `${esc(svcName(p.last))} · ${esc(nice(p.last, true))}` : "No services recorded yet",
     `<button class="pill-btn" id="addw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">WhatsApp summary</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `<div class="wgrid" id="wgrid"></div>`;
-  el.querySelector("#wa").onclick = () => { S.view = "summary"; render(); };  // the summary has its own page now
+  el.querySelector("#wa").onclick = () => { S.view = "reports"; S.repTab = "summary"; render(); };  // the WhatsApp summary: a tab on Reports
   el.querySelector("#addw").onclick = () => addWidget("home");
   el.querySelector("[data-go]").onclick = () => { S.view = "checkin"; render(); };
   await loadPrefs();
@@ -2556,7 +2559,7 @@ async function bishop(el, rows, text, newest) {
               ["blue", day ? "Missed that service" : "Missed the latest service", sum(pick, "missed_this")]];
   const fuMax = Math.max(1, ...fu.map(f => f[2]));
   const when = !latest ? "No services yet" : day && !had ? nice(day, true) : `${S.names?.[latest] || svcName(latest)} · ${nice(latest, true)}`;
-  el.innerHTML = head("All churches", admin ? "Pick a day and a church, or open a church to work in it" : "Numbers only", `<button class="pill-btn" id="addcw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
+  el.innerHTML = head(admin ? "Churches" : "All churches", admin ? "Every church's numbers; open one to work in it, or manage the list at the bottom" : "Numbers only", `${admin ? `<button class="pill-btn" id="go-manage">${svg("edit")}Manage churches</button>` : ""}<button class="pill-btn" id="addcw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
     <div class="bish">
       <div class="card b-cal" id="b-cal"></div>
       <nav class="card b-list" aria-label="Churches">${list}</nav>
@@ -2564,7 +2567,10 @@ async function bishop(el, rows, text, newest) {
         <div class="b-title"><h2>${esc(S.bChurch || "All churches")}</h2><span class="muted">${esc(when)}</span>
           ${admin && S.bChurch ? `<span class="gap" style="flex:1"></span><button class="pill-btn primary sm" data-open="${esc(S.bChurch)}">Open ${esc(S.bChurch)}</button>` : ""}</div>
         <div class="wgrid c2" id="cgrid"></div>
-      </section></div>`;
+      </section></div>
+    ${admin ? `<div class="card ch-manage" id="ch-manage"></div>` : ""}`;
+  if (admin) { manageChurches(el.querySelector("#ch-manage"), rows);
+    el.querySelector("#go-manage").onclick = () => el.querySelector("#ch-manage")?.scrollIntoView({behavior: "smooth", block: "start"}); }
   // the month calendar: days with a service show how many came (for the chosen church, or all churches added up)
   const counts = {}; for (const d of days || []) if (!S.bChurch || d.church === S.bChurch) counts[d.service_date] = (counts[d.service_date] || 0) + d.present;
   const chosen = day || newest; S.bCal ||= chosen.slice(0, 7);
@@ -2605,8 +2611,54 @@ async function bishop(el, rows, text, newest) {
     ...rows.map(r => served(r) ? [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this]
       : [r.church, `No service on ${day}`, "", "", "", "", r.register, "", "", ""])]);
 }
+// Churches page (admin): every church in one list, with Rename and Delete, and a box to add a new one.
+// A church can only be deleted when nobody is on its register and nobody signs in to it; the home church can't be deleted.
+async function manageChurches(box, rows) {
+  const signins = await api("app_users?select=church").catch(() => []);
+  const people = Object.fromEntries((rows || []).map(r => [r.church, r.register || 0])), logins = {};
+  for (const u of signins) if (u.church) logins[u.church] = (logins[u.church] || 0) + 1;
+  let armed = "";
+  const refresh = async () => { S.churches = (await api("churches?select=name&order=name")).map(c => c.name); await load(); render(); };
+  const draw = () => {
+    box.innerHTML = `<div class="card-head"><h2>Manage churches</h2><span class="gap"></span><span class="muted" style="font-size:13px">${S.churches.length} churches</span></div>
+      <div class="ch-list">${S.churches.map(c => { const n = people[c] || 0, l = logins[c] || 0, home = c === S.me.home;
+        return `<div class="ch-row"><div class="ch-name"><b>${esc(c)}</b><small>${home ? "Home church · " : ""}${n} on the register · ${l} ${l === 1 ? "sign-in" : "sign-ins"}</small></div>
+          <button class="pill-btn sm" data-chren="${esc(c)}">${svg("edit")}Rename</button>
+          ${home ? "" : `<button class="pill-btn sm ci-remove" data-chdel="${esc(c)}">${armed === c ? "Tap again to delete" : "Delete"}</button>`}</div>`; }).join("")}</div>
+      <form class="row ch-add" id="ch-add"><div><label class="f" for="ch-new">Add a church</label><input class="in" id="ch-new" placeholder="e.g. Melbourne" required autocomplete="off"></div>
+        <div style="flex:0 0 auto"><button class="pill-btn primary">${svg("plus")}Add church</button></div></form>
+      <p class="note">A church can be deleted once nobody is on its register and nobody signs in to it. Move or remove them first.</p>`;
+    box.querySelectorAll("[data-chren]").forEach(b => b.onclick = () => formDialog(`Rename ${b.dataset.chren}`, [
+      {k: "name", label: "New name", value: b.dataset.chren, required: true}], async v => {
+        if (!v.name || v.name === b.dataset.chren) return;
+        let name;
+        try { name = await api("rpc/app_rename_church", {method: "POST", body: {old_name: b.dataset.chren, new_name: v.name}}); }
+        catch (err) { throw new Error(/app_rename_church/.test(err.message) ? "Run the latest setup SQL in Supabase once, then try again." : err.message.replace(/^./, c => c.toUpperCase()) + "."); }
+        if (S.church === b.dataset.chren) S.church = name;
+        if (S.bChurch === b.dataset.chren) S.bChurch = name;
+        toast(`Renamed to ${name}.`); await refresh();
+      }, "Rename"));
+    box.querySelectorAll("[data-chdel]").forEach(b => b.onclick = async () => {
+      const c = b.dataset.chdel, n = people[c] || 0, l = logins[c] || 0;
+      if (n || l) return toast(`${c} still has ${n ? `${n} ${n === 1 ? "person" : "people"} on its register` : ""}${n && l ? " and " : ""}${l ? `${l} ${l === 1 ? "sign-in" : "sign-ins"}` : ""}. Move or remove them first.`);
+      if (armed !== c) { armed = c; draw(); setTimeout(() => { if (armed === c) { armed = ""; if (box.isConnected) draw(); } }, 4000); return; }
+      armed = "";
+      if (S.preview) return toast("Not deleted: " + viewOnly());
+      try {
+        await api(`churches?name=eq.${encodeURIComponent(c)}`, {method: "DELETE", prefer: "return=minimal"});
+        log("delete", "", "done", `church: ${c}`);
+        if (S.church === c) S.church = S.me.home; if (S.bChurch === c) S.bChurch = "";
+        toast(`${c} was deleted.`); await refresh();
+      } catch (err) { toast(/foreign key|violates|referenced/i.test(err.message) ? `${c} still has people, sign-ins or services linked to it, so it can't be deleted.` : "Not deleted: " + err.message); draw(); }
+    });
+    box.querySelector("#ch-add").onsubmit = async e => { e.preventDefault(); const name = box.querySelector("#ch-new").value.trim().replace(/\s+/g, " "); if (!name) return;
+      if (S.churches.some(c => c.toLowerCase() === name.toLowerCase())) return toast(`${name} is already on the list.`);
+      try { await api("churches", {method: "POST", prefer: "return=minimal", body: {name}}); toast(`${name} added.`); await refresh(); } catch (err) { toast("Not added: " + err.message); } };
+  };
+  draw();
+}
 async function admin(el) {
-  el.innerHTML = head("Admin", "") + `<p class="empty">Loading…</p>`;
+  el.innerHTML = head("Settings", "Sign-ins, messages and space") + `<p class="empty">Loading…</p>`;
   const users = await api("app_users?select=email,role,church,name,pastor,title&order=email").catch(() => api("app_users?select=email,role,church,name,pastor&order=email")).catch(() => api("app_users?select=email,role,church,name&order=email")).catch(() => []);
   const pnames = [...new Set(Object.values(S.pastorList).flat())].sort();  // names on every church's pastor list
   const space = await api("rpc/app_db_size", {method: "POST", body: {}}).catch(() => null);  // null until the newer setup SQL has been run
@@ -2636,19 +2688,12 @@ async function admin(el) {
           <button class="pill-btn sm" data-done="${m.id}" data-v="${!m.done}">${m.done ? "Mark as new" : "Mark done"}</button>
           <button class="x" data-mdel="${m.id}">Delete</button></div></div>`).join("")}</div>`;
   // Tabs: one area at a time. Opens on Messages when there are new ones, otherwise on Sign-ins; then remembers the choice.
-  const TABS = [["messages", "Messages", fresh.length], ["names", "Sign-ins", users.length], ["churches", "Churches", S.churches.length], ["space", "Space", 0]];
+  const TABS = [["messages", "Messages", fresh.length], ["names", "Sign-ins", users.length], ["space", "Space", 0]];  // churches are managed on the Churches page
   if (!TABS.some(t => t[0] === S.adminTab)) S.adminTab = fresh.length ? "messages" : "names";
   const tab = k => `data-at="${k}" ${S.adminTab === k ? "" : "hidden"}`;
-  el.innerHTML = head("Admin", "") + `<div class="atabs" role="tablist" aria-label="Admin">${TABS.map(([k, name, n]) =>
+  el.innerHTML = head("Settings", "Who can sign in, messages from Help, and database space") + `<div class="atabs" role="tablist" aria-label="Settings">${TABS.map(([k, name, n]) =>
       `<button role="tab" data-atab="${k}" aria-selected="${S.adminTab === k}">${name}${k === "messages" && n ? ` <span class="anum new">${n}</span>` : k !== "space" && k !== "messages" ? ` <span class="anum">${n}</span>` : ""}</button>`).join("")}</div>
     <section ${tab("messages")}>${inboxCard}</section><section ${tab("space")}>${spaceCard}</section>
-    <section ${tab("churches")}>
-    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Churches</h2></div>
-      <div class="chips">${S.churches.map(c => c === S.me.home ? `<span class="chip">${esc(c)} · home church</span>`
-        : `<button class="chip" data-rename="${esc(c)}" title="Rename ${esc(c)}">${esc(c)}${svg("edit")}</button>`).join("")}</div>
-      <p class="note" style="margin:-4px 2px 14px">Tap a church to rename it.</p>
-      <form class="row" id="add-church"><div><label class="f" for="c-name">New church</label><input class="in" id="c-name" placeholder="e.g. Melbourne" required></div>
-        <div style="flex:0 0 auto"><button class="pill-btn primary">Add church</button></div></form></div></section>
     <section ${tab("names")}>
     <div class="tiles">${[["Total sign-ins", users.length, "Across all churches"], ["Church admins", users.filter(u => u.role === "lead").length, "Run a church"],
         ["Team", users.filter(u => u.role === "team").length, "Ushers ticking people in"], ["Pastors", users.filter(u => u.role === "pastor" || u.pastor).length, "Including admins who pastor"]]
@@ -2677,7 +2722,7 @@ async function admin(el) {
       S.churches = (await api("churches?select=name&order=name")).map(c => c.name); await load();
       toast(`Renamed to ${name}.`); render();
     }, "Rename"));
-  el.querySelector("#add-church").onsubmit = e => { e.preventDefault(); const name = el.querySelector("#c-name").value.trim().replace(/\s+/g, " ");
+  const addCh = el.querySelector("#add-church"); if (addCh) addCh.onsubmit = e => { e.preventDefault(); const name = el.querySelector("#c-name").value.trim().replace(/\s+/g, " ");
     again(() => api("churches", {method: "POST", prefer: "return=minimal", body: {name}})); };
   // Sign-ins: role pills, church picker, search and 10 per page
   const PER = 10, roleCls = r => "r-" + r;
@@ -2991,7 +3036,7 @@ const RESULT = {done: "Done", already: "No change (already done)", changed: "Blo
 async function activity(el) {
   const sub = `${esc(S.church)} · every tick, untick, edit and approval. It is only ever added to.`;
   const shows = {all: "Everything", ticks: "Check-ins", edits: "Edits & sign-ups", blocked: "Blocked only"};
-  const frame = body => head("Activity", sub) + `<div class="card" style="margin-bottom:14px"><div class="row">
+  const frame = body => head("Activity log", sub) + `<div class="card" style="margin-bottom:14px"><div class="row">
       <div style="flex:0 0 170px"><label class="f" for="a-day">Day</label><input class="in" id="a-day" type="date" value="${S.actDay}"></div>
       <div class="chips" style="margin:0">${Object.entries(shows).map(([k, t]) => `<button class="chip ${S.actShow === k ? "on" : ""}" data-show="${k}">${t}</button>`).join("")}</div></div></div>${body}`;
   const bind = () => {
@@ -3016,8 +3061,19 @@ async function activity(el) {
   bind();
 }
 
-// ---------------------------------------------------------------- reports: the daily email
-async function reports(el) {
+// ---------------------------------------------------------------- reports: the WhatsApp summary, the emailed report and downloads, as tabs
+function reports(el) {
+  const boss = ["admin", "lead"].includes(S.me.role);
+  const tabs = [["summary", "WhatsApp summary"], ...(boss ? [["email", "Email reports"], ["downloads", "Downloads"]] : [])];
+  if (!tabs.some(t => t[0] === S.repTab)) S.repTab = "summary";
+  el.innerHTML = head("Reports", boss ? "Share the service's numbers: on WhatsApp, by email, or as lists to download" : "The service summary for WhatsApp")
+    + `<div class="rep-tabs" role="tablist" aria-label="Reports">${tabs.map(([k, t]) => `<button role="tab" data-rt="${k}" aria-selected="${S.repTab === k}">${t}</button>`).join("")}</div>
+    <div class="rep-body" data-tab="${S.repTab}"></div>`;
+  el.querySelectorAll("[data-rt]").forEach(b => b.onclick = () => { S.repTab = b.dataset.rt; render(); });
+  const body = el.querySelector(".rep-body");
+  return S.repTab === "summary" ? summaryPage(body) : emailReports(body);
+}
+async function emailReports(el) {
   const sub = esc(S.church);
   const isHome = S.church === S.me.home, key = isHome ? "report_recipients" : `report_recipients:${S.church}`;
   el.innerHTML = head("Reports", sub) + `<p class="empty">Loading…</p>`;
@@ -3036,13 +3092,13 @@ async function reports(el) {
       <div class="add-mail"><input class="in" id="newmail" type="text" inputmode="email" autocomplete="off" placeholder="Add an email, e.g. fcc@gmail.com" aria-label="Email address to add">
         <button class="pill-btn">${svg("plus")}Add</button><button type="button" class="pill-btn primary" id="send" ${list.length && p.last ? "" : "disabled"}>${svg("reports")}Send report now</button></div>
       <p class="note" style="margin:10px 2px 0">Tap × to take someone off. Changes save straight away.</p></form>
-    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Emails sent</h2></div>
+    <div class="card" id="sent" style="margin-bottom:14px"><div class="card-head"><h2>Emails sent</h2></div>
       ${sent.length ? `<div class="scroll"><table><thead><tr><th>Sent</th><th>Report for</th><th>Type</th><th>To</th><th>Result</th></tr></thead><tbody>
         ${sent.map(r => `<tr><td class="muted">${esc(when(r.sent_at))}</td><td>${esc(full(r.report_date))}</td><td class="muted">${r.kind === "daily" ? "Automatic (old schedule)" : "Sent by the admin"}</td>
           <td class="muted">${esc(r.recipients || "")}</td><td>${r.ok ? "Sent" : `<span class="badge red" title="${esc(r.detail || "")}">Failed</span>`}</td></tr>`).join("")}</tbody></table></div>`
         : `<p class="empty">No emails have been sent yet.</p>`}
       </div>
-    <div class="card"><div class="card-head"><h2>Lists to download</h2></div>
+    <div class="card" id="dls"><div class="card-head"><h2>Lists to download</h2></div>
       <div class="chips" style="margin:0"><button class="pill-btn" data-dl="in">Checked in${p.last ? " · " + esc(nice(p.last)) : ""}</button>
         <button class="pill-btn" data-dl="call">Needs a follow-up call</button><button class="pill-btn" data-dl="all">Whole register</button></div>
       </div>`;
