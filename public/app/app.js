@@ -203,9 +203,9 @@ function waDialog(title, build, opts = {}) {
   const hm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
   const others = shareTo().filter(k => k !== "sms" || onPhone()), native = onPhone() && !!navigator.share;
   const toggle = (id, label, hint, on) => `<label class="switch"><span><b>${label}</b><small>${hint}</small></span><input type="checkbox" id="${id}" ${on ? "checked" : ""}><i></i></label>`;
-  d.className = "modal";
-  d.innerHTML = `<div class="sheet wa-sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}">
-    <div class="card-head"><h2>${esc(title)}</h2><span class="gap"></span><button class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+  d.className = opts.into ? "wa-page" : "modal";  // opts.into: shown on a page (the Summary tab) instead of as a pop-up
+  d.innerHTML = `<div class="${opts.into ? "card" : "sheet"} wa-sheet" ${opts.into ? "" : `role="dialog" aria-modal="true"`} aria-label="${esc(title)}">
+    ${opts.into ? "" : `<div class="card-head"><h2>${esc(title)}</h2><span class="gap"></span><button class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>`}
     <div class="modal-grid"><div class="opts">
         ${opts.day ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-day">Service date</label></b><small>The service this summary is for</small></div><input class="in wa-pill" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}
         ${opts.fields ? `${toggle("m-multi", "More than one service today", "Fill in each service on its own; the message keeps them apart", st.multi)}
@@ -221,7 +221,7 @@ function waDialog(title, build, opts = {}) {
     ${others.length || native ? `<div class="share-row"><small>Send to</small>${others.map(k => `<button type="button" class="chip" data-share="${k}">${SHARE.find(s => s[0] === k)[1]}</button>`).join("")}
       ${native ? `<button type="button" class="chip" data-share="native">More apps…</button>` : ""}</div>` : ""}
     <div class="modal-foot">${opts.fields ? `<button class="pill-btn" id="m-save">Save draft</button>` : `<button class="pill-btn" data-x>Close</button>`}<button class="pill-btn ${onPhone() ? "" : "primary"}" id="m-copy">Copy</button>${onPhone() ? `<button class="pill-btn primary" id="m-send">Open in WhatsApp</button>` : ""}</div></div>`;
-  document.body.append(d);
+  (opts.into || document.body).append(d);
   const text = d.querySelector("#m-text");
   let turn = 0, msg = "";  // msg: the message exactly as it's copied and sent; the preview can show it laid out for reading
   const show = () => { text.classList.toggle("nice", !S.pvRaw && !text.classList.contains("muted"));
@@ -266,8 +266,8 @@ function waDialog(title, build, opts = {}) {
   drawFields();
   d.querySelector("#m-multi")?.addEventListener("change", e => { st.multi = e.target.checked; keepDraft(); drawFields(); liveNote(); draw(); });
   const close = () => { d.remove(); document.removeEventListener("keydown", esc2); }, esc2 = e => { if (e.key === "Escape") close(); };
-  d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
-  document.addEventListener("keydown", esc2);
+  d.onclick = e => { if (e.target === d && !opts.into || e.target.closest("[data-x]")) close(); };
+  if (!opts.into) document.addEventListener("keydown", esc2);
   const saveBtn = d.querySelector("#m-save"); if (saveBtn) saveBtn.onclick = () => { keepDraft(); toast("Draft saved. Open the summary again any time to finish it."); };
   d.querySelector("[data-clear]")?.addEventListener("click", () => { try { localStorage.removeItem(memo()); } catch {}
     for (const k of Object.keys(st)) if (FKEY.test(k)) delete st[k]; st._at = 0; drawFields(); drafted(); draw(); });
@@ -334,7 +334,7 @@ function waDialog(title, build, opts = {}) {
       toast("The message is selected. Press and hold it, then choose Copy.");
     }
   };
-  draw(); d.querySelector("#m-copy").focus();
+  draw(); if (!opts.into) d.querySelector("#m-copy").focus();
 }
 
 // ---------------------------------------------------------------- sign-in and the API
@@ -732,6 +732,8 @@ function picture(upTo = today()) {  // everything the pages show, as things stoo
 
 // ---------------------------------------------------------------- page frame
 const ICON = {
+  summary: '<path d="M20 11.5a8 8 0 0 1-11.6 7.2L4 20l1.3-4.2A8 8 0 1 1 20 11.5z"/><path d="M8.5 10h7M8.5 13.5h4.5"/>',
+  refresh: '<path d="M20 11a8 8 0 0 0-14.6-4.5L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.6 4.5L20 16"/><path d="M20 20v-4h-4"/>',
   upload: '<path d="M12 15V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>',
   dashboard: '<path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   live: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
@@ -779,7 +781,7 @@ function pages() {  // the menu, in groups; what each role can actually load is 
   const r = S.me.role;
   if (r === "bishop") return [["", [["overview", "All churches"], ["help", "Help"]]]];
   if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people
-  return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["followup", "Follow-up"], ["pastors", "Pastors"]]],
+  return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["summary", "Summary"], ["followup", "Follow-up"], ["pastors", "Pastors"]]],
           ["PEOPLE", [["people", "Congregation"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ["archive", "Archive"]]],
           ...(r === "team" ? [] : [["RECORDS", [["activity", "Activity"], ["reports", "Reports"],
             ...(r === "admin" ? [["overview", "Churches"], ["admin", "Admin"]] : [])]]]),
@@ -838,6 +840,7 @@ function render() {
           : `<button class="nav" data-viewas title="View as another role">${svg("eye")}<span class="nl">View as another role</span></button>`) : ""}${S.canSwitch ? `<button class="nav" data-switch title="${switchLabel()}">${svg("pastors")}<span class="nl">${switchLabel()}</span></button>` : ""}<button class="nav out" data-out title="Log out">${svg("out")}<span class="nl">Log out</span></button></div></aside>
     <main class="main">${S.preview ? `<div class="preview-bar">${svg("eye")}<span>Viewing as <b>${esc(previewName())}</b>. View only: nothing you do here is saved.</span>
         <button class="pill-btn sm" data-unpreview>Back to Admin</button></div>` : ""}<div class="top">${S.hist?.length ? `<button class="back" data-back>${svg("back")}Back</button>` : ""}<span class="gap"></span>
+        ${S.me.role === "bishop" ? "" : `<button class="refresh-btn" data-refresh title="Load the latest check-ins and changes" aria-label="Refresh">${svg("refresh")}<span>Refresh</span></button>`}
         <div class="mode" role="group" aria-label="Colour mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button></div>
         <button class="acct" data-view="account" title="Your account and settings" aria-label="Your account and settings"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${roleName(S.me)} · ${esc(where)}</small></span></button>
         <button class="out-btn" data-out title="Log out">${svg("out")}<span>Log out</span></button></div>
@@ -858,6 +861,17 @@ function render() {
   root.querySelectorAll("[data-view]").forEach(b => b.onclick = () => go(b.dataset.view));
   root.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => { setMode(b.dataset.mode, true); if (look().theme) saveLook({theme: b.dataset.mode}); });
   root.querySelectorAll("[data-out]").forEach(b => b.onclick = signOut);
+  // Refresh: loads the latest check-ins and changes made by others, only when tapped (nothing runs in the background,
+  // so no battery use and the page never moves while someone is working on it). The page stays where it was scrolled to.
+  root.querySelectorAll("[data-refresh]").forEach(b => b.onclick = async () => {
+    if (b.classList.contains("busy")) return;
+    b.classList.add("busy");
+    try {
+      await load();
+      S.pending = canApprove() ? await api("registrations?select=id&status=eq.pending").then(r => r.length).catch(() => S.pending) : 0;
+      const y = scrollY; render(); scrollTo(0, y); setTimeout(() => scrollTo(0, y), 350); toast("Up to date.");
+    } catch (e) { b.classList.remove("busy"); toast("Couldn't refresh: " + e.message); }
+  });
   root.querySelectorAll("[data-viewas]").forEach(b => b.onclick = () => { menu(false); viewAs(); });
   root.querySelectorAll("[data-unpreview]").forEach(b => b.onclick = endPreview);
   root.querySelectorAll("[data-switch]").forEach(b => b.onclick = () => switchView(S.me.role === "pastor" ? S.me.base : "pastor"));
@@ -867,7 +881,7 @@ function render() {
     const t = e.target.closest("[data-to-pastor]"); if (t) { S.pastor = t.dataset.toPastor; S.pastorJump = true; go("pastors"); }
   };
   root.querySelectorAll("[data-back]").forEach(b => b.onclick = () => history.back());  // same as the phone's back gesture
-  ({mine, dashboard, checkin, followup, pastors, people, person, signups, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
+  ({mine, dashboard, checkin, summary: summaryPage, followup, pastors, people, person, signups, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
 }
 // An arrow that jumps back to the top of a long page; it shows once you have scrolled down a fair way.
 {
@@ -885,7 +899,7 @@ addEventListener("popstate", () => {
 });
 const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", pastors: "Pastors", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", archive: "Archive",
                activity: "Activity", reports: "Reports", overview: "All churches", admin: "Admin"};
-const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, followup: 3, pastors: 4, people: 5, signups: 6, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
+const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, summary: 6, followup: 3, pastors: 4, people: 5, signups: 6, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
 const head = (title, sub, buttons = "") => `<div class="head">${ICON[S.view] ? `<span class="hico" style="--wc:var(--h${NAVHUE[S.view] || 1});--wb:var(--h${NAVHUE[S.view] || 1}b)">${svg(S.view)}</span>` : ""}<div><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ""}</div><span class="gap" style="flex:1"></span>${buttons}</div>`;
 const badge = f => `<span class="badge ${f}">${FLAG[f]}</span>`;
 
@@ -1340,45 +1354,24 @@ async function saveBoard(b, list) {
   try { localStorage.setItem("fcc-dash:" + S.me.email, JSON.stringify(raw)); } catch {}
   if (S.dashDb !== false) try { await api("app_prefs?on_conflict=email", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {email: S.me.email, dash: raw}}); } catch { S.dashDb = false; }
 }
+// The WhatsApp summary, as its own page: the settings on the left, the message's preview on the right, Copy / Open in WhatsApp under them
+function summaryPage(el) {
+  const p = picture();
+  el.innerHTML = head("Summary", "The service summary for WhatsApp. Fill in the details, check the preview, then copy or send it.") + `<div id="sumbox"></div>`;
+  waDialog("Summary for WhatsApp", o => !p.dates.includes(o.day) ? null : report(o.day !== p.last ? picture(o.day) : p, o), {names: true, link: true, follow: true, noEmoji: true, day: p.last || today(),
+    fields: [["preacher", "Preacher name"], ["sermon", "Sermon title"], ["zoomA", "Zoom: adults", "num"], ["zoomK", "Zoom: children", "num"], ["yt", "YouTube", "num"], ["fb", "Facebook", "num"], ["converts", "New converts", "num"]],
+    into: el.querySelector("#sumbox")});
+}
 async function dashboard(el) {
   const p = picture();
   el.innerHTML = head("Dashboard", p.last ? `${esc(svcName(p.last))} · ${esc(nice(p.last, true))}` : "No services recorded yet",
     `<button class="pill-btn" id="addw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">WhatsApp summary</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `<div class="wgrid" id="wgrid"></div>`;
-  el.querySelector("#wa").onclick = () => waDialog("Summary for WhatsApp", o => !p.dates.includes(o.day) ? null : report(o.day !== p.last ? picture(o.day) : p, o), {names: true, link: true, follow: true, noEmoji: true, day: p.last || today(),
-    fields: [["preacher", "Preacher name"], ["sermon", "Sermon title"], ["zoomA", "Zoom: adults", "num"], ["zoomK", "Zoom: children", "num"], ["yt", "YouTube", "num"], ["fb", "Facebook", "num"], ["converts", "New converts", "num"]]});
+  el.querySelector("#wa").onclick = () => { S.view = "summary"; render(); };  // the summary has its own page now
   el.querySelector("#addw").onclick = () => addWidget("home");
   el.querySelector("[data-go]").onclick = () => { S.view = "checkin"; render(); };
   await loadPrefs();
   if (S.view !== "dashboard") return;
   drawBoard(el.querySelector("#wgrid"), "home", p);
-  liveBoard(el);
-}
-// Keeps the dashboard up to date without a refresh: every 15 seconds (and as soon as the app is opened again) it checks
-// the last few days' check-ins, and redraws only when an usher has ticked or unticked someone. It waits while a
-// pop-up is open or a widget is being dragged, and keeps the page where it was scrolled to.
-function liveBoard(el) {
-  clearInterval(S.poll);
-  const since = new Date(Date.now() - 3 * 864e5).toISOString().slice(0, 10);
-  const sig = r => r.map(t => t.service_date + t.member_id).sort().join();
-  let last = sig(S.ticks.filter(t => t.service_date >= since)), busy = false;
-  const check = async () => {
-    if (busy || S.view !== "dashboard" || !el.isConnected || document.hidden) return;
-    if (document.querySelector(".modal, .w-hole") || el.contains(document.activeElement) && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
-    busy = true;
-    try {
-      let [r, pt] = await Promise.all([all(`attendance?select=service_date,member_id,checked_at&service_date=gte.${since}&order=service_date`),
-        all(`service_ticks?select=service_date,part,member_id&service_date=gte.${since}`).catch(() => null)]);
-      r = r.filter(t => t.service_date >= since); const s = sig(r);
-      if (s === last || S.view !== "dashboard" || !el.isConnected) return;
-      last = s;
-      S.ticks = [...S.ticks.filter(t => t.service_date < since), ...r];
-      if (pt) S.pticks = [...S.pticks.filter(t => t.service_date < since), ...pt];
-      if (document.querySelector(".modal, .w-hole")) return;  // a pop-up opened meanwhile: the next check redraws
-      const y = scrollY; await dashboard(el); scrollTo(0, y);
-    } catch {} finally { busy = false; }
-  };
-  S.poll = setInterval(check, 15000);
-  S.boardCheck = check;
 }
 // Draws one board's widgets into grid: each a card with a drag handle, coloured icon, title, tools and a ⋯ menu.
 function drawBoard(grid, b, ctx) {
@@ -3226,6 +3219,6 @@ async function freshCheck() {
     location.reload();
   } catch {}
 }
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { freshCheck(); if (S.view === "dashboard") S.boardCheck?.(); } });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") freshCheck(); });
 setTimeout(freshCheck, 3000);
 start().catch(e => fatal(e.message));
