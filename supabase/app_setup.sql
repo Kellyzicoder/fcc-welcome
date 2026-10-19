@@ -186,6 +186,95 @@ create policy "app: untick own church's people at a service" on service_ticks fo
 grant select, insert, update, delete on service_parts to authenticated;
 grant select, insert, delete on service_ticks to authenticated;
 
+-- All or nothing: changes that take several steps run as one database call, so they're saved together or not at all
+-- (a dropped signal halfway can't leave half a change). They run with the person's own rights, so the rules above still
+-- decide what each person may change. Two phones doing the same at once take turns (the lock on that church's day).
+create or replace function app_day_parts(ch text, d date) returns json language sql stable set search_path = public as
+$$ select coalesce(json_agg(json_build_object('part', part, 'name', name) order by part), '[]'::json)
+   from service_parts where church = ch and service_date = d $$;
+
+-- Check-in → Add a service: the day's title, the services, and (the first time) everyone ticked so far goes in the first one
+create or replace function app_add_service(ch text, d date, title text, first_name text) returns json
+language plpgsql set search_path = public as $$
+declare n int; nxt int;
+begin
+  if coalesce(app_role(), '') not in ('admin', 'lead', 'team') or not app_can_see(ch) then raise exception 'not allowed'; end if;
+  perform pg_advisory_xact_lock(hashtext('parts:' || ch || ':' || d));
+  select count(*), coalesce(max(part), 0) into n, nxt from service_parts where church = ch and service_date = d;
+  if n >= 3 then raise exception 'Three services is the most for one day.'; end if;
+  insert into services (service_date, name) values (d, left(coalesce(nullif(trim(title), ''), 'Service'), 60)) on conflict (service_date) do nothing;
+  if n < 2 then
+    insert into service_parts (church, service_date, part, name) values
+      (ch, d, 1, left(coalesce(nullif(trim(first_name), ''), 'First service'), 60)), (ch, d, 2, 'Second service')
+      on conflict (church, service_date, part) do update set name = excluded.name;
+    insert into service_ticks (service_date, part, member_id, checked_at)  -- everyone this church ticked so far today
+      select a.service_date, 1, a.member_id, a.checked_at from attendance a join members m on m.id = a.member_id
+      where a.service_date = d and coalesce(nullif(trim(m.church), ''), app_home_church()) = ch
+      on conflict do nothing;
+  else
+    nxt := nxt + 1;
+    insert into service_parts (church, service_date, part, name)
+      values (ch, d, nxt, (array['First', 'Second', 'Third', 'Fourth', 'Fifth'])[nxt] || ' service');
+  end if;
+  return app_day_parts(ch, d);
+end $$;
+
+-- Check-in → Remove a service: the last one added and its ticks (back to one service when only one would be left)
+create or replace function app_remove_service(ch text, d date) returns json
+language plpgsql set search_path = public as $$
+declare parts int[]; gone int[];
+begin
+  if coalesce(app_role(), '') not in ('admin', 'lead', 'team') or not app_can_see(ch) then raise exception 'not allowed'; end if;
+  perform pg_advisory_xact_lock(hashtext('parts:' || ch || ':' || d));
+  select coalesce(array_agg(part order by part), '{}') into parts from service_parts where church = ch and service_date = d;
+  if cardinality(parts) = 0 then return '[]'::json; end if;
+  gone := case when cardinality(parts) <= 2 then parts else array[parts[cardinality(parts)]] end;
+  delete from service_ticks t using members m
+    where m.id = t.member_id and coalesce(nullif(trim(m.church), ''), app_home_church()) = ch and t.service_date = d and t.part = any(gone);
+  delete from service_parts where church = ch and service_date = d and part = any(gone);
+  return app_day_parts(ch, d);
+end $$;
+
+-- Check-in → renaming one of the day's services; the first one's name is the day's title too
+create or replace function app_rename_service(ch text, d date, p int, new_name text) returns text
+language plpgsql set search_path = public as $$
+declare v text := left(trim(regexp_replace(coalesce(new_name, ''), '\s+', ' ', 'g')), 60);
+begin
+  if coalesce(app_role(), '') not in ('admin', 'lead', 'team') or not app_can_see(ch) then raise exception 'not allowed'; end if;
+  if v = '' then raise exception 'type the service''s name'; end if;
+  update service_parts set name = v where church = ch and service_date = d and part = p;
+  if not found then raise exception 'that service is not there any more'; end if;
+  if p = (select min(part) from service_parts where church = ch and service_date = d) then
+    insert into services (service_date, name) values (d, v) on conflict (service_date) do update set name = excluded.name;
+  end if;
+  return v;
+end $$;
+
+-- Check-in → Untick all / Clear: these people off the day (and its services), or off one service (and off the day too
+-- when they're at none of its services any more). Returns how many came off.
+create or replace function app_clear_service(d date, ids text[], p int default null) returns int
+language plpgsql set search_path = public as $$
+declare n int;
+begin
+  if coalesce(app_role(), '') not in ('admin', 'lead', 'team', 'pastor') then raise exception 'not allowed'; end if;
+  if p is null then
+    delete from attendance where service_date = d and member_id = any(ids);
+    get diagnostics n = row_count;
+    delete from service_ticks where service_date = d and member_id = any(ids);
+  else
+    delete from service_ticks where service_date = d and part = p and member_id = any(ids);
+    get diagnostics n = row_count;
+    delete from attendance a where a.service_date = d and a.member_id = any(ids)
+      and not exists (select 1 from service_ticks t where t.service_date = d and t.member_id = a.member_id);
+  end if;
+  return n;
+end $$;
+
+revoke all on function app_day_parts(text, date), app_add_service(text, date, text, text), app_remove_service(text, date),
+  app_rename_service(text, date, int, text), app_clear_service(date, text[], int) from public, anon;
+grant execute on function app_day_parts(text, date), app_add_service(text, date, text, text), app_remove_service(text, date),
+  app_rename_service(text, date, int, text), app_clear_service(date, text[], int) to authenticated;
+
 -- ---------------------------------------------------------------- numbers for every church (Bishop and admin)
 -- Returns counts only. The Bishop's sign-in has no rule that lets it read the members table, so names and phone
 -- numbers cannot be loaded with it; this function is the only thing it can call.
