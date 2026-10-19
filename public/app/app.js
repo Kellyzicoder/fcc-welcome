@@ -1425,13 +1425,19 @@ const WIDGETS = {
         for (let i = 0; i < pts.length; i += every) keep.add(i);
         const lastM = Math.max(...keep); if (lastM && pts.length - 1 - lastM < every * 0.7) keep.delete(lastM); keep.add(pts.length - 1);  // labels never crowd
         if (wide) { keep.clear(); pts.forEach((p, i) => { if (p.hour) keep.add(i); }); }  // the long graph: a label each hour
+        // Each platform in its own colour, stacked: YouTube at the bottom, then Facebook, then Zoom; the top edge is the total
+        const split = pts.some(p => p.yt != null);
+        const bands = !split ? "" : [["zoom", p => (p.yt || 0) + (p.fb || 0) + (p.zm || 0)], ["facebook", p => (p.yt || 0) + (p.fb || 0)], ["youtube", p => p.yt || 0]]
+          .map(([k, f]) => { const q = pts.map((p, i) => [i / (pts.length - 1) * W, H - f(p) / top * H]);
+            return `<path d="${curve(q)} L${W},${H} L0,${H} Z" style="fill:color-mix(in srgb, ${PC[k]} 20%, var(--card))"/><path d="${curve(q)}" class="lv-path lv-pl" style="stroke:${PC[k]}" vector-effect="non-scaling-stroke"/>`; }).join("");
         return `<div class="lv-chart" data-n="${pts.length}"><div class="lv-y">${[4, 3, 2, 1, 0].map(k => `<span>${k * step}</span>`).join("")}</div>
           ${wide ? `<div class="lv-scroll"><div class="lv-wide" style="width:${wide}px">` : ""}<div class="lv-plot"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="lvp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--red)" stop-opacity=".28"/><stop offset="1" stop-color="var(--red)" stop-opacity="0"/></linearGradient></defs>
             ${[0, 1, 2, 3, 4].map(k => `<line x1="0" x2="${W}" y1="${k * H / 4}" y2="${k * H / 4}" class="lv-grid" vector-effect="non-scaling-stroke"/>`).join("")}
-            <path d="${curve(xy)} L${W},${H} L0,${H} Z" fill="url(#lvp)"/><path d="${curve(xy)}" class="lv-path" vector-effect="non-scaling-stroke"/></svg>
-            ${xy.map(([x, y], i) => keep.has(i) && !(wide && !pts[i].v) ? `<i class="lv-dot" style="left:${x / W * 100}%;top:${y / H * 100}%"></i>` : "").join("")}
+            ${split ? bands : `<path d="${curve(xy)} L${W},${H} L0,${H} Z" fill="url(#lvp)"/><path d="${curve(xy)}" class="lv-path" vector-effect="non-scaling-stroke"/>`}</svg>
+            ${xy.map(([x, y], i) => keep.has(i) && !split && !(wide && !pts[i].v) ? `<i class="lv-dot" style="left:${x / W * 100}%;top:${y / H * 100}%"></i>` : "").join("")}
             <i class="lv-guide" hidden></i><div class="lv-tip" hidden></div><div class="lv-hit"></div></div>
           <div class="lv-x">${pts.map((p, i) => keep.has(i) ? `<span style="left:${i / (pts.length - 1) * 100}%">${esc(p.label)}</span>` : "").join("")}</div>${wide ? "</div></div>" : ""}</div>
+          ${split ? `<div class="lv-legend lv-chart-key">${[["youtube", "YouTube"], ["facebook", "Facebook"], ["zoom", "Zoom"]].map(([k, t]) => `<span><i style="background:${PC[k]}"></i>${t}</span>`).join("")}</div>` : ""}
           ${wide ? `<p class="lv-hint">Swipe the graph sideways to go back through the last 24 hours.</p>` : ""}`;
       };
       const ring = (rows, note) => { const all = rows.reduce((s, r) => s + r[2], 0); let at = 0;
@@ -1504,8 +1510,9 @@ const WIDGETS = {
             if (week) {
               if (!L) { body.innerHTML = `<p class="lv-empty">Loading the week…</p>`; }
               else { const dk = t => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-                pts = Array.from({length: 7}, (_, i) => { const t = Date.now() - (6 - i) * DAYMS, k = dk(t), v = Math.max(0, ...L.list.filter(x => dk(x.start) === k).map(x => x.youtube + x.facebook + x.zoom));
-                  return {v, label: new Date(t).toLocaleDateString([], {weekday: "short"}), tip: `${new Date(t).toLocaleDateString([], {weekday: "short", day: "numeric", month: "short"})} · ${v} watched`}; }); }
+                pts = Array.from({length: 7}, (_, i) => { const t = Date.now() - (6 - i) * DAYMS, k = dk(t), best = L.list.filter(x => dk(x.start) === k).reduce((b, x) => !b || x.youtube + x.facebook + x.zoom > b.youtube + b.facebook + b.zoom ? x : b, null),
+                    v = best ? best.youtube + best.facebook + best.zoom : 0;
+                  return {v, yt: best?.youtube || 0, fb: best?.facebook || 0, zm: best?.zoom || 0, label: new Date(t).toLocaleDateString([], {weekday: "short"}), tip: `${new Date(t).toLocaleDateString([], {weekday: "short", day: "numeric", month: "short"})} · ${v} watched`}; }); }
             } else if (j.home) {  // the last 24 hours in 5-minute steps; the graph opens at now and swipes back
               const D = S.lvDay, now = Date.now();
               if ((!D || now - D.at > 60000) && !S.lvDayBusy) {
@@ -1516,11 +1523,15 @@ const WIDGETS = {
               if (!D) body.innerHTML = `<p class="lv-empty">Loading the last 24 hours…</p>`;
               else if (D.list) {
                 const step = 3e5, end = Math.floor(D.to / step) * step, by = new Map();
-                for (const p of D.list) { const k = Math.floor(p.t / step) * step; by.set(k, Math.max(by.get(k) || 0, Number(p.total) || 0)); }
-                pts = Array.from({length: 289}, (_, i) => { const t = end - (288 - i) * step, v = by.get(t) || 0; return {v, label: hmm(t), hour: new Date(t).getMinutes() === 0, tip: `${hmm(t)} · ${v} watching`}; });
+                const pl = D.list.some(p => p.youtube != null);  // the dashboard gives each platform (since its update)
+                for (const p of D.list) { const k = Math.floor(p.t / step) * step, o = by.get(k), v = Number(p.total) || 0;
+                  if (!o || v > o.v) by.set(k, {v, yt: Number(p.youtube) || 0, fb: Number(p.facebook) || 0, zm: Number(p.zoom) || 0}); }
+                pts = Array.from({length: 289}, (_, i) => { const t = end - (288 - i) * step, o = by.get(t) || {v: 0, yt: 0, fb: 0, zm: 0}, v = o.v;
+                  return {v, ...(pl ? {yt: o.yt, fb: o.fb, zm: o.zm} : {}), label: hmm(t), hour: new Date(t).getMinutes() === 0, tip: `${hmm(t)} · ${v} watching`}; });
                 wide = 289 * 8;  // 8 pixels for each 5 minutes: about 2½ hours on a phone, 8 on a computer
               } else pts = h.map(x => ({v: x.total, label: hmm(x.t), tip: `${hmm(x.t)} · ${x.total} watching`}));  // the dashboard can't give the day yet: the last few hours
             } else pts = h.map(x => ({v: x.total, label: hmm(x.t), tip: `${hmm(x.t)} · ${x.total} watching`}));
+            if (pts && !week && !wide && h.length === pts.length && h[0]?.youtube != null) pts = pts.map((p, i) => ({...p, yt: h[i].youtube || 0, fb: h[i].facebook || 0, zm: h[i].zoom || 0}));
             if (pts) body.innerHTML = progChart(pts, live ? "The line starts after a minute or two of the livestream." : "Not live right now. Pick This week to see the last seven days.", wide);
             const sc = body.querySelector(".lv-scroll");  // opens at now; stays where it was swiped to when the numbers update
             if (sc) {
@@ -1534,7 +1545,7 @@ const WIDGETS = {
             const plot = chart.querySelector(".lv-plot"), tip = chart.querySelector(".lv-tip"), guide = chart.querySelector(".lv-guide"), n = pts.length;
             const at = e => { const r = plot.getBoundingClientRect(), x = ((e.touches?.[0] || e).clientX - r.left) / r.width, i = Math.max(0, Math.min(n - 1, Math.round(x * (n - 1))));
               const p = pts[i], top = Math.max(1, Math.ceil(Math.max(1, ...pts.map(q => q.v)) / 4)) * 4, left = i / (n - 1) * 100, y = 100 - p.v / top * 100;
-              guide.hidden = tip.hidden = false; guide.style.left = left + "%"; tip.style.left = Math.max(12, Math.min(88, left)) + "%"; tip.style.top = y + "%"; tip.innerHTML = `<b>${p.v}</b>${esc(p.tip.split(" · ")[0])}`; };
+              guide.hidden = tip.hidden = false; guide.style.left = left + "%"; tip.style.left = Math.max(12, Math.min(88, left)) + "%"; tip.style.top = y + "%"; tip.innerHTML = `<b>${p.v}</b>${esc(p.tip.split(" · ")[0])}${p.yt != null ? `<span class="lv-tip-pl">${[["youtube", "YouTube", p.yt], ["facebook", "Facebook", p.fb], ["zoom", "Zoom", p.zm]].map(([k, t, n]) => `<em><i style="background:${PC[k]}"></i>${t} ${n}</em>`).join("")}</span>` : ""}`; };
             const hit = chart.querySelector(".lv-hit"); hit.onmousemove = at; hit.ontouchstart = hit.ontouchmove = at;
             hit.onmouseleave = () => { guide.hidden = tip.hidden = true; };
           };
