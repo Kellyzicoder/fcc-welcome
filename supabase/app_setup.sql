@@ -923,3 +923,18 @@ revoke all on function app_ask_people(text), app_ask_ticks(text), app_ask_servic
   app_ask(text, text, date, date, text, int) from public, anon;
 grant execute on function app_ask_people(text), app_ask_ticks(text), app_ask_services(text), app_ask_status(text),
   app_ask(text, text, date, date, text, int) to authenticated;
+
+-- Live updates: Check-in hears straight away when another phone ticks or unticks someone (Supabase Realtime), instead of
+-- asking every few seconds. Only people allowed to see the ticks get the notes: the same row rules apply. Safe to run again.
+do $$ begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if to_regclass('public.attendance') is not null and not exists (select 1 from pg_publication_tables
+        where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'attendance') then
+      alter publication supabase_realtime add table public.attendance;
+    end if;
+    if to_regclass('public.service_ticks') is not null and not exists (select 1 from pg_publication_tables
+        where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'service_ticks') then
+      alter publication supabase_realtime add table public.service_ticks;
+    end if;
+  end if;
+end $$;
