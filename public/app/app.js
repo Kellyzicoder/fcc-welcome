@@ -242,7 +242,7 @@ function waDialog(title, build, opts = {}) {
   const memo = () => `fcc-wa:${S.church}:${st.day}`, recall = () => { try { return JSON.parse(localStorage.getItem(memo()) || "{}"); } catch { return {}; } };
   // A day with more than one service: the boxes come once per service (preacher, Zoom, YouTube... for each),
   // and the message keeps the services apart. It's switched on by the person, or already on when Check-in split the day.
-  const FKEY = /^(preacher|sermon|zoomA|zoomK|yt|fb|converts|time)(_\d)?$/;
+  const FKEY = /^(preacher|sermon|zoomA|zoomK|yt|fb|converts|time|end)(_\d)?$/;
   const loadDraft = () => { for (const k of Object.keys(st)) if (FKEY.test(k)) delete st[k]; const r = recall();
     Object.assign(st, Object.fromEntries(Object.entries(r).filter(([k]) => FKEY.test(k))), {_at: r._at || 0,
       multi: r.multi ?? partsOf(st.day).length > 1, count: Math.min(3, Math.max(2, r.count || partsOf(st.day).length || 2))}); };
@@ -254,17 +254,19 @@ function waDialog(title, build, opts = {}) {
   const incl = [...(opts.names ? [["m-names", opts.fields ? "First-timers' names" : "Names", false, opts.fields ? "" : "Leave names off for big group chats."]] : []),
     ...(opts.follow ? [["m-follow", "Follow-up", false, "Follow-up lists who missed services."]] : []),
     ...(opts.noEmoji ? [] : [["m-emoji", "Emojis", S.emoji, ""]])];
+  // On the Summary page each part is a card that opens and closes; in a pop-up the parts just follow each other
+  const acc = (title, body, open = true) => opts.into ? `<details class="wa-acc" ${open ? "open" : ""}><summary><span>${title}</span>${svg("caret")}</summary><div class="wa-acc-b">${body}</div></details>` : body;
   const toggle = (id, label, hint, on) => `<label class="switch"><span><b>${label}</b><small>${hint}</small></span><input type="checkbox" id="${id}" ${on ? "checked" : ""}><i></i></label>`;
   d.className = opts.into ? "wa-page" : "modal";  // opts.into: shown on a page (the Summary tab) instead of as a pop-up
   d.innerHTML = `<div class="${opts.into ? "card" : "sheet"} wa-sheet" ${opts.into ? "" : `role="dialog" aria-modal="true"`} aria-label="${esc(title)}">
     ${opts.into ? "" : `<div class="card-head"><h2>${esc(title)}</h2><span class="gap"></span><button class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>`}
     <div class="modal-grid"><div class="opts">
-        ${opts.day ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-day">Service date</label></b><small>The service this summary is for</small></div><input class="in wa-pill" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}
-        ${opts.fields ? `${toggle("m-multi", "More than one service today", "Fill in each service on its own; the message keeps them apart", st.multi)}
-          <div class="wa-sec"><b>Service details</b><small>What the check-in can't count. Boxes left empty count as 0.</small></div><div id="m-fields"></div>` : ""}
-        ${incl.length ? `<div class="opt wa-inc"><div class="wa-txt"><b>Include in the message</b><small>Tap to add or leave out. ${esc(incl.map(c => c[3]).join(" "))}</small></div>
-          <div class="wa-chips">${incl.map(([id, t, on]) => `<label class="wa-chip"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>${svg("tick")}${t}</span></label>`).join("")}</div></div>` : ""}
-        ${opts.link ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-link">Livestream link</label></b><small>Optional. It goes at the end of the message</small></div><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>` : ""}
+        ${acc("Service", `${opts.day ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-day">Service date</label></b><small>The service this summary is for</small></div><input class="in wa-pill" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}
+          ${opts.fields ? toggle("m-multi", "More than one service today", "Fill in each service on its own; the message keeps them apart", st.multi) : ""}`)}
+        ${opts.fields ? acc("Service details", `<div class="wa-sec"><b>Service details</b><small>What the check-in can't count. Boxes left empty count as 0. Pick the service's start and end times to fill in the livestream.</small></div><div id="m-fields"></div>`) : ""}
+        ${incl.length ? acc("Include in the message", `<div class="opt wa-inc"><div class="wa-txt"><b>Include in the message</b><small>Tap to add or leave out. ${esc(incl.map(c => c[3]).join(" "))}</small></div>
+          <div class="wa-chips">${incl.map(([id, t, on]) => `<label class="wa-chip"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>${svg("tick")}${t}</span></label>`).join("")}</div></div>`) : ""}
+        ${opts.link ? acc("Livestream link", `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-link">Livestream link</label></b><small>Optional. It goes at the end of the message</small></div><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>`, false) : ""}
         ${opts.fields ? `<div class="draft-line"><span id="m-draft"></span><button type="button" class="link-btn" data-clear hidden>Start again</button></div>` : ""}
       </div>
       <div class="opt"><div class="prev-top"><span class="f">Preview</span><div class="pv-seg" role="group" aria-label="Preview style"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Easy to read</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">As sent</button></div></div>
@@ -300,19 +302,21 @@ function waDialog(title, build, opts = {}) {
   const liveNums = x => ({yt: x.youtube > 0 ? x.youtube : null, fb: x.facebook > 0 ? x.facebook : null, zoomA: x.zoom > 0 ? Math.max(0, x.zoom - 2) : null});
   const zoomWhy = x => x.zoom > 0 ? `Zoom showed ${x.zoom}; 2 are taken off for the host and co-host, so ${Math.max(0, x.zoom - 2)}.` : "";
   // the livestream that goes with a service starting at t ("HH:MM"): the one whose start is nearest, within 2 hours (or that was running then)
-  const liveAt = t => { if (!t || !liveList.length || !st.day) return null; const [h, m] = t.split(":").map(Number), at = new Date(st.day + "T00:00:00").setHours(h, m);
+  const liveAt = (t, e) => { if (!t || !liveList.length || !st.day) return null; const ms = v => { const [h, m] = v.split(":").map(Number); return new Date(st.day + "T00:00:00").setHours(h, m); }, at = ms(t);
+    if (e && ms(e) > at) { const to = ms(e), over = x => Math.min(to, x.end || x.start + 36e5) - Math.max(at, x.start);  // with an end time: the stream that overlaps the service most
+      const best = [...liveList].sort((a, b) => over(b) - over(a))[0]; if (over(best) > 0) return best; }
     const on = liveList.find(x => at >= x.start - 30 * 6e4 && at <= (x.end || x.start)); if (on) return on;  // running then (or about to start)
     const x = [...liveList].sort((a, b) => Math.abs(a.start - at) - Math.abs(b.start - at))[0];
     return Math.abs(x.start - at) <= 2 * 3600e3 ? x : null; };
-  const liveUnder = j => { const x = liveAt(st[`time_${j + 1}`]) || liveList[j]; return x ? `<small class="wide svc-live">${svg("live")}Livestream ${hm(x.start)}: YouTube ${x.youtube} · Facebook ${x.facebook} · Zoom ${x.zoom} (${Math.max(0, x.zoom - 2)} without the host and co-host)</small>` : ""; };
+  const liveUnder = j => { const x = liveAt(st[`time_${j + 1}`], st[`end_${j + 1}`]) || liveList[j]; return x ? `<small class="wide svc-live">${svg("live")}Livestream ${hm(x.start)}: YouTube ${x.youtube} · Facebook ${x.facebook} · Zoom ${x.zoom} (${Math.max(0, x.zoom - 2)} without the host and co-host)</small>` : ""; };
   // When a service's start time is picked: offer that time's livestream peaks for its boxes
   const offerLive = n => {
-    const box = d.querySelector(`[data-ask="${n}"]`), t = st[`time_${n}`]; if (!box || !t || !liveOk()) return;
-    const x = liveAt(t), sfx = st.multi ? "_" + n : "";
-    if (!x) { box.innerHTML = liveList.length ? `<span>No livestream near ${clock(t)}. The day's livestreams started at ${liveList.map(y => hm(y.start)).join(", ")}.</span><button type="button" class="link-btn" data-no>OK</button>`
+    const box = d.querySelector(`[data-ask="${n}"]`), t = st[`time_${n}`], e = st[`end_${n}`]; if (!box || !t || !liveOk()) return;
+    const x = liveAt(t, e), sfx = st.multi ? "_" + n : "", when = e ? `${clock(t)} to ${clock(e)}` : clock(t);
+    if (!x) { box.innerHTML = liveList.length ? `<span>No livestream ${e ? "during" : "near"} ${when}. The day's livestreams started at ${liveList.map(y => hm(y.start)).join(", ")}.</span><button type="button" class="link-btn" data-no>OK</button>`
         : `<span>No livestream numbers for this day.</span><button type="button" class="link-btn" data-no>OK</button>`; }
     else { const v = liveNums(x);
-      box.innerHTML = `<b>${svg("live")}Fill in the livestream for the ${clock(t)} service?</b>
+      box.innerHTML = `<b>${svg("live")}Fill in the livestream for the ${when} service?</b>
         <small>Each one's peak from the livestream that started at ${hm(x.start)}${x.end ? ` and ended ${hm(x.end)}` : ""}:</small>
         <div class="ask-nums"><i>YouTube<em>${v.yt ?? 0}</em></i><i>Facebook<em>${v.fb ?? 0}</em></i><i>Zoom<em>${v.zoomA ?? 0}</em></i></div>
         ${x.zoom > 0 ? `<small>${zoomWhy(x)}</small>` : ""}
@@ -325,8 +329,8 @@ function waDialog(title, build, opts = {}) {
   // Each service's start time can be set by hand (it starts as the livestream's start, if there was one) and names the service in the message
   const startOf = i => st[`time_${i}`] || (liveStarts[i - 1] ? (d => `${pad(d.getHours())}:${pad(d.getMinutes())}`)(new Date(liveStarts[i - 1])) : "");
   const clock = t => { const [h, m] = t.split(":").map(Number); return new Date(2000, 0, 1, h, m).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"}); };
-  const groupName = i => { const part = partsOf(st.day)[i - 1]?.name, t = startOf(i);
-    return part ? (t ? `${part} · ${clock(t)}` : part) : t ? `${clock(t)} service` : `Service ${i}`; };
+  const groupName = i => { const part = partsOf(st.day)[i - 1]?.name, t = startOf(i), e = st[`end_${i}`], w = t ? clock(t) + (e ? `–${clock(e)}` : "") : "";
+    return part ? (w ? `${part} · ${w}` : part) : w ? `${w} service` : `Service ${i}`; };
   const drawFields = () => {
     const box = d.querySelector("#m-fields"); if (!box) return;
     st.groups = Array.from({length: st.count}, (_, j) => groupName(j + 1));  // the services' names, for the message
@@ -334,12 +338,14 @@ function waDialog(title, build, opts = {}) {
       <input class="in" id="m-${k}${sfx}" data-field="${k}${sfx}" ${kind === "num" ? `type="number" inputmode="numeric" min="0" placeholder="0"` : `maxlength="80"`} value="${esc(st[k + sfx] ?? "")}"></div>`).join("")}${sfx ? liveUnder(+sfx.slice(1) - 1) : ""}
       ${liveOk() ? `<div class="wide live-note live-ask" data-ask="${sfx ? sfx.slice(1) : 1}" hidden></div>` : ""}</div>`;
     // one service: its start time too, so the livestream that goes with it can be offered
-    box.innerHTML = !st.multi ? set("", liveOk() ? `<div class="wide svc-top"><b class="svc-head">Service start time</b>
-        <label class="svc-time">Starts <input class="in sm" type="time" data-time="1" value="${esc(st.time_1 || "")}" aria-label="Service start time"></label></div>` : "") : Array.from({length: st.count}, (_, j) => set("_" + (j + 1), `<div class="wide svc-top"><b class="svc-head">${esc(groupName(j + 1))}</b>
-        <label class="svc-time">Starts <input class="in sm" type="time" data-time="${j + 1}" value="${esc(startOf(j + 1))}" aria-label="Service ${j + 1} start time"></label></div>`)).join("")
+    const times = (n, start) => `<span class="svc-times"><label class="svc-time">Starts <input class="in sm" type="time" data-time="${n}" value="${esc(start)}" aria-label="Service ${n} start time"></label>
+        <label class="svc-time">Ends <input class="in sm" type="time" data-end="${n}" value="${esc(st[`end_${n}`] || "")}" aria-label="Service ${n} end time"></label></span>`;
+    box.innerHTML = !st.multi ? set("", liveOk() ? `<div class="wide svc-top"><b class="svc-head">Service time</b>${times(1, st.time_1 || "")}</div>` : "")
+      : Array.from({length: st.count}, (_, j) => set("_" + (j + 1), `<div class="wide svc-top"><b class="svc-head">${esc(groupName(j + 1))}</b>${times(j + 1, startOf(j + 1))}</div>`)).join("")
       + `<div class="svc-more">${st.count < 3 ? `<button type="button" class="link-btn" data-svc-add>+ Add a third service</button>` : `<button type="button" class="link-btn" data-svc-less>Only two services</button>`}</div>`;
     box.querySelectorAll("[data-field]").forEach(i => i.oninput = () => { st[i.dataset.field] = i.value.trim(); keepDraft(); draw(); });
     box.querySelectorAll("[data-time]").forEach(i => i.onchange = () => { st["time_" + i.dataset.time] = i.value; keepDraft(); drawFields(); draw(); offerLive(+i.dataset.time); });
+    box.querySelectorAll("[data-end]").forEach(i => i.onchange = () => { st["end_" + i.dataset.end] = i.value; keepDraft(); drawFields(); draw(); offerLive(+i.dataset.end); });
     box.querySelector("[data-svc-add]")?.addEventListener("click", () => { st.count = 3; keepDraft(); drawFields(); liveNote(); draw(); });
     box.querySelector("[data-svc-less]")?.addEventListener("click", () => { st.count = 2; keepDraft(); drawFields(); liveNote(); draw(); });
   };
@@ -377,7 +383,7 @@ function waDialog(title, build, opts = {}) {
       const nums = liveNums;  // Zoom with the host and co-host taken off
       const line = x => { const n = nums(x); return `YouTube ${n.yt ?? "–"} · Facebook ${n.fb ?? "–"} · Zoom ${n.zoomA ?? "–"}${x.zoom > 0 ? ` (${x.zoom} − 2)` : ""}`; };
       const put = (got, sfx) => { for (const [k, v] of Object.entries(got)) if (v !== null && !st[k + sfx]) { st[k + sfx] = String(v); const i = d.querySelector(`#m-${k}${sfx}`); if (i) i.value = v; } };
-      const fill = () => { if (st.multi) Array.from({length: st.count}, (_, i) => liveAt(st[`time_${i + 1}`]) || list[i]).forEach((x, i) => x && put(nums(x), "_" + (i + 1)));
+      const fill = () => { if (st.multi) Array.from({length: st.count}, (_, i) => liveAt(st[`time_${i + 1}`], st[`end_${i + 1}`]) || list[i]).forEach((x, i) => x && put(nums(x), "_" + (i + 1)));
         else put(nums(list.length === 1 ? list[0] : [...list].sort((a, b) => (b.youtube + b.facebook + b.zoom) - (a.youtube + a.facebook + a.zoom))[0]), ""); keepDraft(); draw(); };
       const box = document.createElement("div"); box.className = "live-note";
       const zoomNote = `<small>Zoom counts the host and co-host as viewers, so 2 are taken off what Zoom showed. Split adults and children yourself. Morning prayers (5 to 6 am) aren't counted. Pick a service's start time to fill in the livestream from that time.</small>`;
