@@ -69,6 +69,15 @@ export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams, from = Number(sp.get("from")), to = Number(sp.get("to"));
   if (from > 0 && to > from) {
     if (w.c !== w.me.home) return Response.json({ church: w.c, services: null });
+    // ...or, with peaks=1, the highest on each platform between the two times (a service's own start and end)
+    if (sp.get("peaks") === "1") {
+      const r = await ask(`${d.base}/api/peaks?${d.q}from=${from}&to=${to}`);
+      const s = r?.ok ? await r.json().catch(() => null) : null;
+      if (!s || typeof s.minutes !== "number") return say("The live dashboard needs updating to give the peaks between two times.", 502);
+      const m = (v: unknown) => Number(v) || 0;
+      return Response.json({ church: w.c, peaks: { minutes: m(s.minutes), youtube: m(s.youtube), facebook: m(s.facebook), zoom: m(s.zoom), total: m(s.total) } },
+        { headers: { "cache-control": "no-store" } });
+    }
     const r = await ask(`${d.base}/api/services?${d.q}from=${from}&to=${to}`);
     const s = r?.ok ? await r.json().catch(() => null) : null;
     if (!s || !Array.isArray(s.services)) return say("The live dashboard needs updating to list its services.", 502);
