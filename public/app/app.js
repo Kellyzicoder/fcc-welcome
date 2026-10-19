@@ -979,7 +979,9 @@ function render() {
   root.querySelectorAll("[data-out]").forEach(b => b.onclick = signOut);
   // Refresh: loads the latest check-ins and changes made by others, only when tapped (nothing runs in the background,
   // so no battery use and the page never moves while someone is working on it). The page stays where it was scrolled to.
+  root.querySelectorAll("[data-refresh]").forEach(b => { if (S.newVersion) { b.classList.add("new"); b.title = "A newer version of the app is ready: tap to load it"; } });
   root.querySelectorAll("[data-refresh]").forEach(b => b.onclick = async () => {
+    if (S.newVersion) { try { history.scrollRestoration = "manual"; } catch {} location.reload(); return; }  // a newer version is waiting
     if (b.classList.contains("busy")) return;
     b.classList.add("busy");
     try {
@@ -1309,6 +1311,8 @@ const WIDGETS = {
           // "peak this service" is this stream's peak only: morning prayers (4:30 to 6:30 am) are their own, and nothing shows between services
           const prayer = x => { const d = new Date(x), m = d.getHours() * 60 + d.getMinutes(); return m >= 270 && m < 390; };
           const peakNow = live ? Math.max(j.total, ...h.filter(x => prayer(x.t) === prayer(Date.now())).map(x => x.total)) : null;
+          // the new numbers replace the old without the widget shrinking for a moment (which made the page jump)
+          if (el.offsetHeight) { el.style.minHeight = el.offsetHeight + "px"; setTimeout(() => { el.style.minHeight = ""; }, 1500); }
           el.innerHTML = `<div class="live-top"><span class="live-dot ${live ? "on" : ""}">${live ? "Live now" : "Not live right now"}</span><span class="gap" style="flex:1"></span>
               <small>Updated ${new Date(j.updatedAt).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"})}</small></div>
             <div class="lv-card live-nums">
@@ -3334,7 +3338,12 @@ async function freshCheck() {
     if (!have || !live || have === live) return;
     const key = "fcc-updated:" + live;                            // never loop: reload at most once per version
     if (sessionStorage.getItem(key)) return;
+    // Only reload by itself on a fresh, untouched page; otherwise the Refresh button gets a dot and loads the new version when
+    // tapped, so the page never jumps while someone is reading or working on it
+    const busy = scrollY > 80 || document.querySelector(".modal") || /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName || "") || S.view === "summary";
+    if (busy) { S.newVersion = true; document.querySelectorAll("[data-refresh]").forEach(b => { b.classList.add("new"); b.title = "A newer version of the app is ready: tap to load it"; }); return; }
     sessionStorage.setItem(key, "1");
+    try { history.scrollRestoration = "manual"; } catch {}
     location.reload();
   } catch {}
 }

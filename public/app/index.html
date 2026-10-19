@@ -947,6 +947,9 @@ button.chip:not(.on):hover, .wa-chip:hover span {border-color: var(--accent); co
 [data-theme="dark"] .rpill.tint[aria-selected="true"]:not([style]), [data-theme="dark"] .rpill.tint[aria-pressed="true"]:not([style]) {background: var(--accent); color: var(--accent-ink);}
 /* A date pill never gets cut short by a narrow column */
 div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
+/* A newer version is ready: a small dot on Refresh */
+.refresh-btn.new {position: relative;} .refresh-btn.new::after {content: ""; position: absolute; top: 4px; right: 4px; width: 9px; height: 9px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 2px var(--card);}
+.w-body {overflow-anchor: none;} .wgrid {overflow-anchor: auto;}
 </style>
 </head>
 <body>
