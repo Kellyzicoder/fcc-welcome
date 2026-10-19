@@ -261,8 +261,7 @@ function waDialog(title, build, opts = {}) {
   d.innerHTML = `<div class="${opts.into ? "card" : "sheet"} wa-sheet" ${opts.into ? "" : `role="dialog" aria-modal="true"`} aria-label="${esc(title)}">
     ${opts.into ? "" : `<div class="card-head"><h2>${esc(title)}</h2><span class="gap"></span><button class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>`}
     <div class="modal-grid"><div class="opts">
-        ${acc("Service", `${opts.day ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-day">Service date</label></b><small>The service this summary is for</small></div><input class="in wa-pill" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}
-          ${opts.fields ? toggle("m-multi", "More than one service today", "Fill in each service on its own; the message keeps them apart", st.multi) : ""}`)}
+        ${acc("Service", `${opts.day ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-day">Service date</label></b><small>The service this summary is for</small></div><input class="in wa-pill" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}`)}
         ${opts.fields ? acc("Service details", `<div class="wa-sec"><b>Service details</b><small>What the check-in can't count. Boxes left empty count as 0. Pick the service's start and end times to fill in the livestream.</small></div><div id="m-fields"></div>`) : ""}
         ${incl.length ? acc("Include in the message", `<div class="opt wa-inc"><div class="wa-txt"><b>Include in the message</b><small>Tap to add or leave out. ${esc(incl.map(c => c[3]).join(" "))}</small></div>
           <div class="wa-chips">${incl.map(([id, t, on]) => `<label class="wa-chip"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>${svg("tick")}${t}</span></label>`).join("")}</div></div>`) : ""}
@@ -362,9 +361,11 @@ function waDialog(title, build, opts = {}) {
     // one service: its start time too, so the livestream that goes with it can be offered
     const times = (n, start) => `<span class="svc-times"><label class="svc-time">Starts <input class="in sm" type="time" data-time="${n}" value="${esc(start)}" aria-label="Service ${n} start time"></label>
         <label class="svc-time">Ends <input class="in sm" type="time" data-end="${n}" value="${esc(st[`end_${n}`] || "")}" aria-label="Service ${n} end time"></label></span>`;
-    box.innerHTML = !st.multi ? set("", liveOk() ? `<div class="wide svc-top"><b class="svc-head">Service time</b>${times(1, st.time_1 || "")}</div>` : "")
-      : Array.from({length: st.count}, (_, j) => set("_" + (j + 1), `<div class="wide svc-top"><b class="svc-head">${esc(groupName(j + 1))}</b>${times(j + 1, startOf(j + 1))}</div>`)).join("")
-      + `<div class="svc-more">${st.count < 3 ? `<button type="button" class="link-btn" data-svc-add>+ Add a third service</button>` : `<button type="button" class="link-btn" data-svc-less>Only two services</button>`}</div>`;
+    // Usually one service; "Add a second service" splits the day (and a third, if ever needed). Each service keeps its own boxes.
+    box.innerHTML = (!st.multi ? set("", liveOk() ? `<div class="wide svc-top"><b class="svc-head">Service time</b>${times(1, st.time_1 || "")}</div>` : "")
+      : Array.from({length: st.count}, (_, j) => set("_" + (j + 1), `<div class="wide svc-top"><b class="svc-head">${esc(groupName(j + 1))}</b>${times(j + 1, startOf(j + 1))}</div>`)).join(""))
+      + `<div class="svc-more">${!st.multi ? `<button type="button" class="pill-btn sm" data-svc-two>${svg("plus")}Add a second service</button>`
+        : `${st.count < 3 ? `<button type="button" class="pill-btn sm" data-svc-add>${svg("plus")}Add a third service</button>` : ""}<button type="button" class="pill-btn sm ci-remove" data-svc-less>Remove the ${st.count === 3 ? "third" : "second"} service</button>`}</div>`;
     box.querySelectorAll("[data-field]").forEach(i => i.oninput = () => { st[i.dataset.field] = i.value.trim(); keepDraft(); draw(); });
     // a time changed: keep it, rename that service, and offer its livestream; the boxes aren't redrawn, so typing the time isn't interrupted
     let wait; const timed = (k, n, v) => { st[`${k}_${n}`] = v; keepDraft(); st.groups = Array.from({length: st.count}, (_, j) => groupName(j + 1));
@@ -372,8 +373,15 @@ function waDialog(title, build, opts = {}) {
       draw(); clearTimeout(wait); wait = setTimeout(() => offerLive(n), 350); };
     box.querySelectorAll("[data-time]").forEach(i => i.onchange = i.oninput = () => timed("time", +i.dataset.time, i.value));
     box.querySelectorAll("[data-end]").forEach(i => i.onchange = i.oninput = () => timed("end", +i.dataset.end, i.value));
+    const keys = opts.fields.map(f => f[0]);
+    box.querySelector("[data-svc-two]")?.addEventListener("click", () => {  // what was typed for the one service becomes the first service's
+      for (const k of keys) if (st[k] && !st[k + "_1"]) st[k + "_1"] = st[k];
+      st.multi = true; st.count = 2; keepDraft(); drawFields(); liveNote(); draw(); });
     box.querySelector("[data-svc-add]")?.addEventListener("click", () => { st.count = 3; keepDraft(); drawFields(); liveNote(); draw(); });
-    box.querySelector("[data-svc-less]")?.addEventListener("click", () => { st.count = 2; keepDraft(); drawFields(); liveNote(); draw(); });
+    box.querySelector("[data-svc-less]")?.addEventListener("click", () => {
+      if (st.count > 2) st.count = 2;
+      else { for (const k of keys) if (st[k + "_1"] && !st[k]) st[k] = st[k + "_1"]; st.multi = false; }  // back to one service, keeping the first's boxes
+      keepDraft(); drawFields(); liveNote(); draw(); });
   };
   drawFields();
   d.querySelector("#m-multi")?.addEventListener("change", e => { st.multi = e.target.checked; keepDraft(); drawFields(); liveNote(); draw(); });
