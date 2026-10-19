@@ -3275,7 +3275,7 @@ const KIND = {lock: "Locked a service", unlock: "Unlocked a service", delete: "D
               signup_approved: "Approved sign-up", signup_rejected: "Rejected sign-up"};
 const RESULT = {done: "Done", already: "No change (already done)", changed: "Blocked: someone else changed it first"};
 async function activity(el) {
-  const sub = `${esc(S.church)} · every tick, untick, edit and approval. It is only ever added to.`;
+  const sub = `${esc(S.church)} · every tick, untick, edit and approval.`;
   const shows = {all: "Everything", ticks: "Check-ins", edits: "Edits & sign-ups", blocked: "Blocked only"};
   const frame = body => head("Activity log", sub) + `<div class="card" style="margin-bottom:14px"><div class="row">
       <div style="flex:0 0 170px"><label class="f" for="a-day">Day</label><input class="in" id="a-day" type="date" value="${S.actDay}"></div>
