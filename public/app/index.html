@@ -821,6 +821,10 @@ input.in::placeholder, textarea.in::placeholder {color: var(--ink-3); opacity: 1
 .wa-sheet .fields-grid > div:has(> .in) .in {width: min(58%, 300px); flex: none; background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 9px 14px; min-height: 0;}
 .wa-sheet .fields-grid > div:has(> [type="number"]) .in {width: 96px; text-align: right;}
 .wa-page .modal-grid {gap: 22px;} @media (min-width: 721px) { .wa-page .modal-grid > .opt:last-child {top: 16px;} }
+/* Asking to fill in the livestream for the time picked */
+.live-ask[hidden] {display: none !important;} .live-ask {margin: 8px 0 4px;}
+.ask-nums {display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 2px;} .ask-nums i {font-style: normal; background: var(--card); border-radius: 999px; padding: 5px 12px; font-size: 13.5px; color: var(--ink-2);} .ask-nums em {font-style: normal; font-weight: 700; color: var(--ink); margin-left: 6px;}
+.live-ask-btns {display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;} .live-ask-btns .pill-btn {height: 36px; padding: 0 14px; font-size: 13.5px;}
 .draft-line {display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--ink-3); font-size: 13px;} .draft-line:empty {display: none;}
 .set-card .chips {margin: 0;} .chip[aria-pressed="true"] {background: var(--accent); color: var(--accent-ink); border-color: transparent;}
 .share-row {display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px;} .share-row small {color: var(--ink-3); margin-right: 2px;}
