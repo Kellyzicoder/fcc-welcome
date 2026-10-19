@@ -261,8 +261,7 @@ function waDialog(title, build, opts = {}) {
   d.innerHTML = `<div class="${opts.into ? "card" : "sheet"} wa-sheet" ${opts.into ? "" : `role="dialog" aria-modal="true"`} aria-label="${esc(title)}">
     ${opts.into ? "" : `<div class="card-head"><h2>${esc(title)}</h2><span class="gap"></span><button class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>`}
     <div class="modal-grid"><div class="opts">
-        ${acc("Service", `${opts.day ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-day">Service date</label></b><small>The service this summary is for</small></div><input class="in wa-pill" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}
-          ${opts.fields ? toggle("m-multi", "More than one service today", "Fill in each service on its own; the message keeps them apart", st.multi) : ""}`)}
+        ${acc("Service", `${opts.day ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-day">Service date</label></b><small>The service this summary is for</small></div><input class="in wa-pill" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}`)}
         ${opts.fields ? acc("Service details", `<div class="wa-sec"><b>Service details</b><small>What the check-in can't count. Boxes left empty count as 0. Pick the service's start and end times to fill in the livestream.</small></div><div id="m-fields"></div>`) : ""}
         ${incl.length ? acc("Include in the message", `<div class="opt wa-inc"><div class="wa-txt"><b>Include in the message</b><small>Tap to add or leave out. ${esc(incl.map(c => c[3]).join(" "))}</small></div>
           <div class="wa-chips">${incl.map(([id, t, on]) => `<label class="wa-chip"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>${svg("tick")}${t}</span></label>`).join("")}</div></div>`) : ""}
@@ -362,9 +361,11 @@ function waDialog(title, build, opts = {}) {
     // one service: its start time too, so the livestream that goes with it can be offered
     const times = (n, start) => `<span class="svc-times"><label class="svc-time">Starts <input class="in sm" type="time" data-time="${n}" value="${esc(start)}" aria-label="Service ${n} start time"></label>
         <label class="svc-time">Ends <input class="in sm" type="time" data-end="${n}" value="${esc(st[`end_${n}`] || "")}" aria-label="Service ${n} end time"></label></span>`;
-    box.innerHTML = !st.multi ? set("", liveOk() ? `<div class="wide svc-top"><b class="svc-head">Service time</b>${times(1, st.time_1 || "")}</div>` : "")
-      : Array.from({length: st.count}, (_, j) => set("_" + (j + 1), `<div class="wide svc-top"><b class="svc-head">${esc(groupName(j + 1))}</b>${times(j + 1, startOf(j + 1))}</div>`)).join("")
-      + `<div class="svc-more">${st.count < 3 ? `<button type="button" class="link-btn" data-svc-add>+ Add a third service</button>` : `<button type="button" class="link-btn" data-svc-less>Only two services</button>`}</div>`;
+    // Usually one service; "Add a second service" splits the day (and a third, if ever needed). Each service keeps its own boxes.
+    box.innerHTML = (!st.multi ? set("", liveOk() ? `<div class="wide svc-top"><b class="svc-head">Service time</b>${times(1, st.time_1 || "")}</div>` : "")
+      : Array.from({length: st.count}, (_, j) => set("_" + (j + 1), `<div class="wide svc-top"><b class="svc-head">${esc(groupName(j + 1))}</b>${times(j + 1, startOf(j + 1))}</div>`)).join(""))
+      + `<div class="svc-more">${!st.multi ? `<button type="button" class="pill-btn sm" data-svc-two>${svg("plus")}Add a second service</button>`
+        : `${st.count < 3 ? `<button type="button" class="pill-btn sm" data-svc-add>${svg("plus")}Add a third service</button>` : ""}<button type="button" class="pill-btn sm ci-remove" data-svc-less>Remove the ${st.count === 3 ? "third" : "second"} service</button>`}</div>`;
     box.querySelectorAll("[data-field]").forEach(i => i.oninput = () => { st[i.dataset.field] = i.value.trim(); keepDraft(); draw(); });
     // a time changed: keep it, rename that service, and offer its livestream; the boxes aren't redrawn, so typing the time isn't interrupted
     let wait; const timed = (k, n, v) => { st[`${k}_${n}`] = v; keepDraft(); st.groups = Array.from({length: st.count}, (_, j) => groupName(j + 1));
@@ -372,8 +373,15 @@ function waDialog(title, build, opts = {}) {
       draw(); clearTimeout(wait); wait = setTimeout(() => offerLive(n), 350); };
     box.querySelectorAll("[data-time]").forEach(i => i.onchange = i.oninput = () => timed("time", +i.dataset.time, i.value));
     box.querySelectorAll("[data-end]").forEach(i => i.onchange = i.oninput = () => timed("end", +i.dataset.end, i.value));
+    const keys = opts.fields.map(f => f[0]);
+    box.querySelector("[data-svc-two]")?.addEventListener("click", () => {  // what was typed for the one service becomes the first service's
+      for (const k of keys) if (st[k] && !st[k + "_1"]) st[k + "_1"] = st[k];
+      st.multi = true; st.count = 2; keepDraft(); drawFields(); liveNote(); draw(); });
     box.querySelector("[data-svc-add]")?.addEventListener("click", () => { st.count = 3; keepDraft(); drawFields(); liveNote(); draw(); });
-    box.querySelector("[data-svc-less]")?.addEventListener("click", () => { st.count = 2; keepDraft(); drawFields(); liveNote(); draw(); });
+    box.querySelector("[data-svc-less]")?.addEventListener("click", () => {
+      if (st.count > 2) st.count = 2;
+      else { for (const k of keys) if (st[k + "_1"] && !st[k]) st[k] = st[k + "_1"]; st.multi = false; }  // back to one service, keeping the first's boxes
+      keepDraft(); drawFields(); liveNote(); draw(); });
   };
   drawFields();
   d.querySelector("#m-multi")?.addEventListener("change", e => { st.multi = e.target.checked; keepDraft(); drawFields(); liveNote(); draw(); });
@@ -979,7 +987,9 @@ function render() {
   root.querySelectorAll("[data-out]").forEach(b => b.onclick = signOut);
   // Refresh: loads the latest check-ins and changes made by others, only when tapped (nothing runs in the background,
   // so no battery use and the page never moves while someone is working on it). The page stays where it was scrolled to.
+  root.querySelectorAll("[data-refresh]").forEach(b => { if (S.newVersion) { b.classList.add("new"); b.title = "A newer version of the app is ready: tap to load it"; } });
   root.querySelectorAll("[data-refresh]").forEach(b => b.onclick = async () => {
+    if (S.newVersion) { try { history.scrollRestoration = "manual"; } catch {} location.reload(); return; }  // a newer version is waiting
     if (b.classList.contains("busy")) return;
     b.classList.add("busy");
     try {
@@ -1016,7 +1026,29 @@ addEventListener("popstate", () => {
 const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", pastors: "Pastors", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", archive: "Archive",
                activity: "Activity", reports: "Reports", overview: "All churches", admin: "Admin"};
 const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, summary: 6, followup: 3, pastors: 4, people: 5, signups: 6, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
-const head = (title, sub, buttons = "") => `<div class="head">${ICON[S.view] ? `<span class="hico" style="--wc:var(--h${NAVHUE[S.view] || 1});--wb:var(--h${NAVHUE[S.view] || 1}b)">${svg(S.view)}</span>` : ""}<div><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ""}</div><span class="gap" style="flex:1"></span>${buttons}</div>`;
+// A greeting on the home pages: "Good morning, Kelvin", or "Welcome back, Pastor Grace" after a day or more away.
+// Pastors and bishops are greeted with their title; a title already in their name (Pastor, Rev, Elder...) is kept.
+const GREET_TITLES = /^(pastor|ps|bishop|reverend|rev|elder|deacon|deaconess|lady|prophet|prophetess|apostle|evangelist|dr|mrs?|ms|minister)\.?$/i;
+function greetName() {
+  const raw = String(S.me?.pastor || S.me?.name || "").trim().replace(/\s+/g, " "); if (!raw) return "";
+  const w = raw.split(" "), lead = [];
+  while (w.length > 1 && GREET_TITLES.test(w[0])) lead.push(w.shift());
+  const first = w[0];
+  if (GREET_TITLES.test(first)) return raw;  // the name is only a title, e.g. "Bishop"
+  if (lead.length) return `${lead.join(" ")} ${first}`;
+  const role = S.me.role, title = S.me.title;
+  return role === "bishop" ? `Bishop ${first}` : role === "pastor" || title === "Lead pastor" ? `Pastor ${first}` : first;
+}
+function greeting() {
+  const name = greetName(), h = new Date().getHours(), key = "fcc-seen:" + (S.me?.email || "");
+  if (S.greet === undefined) {  // worked out once per visit: away a day or more, or a first visit, says welcome back
+    let last = 0; try { last = Number(localStorage.getItem(key)) || 0; localStorage.setItem(key, String(Date.now())); } catch {}
+    S.greet = last && Date.now() - last > 864e5 ? "Welcome back" : "";
+  }
+  const part = S.greet || (h < 5 ? "Good evening" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening");
+  return `${part}${name ? `, ${esc(name)}` : ""}`;
+}
+const head = (title, sub, buttons = "") => `<div class="head">${ICON[S.view] ? `<span class="hico" style="--wc:var(--h${NAVHUE[S.view] || 1});--wb:var(--h${NAVHUE[S.view] || 1}b)">${svg(S.view)}</span>` : ""}<div>${["dashboard", "mine", "overview"].includes(S.view) ? `<p class="greet">${greeting()}</p>` : ""}<h1>${title}</h1>${sub ? `<p>${sub}</p>` : ""}</div><span class="gap" style="flex:1"></span>${buttons}</div>`;
 const badge = f => `<span class="badge ${f}">${FLAG[f]}</span>`;
 
 // ---------------------------------------------------------------- dashboard
@@ -1334,6 +1366,8 @@ const WIDGETS = {
           // "peak this service" is this stream's peak only: morning prayers (4:30 to 6:30 am) are their own, and nothing shows between services
           const prayer = x => { const d = new Date(x), m = d.getHours() * 60 + d.getMinutes(); return m >= 270 && m < 390; };
           const peakNow = live ? Math.max(j.total, ...h.filter(x => prayer(x.t) === prayer(Date.now())).map(x => x.total)) : null;
+          // the new numbers replace the old without the widget shrinking for a moment (which made the page jump)
+          if (el.offsetHeight) { el.style.minHeight = el.offsetHeight + "px"; setTimeout(() => { el.style.minHeight = ""; }, 1500); }
           el.innerHTML = `<div class="live-top"><span class="live-dot ${live ? "on" : ""}">${live ? "Live now" : "Not live right now"}</span><span class="gap" style="flex:1"></span>
               <small>Updated ${new Date(j.updatedAt).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"})}</small></div>
             <div class="lv-card live-nums">
@@ -1659,11 +1693,12 @@ function checkin(el) {
   const pastor = S.me.role === "pastor";  // a pastor ticks their own people only (locks work as for ushers): no adding or renaming
   // Laid out like Admin → Sign-ins: numbers on top, then pills to filter, team and search on the right, a table of names, 25 a page
   el.innerHTML = head("Check-in", pastor ? "Your people" : esc(S.church)) + `
-    <div class="card" style="margin-bottom:14px"><div class="row">
+    <details class="card ci-top" style="margin-bottom:14px" ${(() => { try { return localStorage.getItem("fcc-ci-top") === "closed" ? "" : "open"; } catch { return "open"; } })()}>
+      <summary><span class="ci-top-t"><b>Service</b><small id="ci-top-sum"></small></span>${svg("caret")}</summary><div class="row">
       <div style="flex:0 0 170px"><label class="f" for="d">Service date</label><input class="in" id="d" type="date" value="${S.date}"></div>
       <div><label class="f" for="svc">Service</label><input class="in" id="svc" list="svc-list" maxlength="60" autocomplete="off" value="${esc(svcName(S.date))}" ${pastor ? "readonly" : ""}>
         <datalist id="svc-list">${[...new Set(["Sunday Service", "Midweek Service", "Prayer Meeting", "Special Service", ...Object.values(S.names)])].map(n => `<option value="${esc(n)}">`).join("")}</datalist></div></div>
-      <div id="ci-parts"></div></div>
+      <div id="ci-parts"></div></details>
     <div class="tiles"><div class="card tile"><div class="label">Checked in</div><div class="num" id="n-in">0</div></div>
       <div class="card tile"><div class="label">Adults</div><div class="num" id="n-ad">0</div></div>
       <div class="card tile"><div class="label">Kids</div><div class="num" id="n-kid">0</div></div>
@@ -1687,7 +1722,13 @@ function checkin(el) {
   // A day can hold more than one service: pick which one you're ticking for, or the whole day
   const curPart = () => { const ps = partsOf(S.date); if (!ps.length) return 0; const v = S.ciParts?.[S.date]; return v && ps.some(x => x.part === v) ? v : ps[0].part; };
   let armedPart = false;
+  // The top card folds away: its title line still shows the day and the service being ticked
+  const topSum = () => { const s = el.querySelector("#ci-top-sum"); if (!s) return; const ps = partsOf(S.date);
+    s.textContent = `${nice(S.date, true)} · ${ps.length ? partName(S.date, curPart()) : el.querySelector("#svc")?.value || svcName(S.date)}`; };
+  el.querySelector(".ci-top")?.addEventListener("toggle", e => { try { localStorage.setItem("fcc-ci-top", e.target.open ? "open" : "closed"); } catch {} });
+  el.querySelector("#svc")?.addEventListener("input", topSum);
   const drawParts = () => {
+    topSum();
     const ps = partsOf(S.date), n = curPart(), wrap = el.querySelector("#ci-parts"), boss = ["admin", "lead"].includes(S.me.role);
     if (!S.partsOk || (pastor && !ps.length)) { wrap.innerHTML = ""; return; }
     wrap.innerHTML = ps.length ? `<div class="ci-parts"><div class="ci-pick"><span class="f">Ticking for</span><div class="seg ci-seg" role="group" aria-label="Which service">${ps.map(x =>
@@ -3389,7 +3430,12 @@ async function freshCheck() {
     if (!have || !live || have === live) return;
     const key = "fcc-updated:" + live;                            // never loop: reload at most once per version
     if (sessionStorage.getItem(key)) return;
+    // Only reload by itself on a fresh, untouched page; otherwise the Refresh button gets a dot and loads the new version when
+    // tapped, so the page never jumps while someone is reading or working on it
+    const busy = scrollY > 80 || document.querySelector(".modal") || /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName || "") || S.view === "summary";
+    if (busy) { S.newVersion = true; document.querySelectorAll("[data-refresh]").forEach(b => { b.classList.add("new"); b.title = "A newer version of the app is ready: tap to load it"; }); return; }
     sessionStorage.setItem(key, "1");
+    try { history.scrollRestoration = "manual"; } catch {}
     location.reload();
   } catch {}
 }
