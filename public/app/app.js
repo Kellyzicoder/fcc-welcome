@@ -172,6 +172,7 @@ function shareOut(k, msg, subject) {
 // Only for looking at: Copy, Send and Share always use the message exactly as written.
 function prettyMsg(t) {
   const fmt = x => esc(x).replace(/\*([^*\n]+)\*/g, "<b>$1</b>");
+  const cap = x => x !== x.toUpperCase() ? x : x.toLowerCase().replace(/(^|[\s/(])([a-z])/g, (_, a, c) => a + c.toUpperCase());  // "PREACHER NAME" -> "Preacher Name"
   const row = (cls, k, v) => `<div class="pm-row ${cls}"><span>${fmt(k)}</span><b>${fmt(v)}</b></div>`;
   let first = true, gap = false;
   return t.split("\n").map(raw => {
@@ -179,14 +180,18 @@ function prettyMsg(t) {
     if (!l) { if (first) return ""; gap = true; return ""; }
     const sp = gap ? " pm-gap" : ""; gap = false;
     let m;
-    if (first) { first = false; return `<div class="pm-title">${fmt(l.replace(/^\*|\*$/g, ""))}</div>`; }
+    if (first) { first = false; return `<div class="pm-title">${fmt(cap(l.replace(/^\*|\*$/g, "")))}</div>`; }
     if ((m = l.match(/^[—–-]{1,2}\s*(.+?)\s*[—–-]{1,2}$/))) return `<div class="pm-sec${sp}">${fmt(m[1])}</div>`;
     if ((m = l.match(/^\*([^*]+?)\s*-\s*(\d[\d,]*)\*?$/))) return row("pm-total" + sp, m[1], m[2]);
     if ((m = l.match(/^\[(.+?)\s*-\s*([^\]]*)\]$/))) return row("pm-sub" + sp, m[1].replace(/:\s*$/, ""), m[2].trim());
-    if ((m = l.match(/^([A-Z][A-Z0-9 /&'().]+?)\s*(?:-|:)\s*(.*)$/)) && m[1].length <= 30) return `<div class="pm-field${sp}"><span>${fmt(m[1])}</span><b>${fmt(m[2]) || "–"}</b></div>`;
+    if ((m = l.match(/^([A-Z][A-Z0-9 /&'().]+?)\s*(?:-|:)\s*(.*)$/)) && m[1].length <= 30) return `<div class="pm-field${sp}"><span>${fmt(cap(m[1]))}</span><b>${fmt(/^[A-Z][A-Z ]+$/.test(m[2]) ? cap(m[2]) : m[2]) || "–"}</b></div>`;
     if ((m = l.match(/^(.{2,60}?)\s*(?:-|:)\s*(\*?\d[\d,]*\*?)$/))) return row(sp, m[1], m[2]);
     return `<div class="pm-line${sp}">${fmt(l)}</div>`;
-  }).join("");
+  }).filter(Boolean).reduce((out, h) => {  // details that follow each other sit together in two columns
+    if (h.startsWith('<div class="pm-field') && out.at(-1)?.startsWith('<div class="pm-fields">')) out[out.length - 1] = out.at(-1).slice(0, -6) + h + "</div>";
+    else out.push(h.startsWith('<div class="pm-field') ? `<div class="pm-fields">${h}</div>` : h);
+    return out;
+  }, []).join("");
 }
 // A friendlier date picker for the app's date boxes: the date shows as a pill, and tapping it opens a month calendar.
 // Days with a recorded service have a dot, today has a ring, and days after the box's latest allowed day can't be picked.
@@ -263,18 +268,18 @@ function waDialog(title, build, opts = {}) {
     <div class="modal-grid"><div class="opts">
         ${acc("Service", `${opts.day ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-day">Service date</label></b><small>The service this summary is for</small></div><input class="in wa-pill" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}`)}
         ${opts.fields ? acc("Service details", `<div class="wa-sec"><b>Service details</b></div>${opts.fields.some(f => f[0] === "yt") && ["admin", "lead"].includes(S.me.role)
-          ? `<div class="live-fill" role="note">${svg("live")}<span><b>Livestream numbers fill in for you.</b> Set the service's start and end time below, and YouTube, Facebook and Zoom are filled in from the livestream. You can still change any of them by hand.</span></div>` : ""}<div id="m-fields"></div>${opts.plat ? `<div class="plat-row" id="m-plat"></div>` : ""}`) : ""}
+          ? `<div class="live-fill" role="note">${svg("live")}<span><b>Livestream figures will be populated automatically.</b> Set the service start and end times below, and adjust any values manually if needed.</span></div>` : ""}<div id="m-fields"></div>${opts.plat ? `<div class="plat-row" id="m-plat"></div>` : ""}`) : ""}
         ${incl.length ? acc("Include in the message", `<div class="opt wa-inc"><div class="wa-txt"><b>Include in the message</b><small>Tap to add or leave out. ${esc(incl.map(c => c[3]).join(" "))}</small></div>
           <div class="wa-chips">${incl.map(([id, t, on]) => `<label class="wa-chip"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>${svg("tick")}${t}</span></label>`).join("")}</div></div>`) : ""}
         ${opts.link ? acc("Livestream link", `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-link">Livestream link</label></b><small>Optional. It goes at the end of the message</small></div><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>`, false) : ""}
         ${opts.fields ? `<div class="draft-line"><span id="m-draft"></span><button type="button" class="link-btn" data-clear hidden>Start again</button></div>` : ""}
-        ${opts.into ? acc("Preview", `<div class="prev-top"><small>This is the message that Copy and WhatsApp will send.</small><div class="pv-seg" role="group" aria-label="Message style"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Easy to read</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">As sent</button></div></div>
-          <div class="preview ${S.pvRaw ? "" : "nice"}" id="m-text" tabindex="0"></div>`, false) : ""}
       </div>
-      ${opts.into ? `<aside class="wa-side"><div class="wa-side-card"><span class="wa-eyebrow">Send</span><p id="wa-state" class="wa-state"></p><div id="wa-actions"></div></div>
-        <div class="wa-side-card"><span class="wa-eyebrow">On this page</span><nav class="wa-toc">${[opts.day || opts.fields ? "Service" : "", opts.fields ? "Service details" : "", incl.length ? "Include in the message" : "", opts.link ? "Livestream link" : "", "Preview"].filter(Boolean)
-          .map(t => `<button type="button" data-jump="wa-${t.toLowerCase().replace(/[^a-z]+/g, "-")}">${t}</button>`).join("")}</nav></div></aside>` : ""}
-      ${opts.into ? "" : `<div class="opt"><div class="prev-top"><span class="f">Preview</span><div class="pv-seg" role="group" aria-label="Preview style"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Easy to read</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">As sent</button></div></div>
+      ${opts.into ? `<aside class="wa-side" aria-label="Preview">  <!-- the message as a document on the side, updating as the boxes are filled in -->
+        <div class="wa-prev-head"><b>Preview</b><div class="pv-seg" role="group" aria-label="How the preview looks"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Formatted</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">Plain text</button></div></div>
+        <div class="wa-paper"><div class="preview ${S.pvRaw ? "" : "nice"}" id="m-text" tabindex="0"></div></div>
+        <p class="wa-paper-note">Plain text is exactly what Copy and WhatsApp send.</p>
+        <div class="wa-side-card wa-send"><p id="wa-state" class="wa-state"></p><div id="wa-actions"></div></div></aside>` : ""}
+      ${opts.into ? "" : `<div class="opt"><div class="prev-top"><span class="f">Preview</span><div class="pv-seg" role="group" aria-label="How the preview looks"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Formatted</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">Plain text</button></div></div>
         <div class="preview ${S.pvRaw ? "" : "nice"}" id="m-text" tabindex="0"></div></div>`}</div>
     ${others.length || native ? `<div class="share-row"><small>Send to</small>${others.map(k => `<button type="button" class="chip" data-share="${k}">${SHARE.find(s => s[0] === k)[1]}</button>`).join("")}
       ${native ? `<button type="button" class="chip" data-share="native">More apps…</button>` : ""}</div>` : ""}
@@ -474,9 +479,45 @@ async function auth(path, body, token) {
 }
 async function refresh() {
   if (!S.session?.refresh_token) return false;
-  try { keep(await auth("token?grant_type=refresh_token", {refresh_token: S.session.refresh_token})); return true; }
+  try { keep(await auth("token?grant_type=refresh_token", {refresh_token: S.session.refresh_token})); rtToken(); return true; }
   catch { store.set(null); return false; }
 }
+// Live updates without checking every few seconds (event-driven, like a computer's interrupts): the app keeps one quiet
+// connection to the database and sleeps. The database sends a short note only when something it's watching changes, and
+// the page then fetches just what changed. In the background the connection is closed; it reconnects when the app is opened.
+const RT = {ws: null, open: false, ref: 0, hb: 0, subs: new Map()};
+const rtSend = m => { if (RT.ws?.readyState === 1) RT.ws.send(JSON.stringify({...m, ref: String(++RT.ref)})); };
+const rtJoin = (topic, s) => rtSend({topic: "realtime:" + topic, event: "phx_join", payload: {access_token: S.session?.access_token,
+  config: {broadcast: {self: false}, presence: {key: ""}, private: false, postgres_changes: s.tables.map(table => ({event: "*", schema: "public", table}))}}});
+function rtToken() { for (const topic of RT.subs.keys()) rtSend({topic: "realtime:" + topic, event: "access_token", payload: {access_token: S.session?.access_token}}); }
+function rtConnect() {
+  if (!S.cfg || (RT.ws && RT.ws.readyState <= 1)) return;
+  let ws; try { ws = RT.ws = new WebSocket(S.cfg.url.replace(/^http/, "ws") + "/realtime/v1/websocket?apikey=" + encodeURIComponent(S.cfg.key) + "&vsn=1.0.0"); }
+  catch { for (const s of RT.subs.values()) s.bad?.(); return; }
+  ws.onopen = () => { RT.open = true; RT.wait = 0; for (const [topic, s] of RT.subs) rtJoin(topic, s);
+    clearInterval(RT.hb); RT.hb = setInterval(() => rtSend({topic: "phoenix", event: "heartbeat", payload: {}}), 25000); };  // "still here", twice a minute
+  ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch { return; }
+    const s = RT.subs.get(String(m.topic || "").replace(/^realtime:/, "")); if (!s) return;
+    if (m.event === "phx_reply" && m.payload?.status === "ok" && m.payload?.response?.postgres_changes) s.good?.();
+    else if (m.event === "phx_error" || (m.event === "phx_reply" && m.payload?.status === "error") || (m.event === "system" && m.payload?.status === "error")) s.bad?.();
+    else if (m.event === "postgres_changes") s.on(m.payload?.data); };
+  ws.onclose = () => { if (RT.ws !== ws) return; RT.open = false; RT.ws = null; clearInterval(RT.hb);
+    for (const s of RT.subs.values()) s.bad?.();
+    RT.wait = Math.min(120000, (RT.wait || 2500) * 2);  // try again, waiting longer each time (5 s, 10 s... up to 2 minutes)
+    if (RT.subs.size && !document.hidden) setTimeout(rtConnect, RT.wait); };
+}
+// Hear about changes to these tables until the returned function is called. good/bad: connected, or fall back to checking
+function rtWatch(topic, tables, on, good, bad) {
+  if (!("WebSocket" in window) || !S.cfg) { bad(); return () => {}; }
+  const s = {tables, on, good, bad}; RT.subs.set(topic, s);
+  if (RT.open) rtJoin(topic, s); else rtConnect();
+  return () => { if (RT.subs.get(topic) !== s) return; RT.subs.delete(topic); rtSend({topic: "realtime:" + topic, event: "phx_leave", payload: {}});
+    if (!RT.subs.size) { clearInterval(RT.hb); const w = RT.ws; RT.ws = null; RT.open = false; w?.close(); } };
+}
+document.addEventListener("visibilitychange", () => {  // the background: hang up and use nothing; back in front: reconnect
+  if (document.hidden) { if (RT.ws) { clearInterval(RT.hb); const w = RT.ws; RT.ws = null; RT.open = false; w.close(); } }
+  else if (RT.subs.size) rtConnect();
+});
 async function api(path, {method = "GET", body, prefer, retry = true} = {}) {
   if (S.preview && method !== "GET" && !/^rpc\/(app_(me|ask|db_size|last_seen|set_my_name)|church_(numbers|trend|days))\b/.test(path)) throw new Error(viewOnly());  // View as: look, don't change (the church_ ones only read)
   if (S.session && S.session.expires_at - Date.now() < 60000) await refresh();
@@ -965,7 +1006,7 @@ function setMode(mode, remember) {
   document.querySelectorAll("[data-mode]").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === mode));
 }
 function render() {
-  clearInterval(S.poll);
+  clearInterval(S.poll); S.poll = 0; S.unwatch?.(); S.unwatch = null; S.onShow = null;  // the last page's listening stops
   if (S.shown && S.shown !== S.view && !S.goingBack) {  // moved to another page: remember where from
     S.hist = [...(S.hist || []), S.shown].slice(-30);
     try { history.pushState({fcc: S.hist.length}, ""); } catch {}
@@ -1426,11 +1467,13 @@ const WIDGETS = {
         if (!el.isConnected) return clearInterval(t);
         if (el.querySelector(".live-set")) return;  // don't wipe a link someone is typing
         if (document.hidden && el.querySelector(".live-top")) return;  // the app is in the background: save the battery
+        if (!el._live && el.querySelector(".live-top") && Date.now() - (el._at || 0) < 300000) return;  // not live: look again every 5 minutes, not every 30 seconds
         try {
           const j = await call();
           if (j.setup) return connect();
           const live = Object.values(j.platforms).some(x => x.status === "live"), h = j.history || [], top = Math.max(1, ...h.map(x => x.total));
           // Same numbers as last time (or someone is pointing at the chart): only the "Updated" time changes, so nothing on the page moves
+          el._live = live; el._at = Date.now();
           const sig = JSON.stringify([live, j.platforms, h.length, h[h.length - 1]?.total]);
           if (el.dataset.sig === sig || (el.querySelector(".live-top") && (el.matches(":hover") || el.contains(document.activeElement)))) {
             const u = el.querySelector(".live-top small"); if (u) u.textContent = `Updated ${new Date(j.updatedAt).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"})}`;
@@ -2139,7 +2182,15 @@ function checkin(el) {
       else toast("Saved.");  // nothing ticked yet: the title goes in with the first tick
     }
   };
-  if (pastor) { draw(); pull(); S.poll = setInterval(pull, 5000); return; }  // no Add form for pastors
+  // Other phones' ticks: the database says when a tick changes, and only then does the list catch up (nothing checks every
+  // few seconds). If that connection can't be made, it checks every 10 seconds instead, until the connection works.
+  const watchTicks = () => {
+    let wait = 0; const soon = () => { clearTimeout(wait); wait = setTimeout(pull, 400); };  // a burst of ticks: one catch-up
+    S.unwatch = rtWatch("checkin", ["attendance", "service_ticks"], soon,
+      () => { clearInterval(S.poll); S.poll = 0; }, () => { if (!S.poll && S.view === "checkin") S.poll = setInterval(pull, 10000); });
+    S.onShow = pull;  // opened again: catch up once
+  };
+  if (pastor) { draw(); pull(); watchTicks(); return; }  // no Add form for pastors
   el.querySelector("#a-phone").oninput = digitsOnly;
   el.querySelector("#add").onsubmit = async e => {
     e.preventDefault();
@@ -2161,7 +2212,7 @@ function checkin(el) {
       e.target.reset(); toast(`${name} is checked in${known ? " (already on the list)" : ""}.`); pull();
     } catch (err) { toast("Not saved: " + err.message); }
   };
-  draw(); pull(); S.poll = setInterval(pull, 5000);
+  draw(); pull(); watchTicks();
 }
 
 // ---------------------------------------------------------------- follow-up and people
@@ -2391,11 +2442,11 @@ function people(el) {
         ["No pastor yet", everyone.filter(SHOW.nopastor[1]).length, "Need a pastor assigned"]]
       .map(([t, n, sub]) => `<div class="card tile"><div class="label">${t}</div><div class="num">${String(n).padStart(2, "0")}</div><div class="note" style="margin:4px 0 0">${esc(sub)}</div></div>`).join("")}</div>
     <div class="card">
-      <div class="u-bar"><div class="rpills" role="tablist" aria-label="Show">${Object.entries(SHOW).map(([k, [t, f]]) =>
-          `<button type="button" class="rpill ${DOT[k] || ""}" role="tab" data-show="${k}" aria-selected="${S.showF === k}">${k === "all" || !DOT[k] ? "" : "<i></i>"}${t} <span>${inRole.filter(f).length}</span></button>`).join("")}</div>
+      <div class="find-row"><label class="find-bar">${svg("search")}<input id="find" type="search" placeholder="Search by name, phone or pastor" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off"></label>
         <div class="u-tools">${roleKeys.length ? `<select class="in" id="teamF" aria-label="Team"><option value="">All teams</option>${roleKeys.map(k => `<option value="${esc(k)}" ${S.roleF === k ? "selected" : ""}>${esc(counts[k].label)} · ${counts[k].n}</option>`).join("")}</select>` : ""}
-          <select class="in" id="sort" aria-label="Sort by">${Object.entries(SORT).map(([k, [t]]) => `<option value="${k}" ${S.sortBy === k ? "selected" : ""}>${t}</option>`).join("")}</select>
-          <input class="in" id="find" type="search" placeholder="Search by name, phone or pastor" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off"></div></div>
+          <select class="in" id="sort" aria-label="Sort by">${Object.entries(SORT).map(([k, [t]]) => `<option value="${k}" ${S.sortBy === k ? "selected" : ""}>${t}</option>`).join("")}</select></div></div>
+      <div class="rpills u-pills" role="tablist" aria-label="Show">${Object.entries(SHOW).map(([k, [t, f]]) =>
+          `<button type="button" class="rpill ${DOT[k] || ""}" role="tab" data-show="${k}" aria-selected="${S.showF === k}">${k === "all" || !DOT[k] ? "" : "<i></i>"}${t} <span>${inRole.filter(f).length}</span></button>`).join("")}</div>
       ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><button class="pill-btn sm" id="bulk-see">${S.selOnly ? "Show all" : "View"}</button><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-set">Set details</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
       <div class="scroll"><table class="utable"><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select all ${mine.length} shown" title="Select all ${mine.length} shown" ${mine.length && shownPicked === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Type</th><th>Pastor assigned</th><th>Age group</th><th>Gender</th><th>Status</th><th>Roles</th></tr></thead><tbody>
       ${shown.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}
@@ -3200,13 +3251,14 @@ async function emailReports(el) {
   if (S.view !== "reports") return;
   const list = (setting[0]?.value || "").split(/[,\s;]+/).filter(Boolean), p = picture();
   el.innerHTML = head("Reports", sub) + `
-    <form class="card" id="to" style="margin-bottom:14px"><div class="card-head"><h2>Who gets the email</h2><span class="gap"></span><span class="muted" style="font-size:13px">${list.length} ${list.length === 1 ? "person" : "people"}</span></div>
+    <div class="rep-split"><form class="card" id="to"><div class="card-head"><h2>Who gets the email</h2><span class="gap"></span><span class="muted" style="font-size:13px">${list.length} ${list.length === 1 ? "person" : "people"}</span></div>
       <div class="rcpts">${list.length ? list.map(m => `<span class="rcpt"><span class="ava" ${avaStyle(m)}>${esc(initials(m))}</span><span class="rcpt-mail">${esc(m)}</span>
           <button type="button" class="rcpt-x" data-unmail="${esc(m)}" aria-label="Take ${esc(m)} off the list" title="Take off the list">${svg("close")}</button></span>`).join("")
         : `<p class="empty" style="margin:0">Nobody gets the report yet. Add the leaders' email addresses below.</p>`}</div>
       <div class="add-mail"><input class="in" id="newmail" type="text" inputmode="email" autocomplete="off" placeholder="Add an email, e.g. fcc@gmail.com" aria-label="Email address to add">
         <button class="pill-btn">${svg("plus")}Add</button><button type="button" class="pill-btn primary" id="send" ${list.length && p.last ? "" : "disabled"}>${svg("reports")}Send report now</button></div>
       <p class="note" style="margin:10px 2px 0">Tap × to take someone off. Changes save straight away.</p></form>
+    <aside class="rep-prev" id="rep-prev" aria-label="Email preview"></aside></div>
     <div class="card" id="sent" style="margin-bottom:14px"><div class="card-head"><h2>Emails sent</h2></div>
       ${sent.length ? `<div class="scroll"><table><thead><tr><th>Sent</th><th>Report for</th><th>Type</th><th>To</th><th>Result</th></tr></thead><tbody>
         ${sent.map(r => `<tr><td class="muted">${esc(when(r.sent_at))}</td><td>${esc(full(r.report_date))}</td><td class="muted">${r.kind === "daily" ? "Automatic (old schedule)" : "Sent by the admin"}</td>
@@ -3240,9 +3292,20 @@ async function emailReports(el) {
     all: () => [`register_${S.church}_${today()}.csv`, [["Church", "Name", "Type", "Age group", "Status", "Pastor", "Phone"], ...p.mine.slice().sort(byName).map(m => [S.church, m.full_name, type(m), age(m), m.status || "Active", m.pastor || "", m.phone || ""])]],
   };
   el.querySelectorAll("[data-dl]").forEach(b => b.onclick = () => download(...files[b.dataset.dl]()));
+  // The email as it will be sent, on the side: with names or numbers only
+  const prevBox = el.querySelector("#rep-prev");
+  const drawPrev = () => {
+    const was = S.emoji; S.emoji = false; let text = "";
+    try { text = p.last ? summary(p, {names: S.repNames !== false}) : ""; } finally { S.emoji = was; }
+    prevBox.innerHTML = `<div class="wa-prev-head"><b>Email preview</b><div class="pv-seg" role="group" aria-label="Names in the email"><button type="button" data-rn="1" aria-pressed="${S.repNames !== false}">With names</button><button type="button" data-rn="0" aria-pressed="${S.repNames === false}">Numbers only</button></div></div>
+      <div class="wa-paper">${text ? `<div class="preview nice">${prettyMsg(text)}</div>` : `<p class="empty" style="margin:0">No service recorded yet.</p>`}</div>
+      <p class="wa-paper-note">${list.length ? `This goes to ${list.length} ${list.length === 1 ? "person" : "people"} when you tap Send report now.` : "Add an email address to send it."}</p>`;
+    prevBox.querySelectorAll("[data-rn]").forEach(b => b.onclick = () => { S.repNames = b.dataset.rn === "1"; drawPrev(); });
+  };
+  if (prevBox) drawPrev();
   const csv = rows => rows.map(r => r.map(v => /[",\n]/.test(String(v ?? "")) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? "")).join(",")).join("\r\n");
   el.querySelector("#send").onclick = () => formDialog(`Send ${S.church}'s report`, [
-    {k: "names", label: "Include names of first-timers and people to follow up", type: "select", value: "yes", options: [["yes", "Yes, with names"], ["no", "No, numbers only"]],
+    {k: "names", label: "Include names of first-timers and people to follow up", type: "select", value: S.repNames === false ? "no" : "yes", options: [["yes", "Yes, with names"], ["no", "No, numbers only"]],
      hint: `Goes to ${list.join(", ")} for ${p.last ? nice(p.last, true) : "the latest service"}. The check-in and follow-up lists are attached when names are included.`},
   ], async v => {
     const was = S.emoji; S.emoji = false;
@@ -3608,6 +3671,6 @@ async function freshCheck() {
     S.newVersion = true; document.querySelectorAll("[data-refresh]").forEach(b => { b.classList.add("new"); b.title = "A newer version of the app is ready: tap to load it"; });
   } catch {}
 }
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") freshCheck(); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { freshCheck(); S.onShow?.(); } });
 setTimeout(freshCheck, 3000);
 start().catch(e => fatal(e.message));
