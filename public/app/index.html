@@ -1012,6 +1012,14 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 .lv-guide {position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--ink-3);}
 .lv-tip {position: absolute; transform: translate(-50%, calc(-100% - 12px)); background: var(--ink); color: var(--card); border-radius: 10px; padding: 6px 10px; font-size: 12px; white-space: nowrap; pointer-events: none; display: grid; text-align: center;}
 .lv-tip b {font-size: 15px;}
+/* Livestream: a small graph for each platform, one under the other; the date under each stream's times */
+.lv-mini + .lv-mini {margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);}
+.lv-mini-t {display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 14px; font-size: var(--fs-sm, 13px); font-weight: 600;}
+.lv-mini-t span {display: inline-flex; align-items: center; gap: 8px;} .lv-mini-t i {width: 10px; height: 10px; border-radius: 50%;}
+.lv-mini-t small {color: var(--ink-3); font-weight: 500;} .lv-mini-t small b {color: var(--ink);}
+.lv-mini .lv-chart {grid-template-rows: 100px auto;} .lv-mini .lv-wide {grid-template-rows: 100px auto;}
+.lv-side-t small.lv-when {font-weight: 500; color: var(--ink-3); font-size: var(--fs-sm, 13px);}
+.lv-svc-date {margin: 2px 0 6px; font-size: var(--fs-sm, 13px); color: var(--ink-3);}
 /* Livestream graph: a band per platform, with its colour key and each one's number in the tip */
 .lv-path.lv-pl {stroke-width: 2; filter: none;}
 .lv-chart-key {justify-content: center; margin-top: 10px; font-family: inherit; font-size: var(--fs-sm, 13px);}
