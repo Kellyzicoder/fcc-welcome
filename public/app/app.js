@@ -965,6 +965,10 @@ const ICON = {
   out: '<path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
 };
 const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg>`;
+// A church's short name for the icons-only menu: the first letters of its words ("New Plymouth" -> NP), or the first three
+// letters of a one-word name ("Auckland" -> AUC)
+const churchAbbr = c => { const w = String(c || "").trim().split(/\s+/).filter(Boolean);
+  return (w.length > 1 ? w.slice(0, 3).map(x => x[0]) .join("") : (w[0] || "").slice(0, 3)).toUpperCase(); };
 function pages() {  // the menu, in groups; what each role can actually load is decided by the database
   const r = S.me.role;
   if (r === "bishop") return [["", [["overview", "All churches"], ["help", "Help"]]]];
@@ -1031,8 +1035,8 @@ function render() {
     <aside class="side" id="menu"><div class="brand"><span class="brand-mark">✝</span><span class="brand-txt">Favourite Child Church</span>
         <button type="button" class="side-tg" data-mini aria-label="${S.mini ? "Show menu names" : "Icons only"}" title="${S.mini ? "Show menu names" : "Icons only"}" aria-pressed="${!!S.mini}">${svg("panel")}</button></div>
       ${S.me.role === "bishop" ? "" : `<div class="side-church">${S.me.role === "admin"  // the church being worked in, at the top; only an admin can change it
-        ? `<button type="button" class="church on" data-chpick aria-haspopup="listbox" aria-expanded="false" title="Working in ${esc(S.church)}: tap to switch church"><i></i><span>${esc(S.church)}</span><em>Change</em></button>`
-        : `<div class="church on" title="Your church"><i></i><span>${esc(S.church)}</span></div>`}</div>`}
+        ? `<button type="button" class="church on" data-chpick aria-haspopup="listbox" aria-expanded="false" title="Working in ${esc(S.church)}: tap to switch church"><i></i><b class="ch-ab" aria-hidden="true">${esc(churchAbbr(S.church))}</b><span>${esc(S.church)}</span><em>Change</em></button>`
+        : `<div class="church on" title="Your church"><i></i><b class="ch-ab" aria-hidden="true">${esc(churchAbbr(S.church))}</b><span>${esc(S.church)}</span></div>`}</div>`}
       ${groups.map(([h, items]) => (h ? `<h6>${h}</h6>` : "") + items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" title="${t}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}<span class="nl">${t}</span>${
         k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : ""}</button>`).join("")).join("")}
       <div class="side-foot">${S.me.base === "admin" ? (S.preview ? `<button class="nav" data-unpreview title="Back to Admin">${svg("back")}<span class="nl">Back to Admin</span></button>`
@@ -1913,6 +1917,12 @@ function checkin(el) {
   };
   const svcLabel = () => { const n = curPart(); return n ? partName(S.date, n) : svcName(S.date); };
   const sqlNeeded = err => /service_parts|service_ticks|schema cache|does not exist/i.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message;
+  // All or nothing: one call to the database, which saves every step together or none of them (like a bank transfer).
+  // Until the latest setup SQL has been run, the old way (one step at a time) is used instead.
+  const together = async (fn, body, old) => {
+    try { return await api("rpc/" + fn, {method: "POST", body}); }
+    catch (err) { if (/Could not find the function|PGRST202|schema cache/i.test(err.message)) return old(); throw err; }
+  };
   const split = async () => {
     if (lock) return toast("This service is locked. Unlock it to make changes.");
     const day = S.date, have = S.parts[day] || [], first = svcName(day);
@@ -1922,16 +1932,21 @@ function checkin(el) {
     const rows = have.length > 1 ? [{church: S.church, service_date: day, part: next, name: `${ORDINAL[next] || "Another"} service`}]
       : [{church: S.church, service_date: day, part: 1, name: name1}, {church: S.church, service_date: day, part: 2, name: "Second service"}];
     try {
-      await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: day, name: first}});
-      await api("service_parts?on_conflict=church,service_date,part", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: rows});
-      if (have.length < 2) {  // everyone ticked so far today was at the first service
-        const ticked = Object.entries(here).filter(([id]) => mine.some(m => m.id === id));
-        if (ticked.length) await api("service_ticks?on_conflict=service_date,part,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal",
-          body: ticked.map(([id, at]) => ({service_date: day, part: 1, member_id: id, checked_at: at}))});
-        S.pticks.push(...ticked.map(([id]) => ({service_date: day, part: 1, member_id: id})));
-      }
-      S.parts[day] = [...(have.length > 1 ? have : [{part: 1, name: name1}]), {part: next, name: rows.at(-1).name}];
-      (S.ciParts ??= {})[day] = next; log("edit", "", "done", `${S.church} · ${day}: added ${rows.at(-1).name}`);
+      // the service, its parts and who was at the first one: saved together, or not at all
+      const list = await together("app_add_service", {ch: S.church, d: day, title: first, first_name: name1}, async () => {
+        await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: day, name: first}});
+        await api("service_parts?on_conflict=church,service_date,part", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: rows});
+        if (have.length < 2) {  // everyone ticked so far today was at the first service
+          const ticked = Object.entries(here).filter(([id]) => mine.some(m => m.id === id));
+          if (ticked.length) await api("service_ticks?on_conflict=service_date,part,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal",
+            body: ticked.map(([id, at]) => ({service_date: day, part: 1, member_id: id, checked_at: at}))});
+          S.pticks.push(...ticked.map(([id]) => ({service_date: day, part: 1, member_id: id})));
+        }
+        return [...(have.length > 1 ? have : [{part: 1, name: name1}]), {part: next, name: rows.at(-1).name}];
+      });
+      S.parts[day] = list.map(x => ({part: x.part, name: x.name})).sort((a, b) => a.part - b.part);
+      const added = S.parts[day].at(-1);
+      (S.ciParts ??= {})[day] = added.part; log("edit", "", "done", `${S.church} · ${day}: added ${added.name}`);
       toast(have.length > 1 ? "Service added. Rename it in the Service box." : "Two services today. Everyone ticked so far is in the first one. Rename this one in the Service box.");
       here = {}; svc.value = svcLabel(); drawParts(); draw(); pull();
     } catch (err) { toast(sqlNeeded(err)); }
@@ -1943,11 +1958,15 @@ function checkin(el) {
     const left = (S.parts[day] || []).filter(x => x.part !== n), gone = left.length < 2 ? [n, ...left.map(x => x.part)] : [n];
     const ids = mine.map(m => m.id);
     try {
-      for (const k of gone) for (let i = 0; i < ids.length; i += 80)  // only this church's people: part numbers are per church
-        await api(`service_ticks?service_date=eq.${day}&part=eq.${k}&member_id=in.(${ids.slice(i, i + 80).map(x => `"${x}"`).join(",")})`, {method: "DELETE", prefer: "return=minimal"});
-      await api(`service_parts?church=eq.${encodeURIComponent(S.church)}&service_date=eq.${day}&part=in.(${gone.join(",")})`, {method: "DELETE", prefer: "return=minimal"});
+      // the service's ticks and the service itself: removed together, or not at all
+      const list = await together("app_remove_service", {ch: S.church, d: day}, async () => {
+        for (const k of gone) for (let i = 0; i < ids.length; i += 80)  // only this church's people: part numbers are per church
+          await api(`service_ticks?service_date=eq.${day}&part=eq.${k}&member_id=in.(${ids.slice(i, i + 80).map(x => `"${x}"`).join(",")})`, {method: "DELETE", prefer: "return=minimal"});
+        await api(`service_parts?church=eq.${encodeURIComponent(S.church)}&service_date=eq.${day}&part=in.(${gone.join(",")})`, {method: "DELETE", prefer: "return=minimal"});
+        return left.length < 2 ? [] : left;
+      });
       S.pticks = S.pticks.filter(t => !(t.service_date === day && gone.includes(t.part) && ids.includes(t.member_id)));
-      S.parts[day] = left.length < 2 ? [] : left; if (S.ciParts) delete S.ciParts[day];
+      S.parts[day] = list.length < 2 ? [] : list.map(x => ({part: x.part, name: x.name})).sort((a, b) => a.part - b.part); if (S.ciParts) delete S.ciParts[day];
       log("edit", "", "done", `${S.church} · ${day}: removed ${partName(day, n)}`);
       toast(left.length < 2 ? "Back to one service today. Everyone ticked is still in the day's total." : "Service removed. Everyone ticked is still in the day's total.");
       here = {}; svc.value = svcLabel(); drawParts(); draw(); pull();
@@ -2147,22 +2166,28 @@ function checkin(el) {
     const todo = showing().filter(m => here[m.id]); if (!todo.length || busy) return;
     if (!armed) { armed = true; draw(); setTimeout(() => { if (armed) { armed = false; if (S.view === "checkin") draw(); } }, 4000); return; }
     busy = true; armed = false; draw();
-    let n = 0;
-    try { for (const m of todo) { if (await setPresent(m.id, false, curPart() ? undefined : here[m.id], undefined, curPart()) === "done") { delete here[m.id]; n++; } } toast(`Unticked ${n} ${n === 1 ? "person" : "people"}.`); }
-    catch (err) { toast("Not saved: " + err.message); }
+    try {  // all of them come off together, or none do
+      const n = await together("app_clear_service", {d: S.date, ids: todo.map(m => m.id), p: curPart() || null}, async () => {
+        let k = 0; for (const m of todo) { if (await setPresent(m.id, false, curPart() ? undefined : here[m.id], undefined, curPart()) === "done") { delete here[m.id]; k++; } } return k; });
+      for (const m of todo) delete here[m.id];
+      log("clear_service", "", "done", `${n} unticked · ${S.church}`); toast(`Unticked ${n} ${n === 1 ? "person" : "people"}.`);
+    } catch (err) { toast("Not saved: " + err.message); }
     busy = false; draw(); pull();
   };
   el.querySelector("#ci-clear").onclick = async () => {
     const todo = mine.filter(m => here[m.id]); if (!todo.length || busy) return;
     if (!armedAll) { armedAll = true; draw(); setTimeout(() => { if (armedAll) { armedAll = false; if (S.view === "checkin") draw(); } }, 4000); return; }
     busy = true; armedAll = false; draw();
-    try {
-      let n = 0;
-      if (curPart()) { for (const m of todo) if (await setPresent(m.id, false, undefined, undefined, curPart()) === "done") n++; }
-      else for (let i = 0; i < todo.length; i += 80) {
-        const gone = await api(`attendance?service_date=eq.${S.date}&member_id=in.(${todo.slice(i, i + 80).map(m => `"${m.id}"`).join(",")})`, {method: "DELETE", prefer: "return=representation"});
-        n += gone?.length || 0;
-      }
+    try {  // everyone comes off together (the day and its services), or nobody does
+      const n = await together("app_clear_service", {d: S.date, ids: todo.map(m => m.id), p: curPart() || null}, async () => {
+        let k = 0;
+        if (curPart()) { for (const m of todo) if (await setPresent(m.id, false, undefined, undefined, curPart()) === "done") k++; }
+        else for (let i = 0; i < todo.length; i += 80) {
+          const gone = await api(`attendance?service_date=eq.${S.date}&member_id=in.(${todo.slice(i, i + 80).map(m => `"${m.id}"`).join(",")})`, {method: "DELETE", prefer: "return=representation"});
+          k += gone?.length || 0;
+        }
+        return k;
+      });
       here = {}; log("clear_service", "", "done", `${n} unticked · ${S.church}`);
       toast(`Unticked ${n} ${n === 1 ? "person" : "people"}.`);
     } catch (err) { toast("Not saved: " + err.message); }
@@ -2177,9 +2202,13 @@ function checkin(el) {
     if (name === was) return;
     if (n) {  // renaming one of the day's services
       try {
-        await api(`service_parts?church=eq.${encodeURIComponent(S.church)}&service_date=eq.${S.date}&part=eq.${n}`, {method: "PATCH", prefer: "return=minimal", body: {name: name.slice(0, 60)}});
+        const firstPart = n === S.parts[S.date][0].part;  // the first service's name is also the day's title: both change together
+        await together("app_rename_service", {ch: S.church, d: S.date, p: n, new_name: name}, async () => {
+          await api(`service_parts?church=eq.${encodeURIComponent(S.church)}&service_date=eq.${S.date}&part=eq.${n}`, {method: "PATCH", prefer: "return=minimal", body: {name: name.slice(0, 60)}});
+          if (firstPart) await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {service_date: S.date, name}}).catch(() => {});
+        });
         const x = S.parts[S.date].find(y => y.part === n); if (x) x.name = name.slice(0, 60);
-        if (n === S.parts[S.date][0].part) { await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {service_date: S.date, name}}).catch(() => {}); S.names[S.date] = name; }
+        if (firstPart) S.names[S.date] = name;
         log("edit", "", "done", `service title: ${name}`); toast("Saved."); drawParts();
       } catch (err) { svc.value = was; toast(sqlNeeded(err)); }
       return;
