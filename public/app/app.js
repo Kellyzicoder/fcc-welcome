@@ -1730,6 +1730,7 @@ function checkin(el) {
     s.textContent = `${nice(S.date, true)} · ${ps.length ? partName(S.date, curPart()) : el.querySelector("#svc")?.value || svcName(S.date)}`; };
   el.querySelector(".ci-top")?.addEventListener("toggle", e => { try { localStorage.setItem("fcc-ci-top", e.target.open ? "open" : "closed"); } catch {} });
   el.querySelector("#svc")?.addEventListener("input", topSum);
+  const lastPart = () => { const ps = partsOf(S.date); return ps.length > 1 ? Math.max(...ps.map(x => x.part)) : 0; };  // the one Remove takes away (never the first)
   const drawParts = () => {
     topSum();
     const ps = partsOf(S.date), n = curPart(), wrap = el.querySelector("#ci-parts"), boss = ["admin", "lead"].includes(S.me.role);
@@ -1737,7 +1738,7 @@ function checkin(el) {
     wrap.innerHTML = ps.length ? `<div class="ci-parts"><div class="ci-pick"><span class="f">Ticking for</span><div class="seg ci-seg" role="group" aria-label="Which service">${ps.map(x =>
         `<button type="button" data-part="${x.part}" aria-pressed="${n === x.part}">${esc(partName(S.date, x.part))}</button>`).join("")}</div></div>
         ${pastor ? "" : `<div class="ci-part-acts">${ps.length < 3 ? `<button type="button" class="pill-btn sm" data-split>${svg("plus")}Add ${ORDINAL[ps.length + 1].toLowerCase()} service</button>` : ""}
-        ${boss ? `<button type="button" class="pill-btn sm ci-remove" data-unsplit>${armedPart ? `Tap again to remove ${esc(partName(S.date, n))}` : `Remove ${esc(partName(S.date, n))}`}</button>` : ""}</div>`}</div>
+        ${boss ? `<button type="button" class="pill-btn sm ci-remove" data-unsplit>${armedPart ? `Tap again to remove ${esc(partName(S.date, lastPart()))}` : `Remove ${esc(partName(S.date, lastPart()))}`}</button>` : ""}</div>`}</div>
         <p class="note ci-part-note">Ticks here are for <b>${esc(partName(S.date, n))}</b>. Someone who comes to two or three services is counted once in the day's total.</p>`
       : pastor ? "" : `<button type="button" class="pill-btn sm" data-split style="margin-top:12px">${svg("plus")}Two services today? Add a second service</button>`;
     wrap.querySelectorAll("[data-part]").forEach(b => b.onclick = () => { (S.ciParts ??= {})[S.date] = +b.dataset.part; armedPart = false; here = {}; svc.value = svcLabel(); drawParts(); draw(); pull(); });
@@ -1769,8 +1770,8 @@ function checkin(el) {
       here = {}; svc.value = svcLabel(); drawParts(); draw(); pull();
     } catch (err) { toast(sqlNeeded(err)); }
   };
-  const unsplit = async () => {
-    const day = S.date, n = curPart(); if (!n) return;
+  const unsplit = async () => {  // removes the last service added; the first service always stays
+    const day = S.date, n = lastPart(); if (!n) return;
     if (!armedPart) { armedPart = true; drawParts(); setTimeout(() => { if (armedPart) { armedPart = false; if (S.view === "checkin") drawParts(); } }, 4000); return; }
     armedPart = false;
     const left = (S.parts[day] || []).filter(x => x.part !== n), gone = left.length < 2 ? [n, ...left.map(x => x.part)] : [n];
