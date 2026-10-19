@@ -262,7 +262,8 @@ function waDialog(title, build, opts = {}) {
     ${opts.into ? "" : `<div class="card-head"><h2>${esc(title)}</h2><span class="gap"></span><button class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>`}
     <div class="modal-grid"><div class="opts">
         ${acc("Service", `${opts.day ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-day">Service date</label></b><small>The service this summary is for</small></div><input class="in wa-pill" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}`)}
-        ${opts.fields ? acc("Service details", `<div class="wa-sec"><b>Service details</b><small>What the check-in can't count. Boxes left empty count as 0. Pick the service's start and end times to fill in the livestream.</small></div><div id="m-fields"></div>`) : ""}
+        ${opts.fields ? acc("Service details", `<div class="wa-sec"><b>Service details</b><small>What the check-in can't count. Boxes left empty count as 0.</small></div>${opts.fields.some(f => f[0] === "yt") && ["admin", "lead"].includes(S.me.role)
+          ? `<div class="live-fill" role="note">${svg("live")}<span><b>The livestream fills in by itself.</b> Pick the service's start and end times below, and YouTube, Facebook and Zoom are filled in from those times.</span></div>` : ""}<div id="m-fields"></div>`) : ""}
         ${incl.length ? acc("Include in the message", `<div class="opt wa-inc"><div class="wa-txt"><b>Include in the message</b><small>Tap to add or leave out. ${esc(incl.map(c => c[3]).join(" "))}</small></div>
           <div class="wa-chips">${incl.map(([id, t, on]) => `<label class="wa-chip"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>${svg("tick")}${t}</span></label>`).join("")}</div></div>`) : ""}
         ${opts.link ? acc("Livestream link", `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-link">Livestream link</label></b><small>Optional. It goes at the end of the message</small></div><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>`, false) : ""}
@@ -947,6 +948,7 @@ function render() {
     S.hist = [...(S.hist || []), S.shown].slice(-30);
     try { history.pushState({fcc: S.hist.length}, ""); } catch {}
   }
+  if (S.view === "checkin" && S.shown !== "checkin") S.ciTopOpen = false;  // the Service card starts folded each time you come to Check-in
   S.goingBack = false; S.shown = S.view;
   const groups = pages(), who = S.me.name || S.me.email, allowed = [...groups.flatMap(g => g[1].map(x => x[0])), "account", ...(S.me.role === "bishop" ? [] : ["person"])];
   if (S.view === "summary") { S.view = "reports"; S.repTab = "summary"; }  // the WhatsApp summary is a tab on Reports now
@@ -1411,17 +1413,17 @@ const WIDGETS = {
             <div class="lv-card live-nums">
               <div class="lv-pair"><div><span class="lv-key"><i class="ring hot"></i>Watching now</span><b class="lv-big">${j.total}</b><small class="${live ? "lv-up" : ""}">${live ? "right now" : "not live"}</small></div>
                 <div><span class="lv-key"><i class="ring"></i>Peak</span><b class="lv-big">${peakNow ?? "–"}</b><small>this service</small></div></div>
-              <div class="lv-prog"><div class="lv-prog-main"><div class="lv-prog-top"><b class="lv-side-t">Viewers</b>
-                  ${j.home ? `<select class="in sel lv-range" aria-label="Show"><option value="service">This service</option><option value="week" ${S.lvRange === "week" ? "selected" : ""}>This week</option></select>` : ""}</div>
-                <div class="lv-prog-body"></div></div><div class="lv-prog-side"></div></div>
               ${PL.some(([k]) => j.platforms[k].status !== "live") ? `<p class="lv-off">${PL.filter(([k]) => j.platforms[k].status !== "live").map(([k, t]) => `${t}: ${word(j.platforms[k])}`).join(" · ")}</p>` : ""}</div>
+            <div class="lv-prog"><div class="lv-prog-main"><div class="lv-prog-top"><b class="lv-side-t">Viewers</b>
+                  ${j.home ? `<select class="in sel lv-range" aria-label="Show"><option value="service">This service</option><option value="week" ${S.lvRange === "week" ? "selected" : ""}>This week</option></select>` : ""}</div>
+                <div class="lv-prog-body"></div></div></div>
             ${j.platforms.zoom.status === "live" ? `<p class="note" style="margin:10px 0 0">Zoom includes the host and co-host: take 2 off for the attendance count.</p>` : ""}
             ${j.channel ? `<div class="live-ch"><small>YouTube channel: <b>${esc(j.channel)}</b></small><button type="button" class="link-btn" data-change>Change</button></div>` : ""}`;
           el.querySelector("[data-change]")?.addEventListener("click", () => connect(j.channel));
           // the chart: this service from the recent history, or the week from the saved services (each day's highest)
           const hmm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
           const drawProg = () => {
-            const body = el.querySelector(".lv-prog-body"), side = el.querySelector(".lv-prog-side"); if (!body) return;
+            const body = el.querySelector(".lv-prog-body"); if (!body) return;
             const week = S.lvRange === "week" && j.home, L = S.liveAll, DAYMS = 864e5;
             let pts;
             if (week) {
@@ -1431,10 +1433,6 @@ const WIDGETS = {
                   return {v, label: new Date(t).toLocaleDateString([], {weekday: "short"}), tip: `${new Date(t).toLocaleDateString([], {weekday: "short", day: "numeric", month: "short"})} · ${v} watched`}; }); }
             } else pts = h.map(x => ({v: x.total, label: hmm(x.t), tip: `${hmm(x.t)} · ${x.total} watching`}));
             if (pts) body.innerHTML = progChart(pts, live ? "The line starts after a minute or two of the livestream." : "Not live right now. Pick This week to see the last seven days.");
-            // the ring: who's watching where now, or the latest service's peaks when not live
-            const nowRows = PL.map(([k, t]) => [k, t, j.platforms[k].status === "live" ? j.platforms[k].viewers || 0 : 0]);
-            const lastSvc = L?.list?.[L.list.length - 1];
-            side.innerHTML = nowRows.some(r => r[2]) || !lastSvc ? ring(nowRows, "watching") : ring(PL.map(([k, t]) => [k, t, lastSvc[k] || 0]), `peak ${new Date(lastSvc.start).toLocaleDateString([], {weekday: "short"})}`);
             const chart = body.querySelector(".lv-chart"); if (!chart) return;
             const plot = chart.querySelector(".lv-plot"), tip = chart.querySelector(".lv-tip"), guide = chart.querySelector(".lv-guide"), n = pts.length;
             const at = e => { const r = plot.getBoundingClientRect(), x = ((e.touches?.[0] || e).clientX - r.left) / r.width, i = Math.max(0, Math.min(n - 1, Math.round(x * (n - 1))));
@@ -1460,7 +1458,7 @@ const WIDGETS = {
               const list = by[sel] || [], best = Math.max(0, ...list.map(sum));
               const label = k => k === todayK ? "Today" : k === yK ? "Yesterday" : (d => `${d.toLocaleDateString([], {weekday: "short"})} ${d.getDate()}`)(new Date(k + "T12:00:00"));
               box.innerHTML = `<div class="ld-days" role="tablist" aria-label="Pick a day">${days.map(k => `<button type="button" role="tab" class="${k === sel ? "on" : ""}" aria-selected="${k === sel}" data-lk="${k}">
-                  ${esc(label(k))}${by[k] ? ` <small>${Math.max(...by[k].map(sum))}</small>` : ""}</button>`).join("")}</div>
+                  <b>${esc(label(k))}</b><small>${by[k] ? `${Math.max(...by[k].map(sum))} watching` : "no stream yet"}</small></button>`).join("")}</div>
                 ${L.failed ? `<p class="note">Some days couldn't be loaded. Try again in a minute.</p>` : ""}
                 ${list.length ? `${list.length > 1 ? `<p class="note">Highest of the day: <b>${best}</b> watching</p>` : ""}${`<div class="lv-svcs">${list.map(x => `<div class="lv-card">
                   <div class="lv-svc-top"><b>${hm(x.start)} service</b><small>${x.end ? `to ${hm(x.end)}` : "still going"}</small></div>
@@ -1731,7 +1729,7 @@ function checkin(el) {
   const pastor = S.me.role === "pastor";  // a pastor ticks their own people only (locks work as for ushers): no adding or renaming
   // Laid out like Admin → Sign-ins: numbers on top, then pills to filter, team and search on the right, a table of names, 25 a page
   el.innerHTML = head("Check-in", pastor ? "Your people" : esc(S.church)) + `
-    <details class="card ci-top" style="margin-bottom:14px" ${(() => { try { return localStorage.getItem("fcc-ci-top") === "closed" ? "" : "open"; } catch { return "open"; } })()}>
+    <details class="card ci-top" style="margin-bottom:14px" ${S.ciTopOpen ? "open" : ""}>
       <summary><span class="ci-top-t"><b>Service</b><small id="ci-top-sum"></small></span>${svg("caret")}</summary><div class="row">
       <div style="flex:0 0 170px"><label class="f" for="d">Service date</label><input class="in" id="d" type="date" value="${S.date}"></div>
       <div><label class="f" for="svc">Service</label><input class="in" id="svc" list="svc-list" maxlength="60" autocomplete="off" value="${esc(svcName(S.date))}" ${pastor ? "readonly" : ""}>
@@ -1763,7 +1761,7 @@ function checkin(el) {
   // The top card folds away: its title line still shows the day and the service being ticked
   const topSum = () => { const s = el.querySelector("#ci-top-sum"); if (!s) return; const ps = partsOf(S.date);
     s.textContent = `${nice(S.date, true)} · ${ps.length ? partName(S.date, curPart()) : el.querySelector("#svc")?.value || svcName(S.date)}`; };
-  el.querySelector(".ci-top")?.addEventListener("toggle", e => { try { localStorage.setItem("fcc-ci-top", e.target.open ? "open" : "closed"); } catch {} });
+  el.querySelector(".ci-top")?.addEventListener("toggle", e => { S.ciTopOpen = e.target.open; });
   el.querySelector("#svc")?.addEventListener("input", topSum);
   const lastPart = () => { const ps = partsOf(S.date); return ps.length > 1 ? Math.max(...ps.map(x => x.part)) : 0; };  // the one Remove takes away (never the first)
   const drawParts = () => {
@@ -1833,8 +1831,8 @@ function checkin(el) {
     const big = [...teamKeys].sort((a, b) => teams[b].n - teams[a].n || a.localeCompare(b)).slice(0, 5);
     if (S.ciRole && !big.includes(S.ciRole)) big.push(S.ciRole);
     const show = S.ciMore ? teamKeys : teamKeys.filter(k => big.includes(k)), more = teamKeys.length - show.length;
-    teamBox.innerHTML = `<button type="button" class="rpill tint" data-team="" aria-pressed="${!S.ciRole}">Everyone <span>${mine.length}</span></button>` + show.map(k => { const h = hueOf(teams[k].label);
-      return `<button type="button" class="rpill tint" data-team="${esc(k)}" aria-pressed="${S.ciRole === k}" style="--rc:var(--h${h});--rb:var(--h${h}b);--rt:var(--h${h}t)"><i></i>${esc(teams[k].label)} <span>${teams[k].n}</span></button>`; }).join("")
+    teamBox.innerHTML = `<button type="button" class="rpill" data-team="" aria-pressed="${!S.ciRole}">Everyone <span>${mine.length}</span></button>` + show.map(k => { const h = hueOf(teams[k].label);
+      return `<button type="button" class="rpill" data-team="${esc(k)}" aria-pressed="${S.ciRole === k}" style="--rc:var(--h${h});--rb:var(--h${h}b);--rt:var(--h${h}t)"><i></i>${esc(teams[k].label)} <span>${teams[k].n}</span></button>`; }).join("")
       + (more ? `<button type="button" class="rpill more" data-more>+ ${more} more</button>` : S.ciMore && teamKeys.length > 5 ? `<button type="button" class="rpill more" data-more>Show less</button>` : ""); };
   teamBox.onclick = e => { if (e.target.closest("[data-more]")) { S.ciMore = !S.ciMore; drawTeams(); return; }
     const b = e.target.closest("[data-team]"); if (!b) return; S.ciRole = S.ciRole === b.dataset.team ? "" : b.dataset.team; S.ciPage = 1; armed = false; drawTeams(); draw(); };
