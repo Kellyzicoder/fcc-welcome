@@ -712,6 +712,12 @@ button.ov-cell {cursor: pointer;} button.ov-cell:hover {background: var(--soft);
 .preview-bar {display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 22px; background: var(--h6b); color: var(--h6t); border-bottom: 1px solid color-mix(in srgb, var(--h6) 40%, transparent); font-size: 14px;}
 .preview-bar svg {width: 18px; height: 18px; flex: none;} .preview-bar span {flex: 1; min-width: 200px;} .preview-bar b {color: var(--ink);}
 /* All-churches page widgets: two columns beside the church list (Large and Full use the whole width) */
+/* Widgets keep a sensible width: on a narrower laptop the dashboard uses two columns, and a widget's buttons
+   move under its title when the widget is too narrow for both, so titles never squeeze to a word per line */
+@media (min-width: 901px) and (max-width: 1280px) { .wgrid:not(.c2) {grid-template-columns: repeat(2, minmax(0, 1fr));} .wgrid:not(.c2) .w-wide {grid-column: 1 / -1;} }
+.w {container-type: inline-size;}
+.w-tt {flex: 1 1 160px; min-width: 140px;}
+@container (max-width: 560px) { .w-tools {order: 5; flex-basis: 100%; flex-wrap: wrap;} .w-tools .sel {flex: 1;} }
 .wgrid.c2 {grid-template-columns: repeat(2, minmax(0, 1fr));} .wgrid.c2 .w-wide, .wgrid.c2 .w-full {grid-column: 1 / -1;} .wgrid.c2 .w-narrow {grid-column: span 1;}
 .ov.ov4 {grid-template-columns: repeat(4, minmax(0, 1fr));} .ov.ov4 .ov-cell {border-bottom: 0; border-right: 1px solid var(--line);} .ov.ov4 .ov-cell:last-child {border-right: 0;}
 .ov-cell b small {display: inline; font-size: 18px; color: var(--ink-3); font-weight: 600; margin: 0;}
@@ -825,6 +831,30 @@ input.in::placeholder, textarea.in::placeholder {color: var(--ink-3); opacity: 1
 .live-ask[hidden] {display: none !important;} .live-ask {margin: 8px 0 4px;}
 .ask-nums {display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 2px;} .ask-nums i {font-style: normal; background: var(--card); border-radius: 999px; padding: 5px 12px; font-size: 13.5px; color: var(--ink-2);} .ask-nums em {font-style: normal; font-weight: 700; color: var(--ink); margin-left: 6px;}
 .live-ask-btns {display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;} .live-ask-btns .pill-btn {height: 36px; padding: 0 14px; font-size: 13.5px;}
+/* The Summary page, laid out like a documentation page: each part a bordered card that opens and closes, the preview beside it */
+.wa-page > .wa-sheet {background: none; border: 0; box-shadow: none; padding: 0;}
+.wa-page .opts {gap: 14px;}
+.wa-acc {border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden;}
+.wa-acc > summary {list-style: none; display: flex; align-items: center; gap: 10px; padding: 15px 20px; cursor: pointer; font-weight: 600; font-size: 15.5px; color: var(--accent);}
+.wa-acc > summary::-webkit-details-marker {display: none;}
+.wa-acc > summary svg {width: 18px; height: 18px; margin-left: auto; color: var(--ink-2); transition: transform .2s;} .wa-acc[open] > summary svg {transform: rotate(180deg);}
+.wa-acc[open] > summary {border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--accent) 6%, var(--card));}
+.wa-acc:not([open]) > summary {color: var(--ink);}
+.wa-acc-b {padding: 4px 20px 12px;}
+.wa-sheet .wa-acc-b > .switch, .wa-sheet .wa-acc-b > .opt, .wa-sheet .wa-acc-b > .wa-sec {background: none; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 16px 0;}
+.wa-sheet .wa-acc-b > :first-child {border-top: 0;}
+.wa-acc-b > .wa-sec b, .wa-acc-b > .wa-inc .wa-txt b {display: none;}  /* the card's title already says it */
+.wa-acc-b > .wa-sec {padding-bottom: 6px !important;}
+.wa-acc-b #m-fields > .opt {background: none; border: 0; border-radius: 0; padding: 4px 0;}
+.wa-page .wa-sheet .fields-grid > div:has(> .in) {border-radius: 0; padding: 10px 2px; border-bottom: 1px solid var(--line);}
+.wa-page .wa-sheet .fields-grid > div:has(> .in):last-of-type {border-bottom: 0;}
+.wa-page .wa-sheet .fields-grid > div:has(> .in):hover, .wa-page .wa-sheet .fields-grid > div:has(> .in):focus-within {background: none;}
+.wa-page .modal-grid > .opt:last-child {background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px;}
+.wa-page .prev-top .f {color: var(--accent); font-weight: 600;}
+.wa-page .modal-foot {border: 1px solid var(--line); border-radius: 12px; padding: 10px; background: var(--card);}
+.wa-page .share-row {padding: 0 2px;}
+.svc-times {display: inline-flex; gap: 8px 12px; flex-wrap: wrap;}
+.wa-page .live-note span {font-weight: 500; font-size: 13.5px;}
 .draft-line {display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--ink-3); font-size: 13px;} .draft-line:empty {display: none;}
 .set-card .chips {margin: 0;} .chip[aria-pressed="true"] {background: var(--accent); color: var(--accent-ink); border-color: transparent;}
 .share-row {display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px;} .share-row small {color: var(--ink-3); margin-right: 2px;}
