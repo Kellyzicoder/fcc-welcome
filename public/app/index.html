@@ -893,6 +893,60 @@ input.in::placeholder, textarea.in::placeholder {color: var(--ink-3); opacity: 1
   background: #fff4d6; color: #5a4300; border: 1px solid #f1d27a; border-radius: 999px; padding: 6px 14px; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.12); pointer-events: none;}
 .demo-banner b {background: #fab219; color: #2a1f00; border-radius: 999px; padding: 1px 8px;}
 @media (max-width: 720px) { .demo-banner {bottom: auto; top: 6px; font-size: 12px;} }
+/* ===== One look for every pill, chip, switch-group and text size =====
+   Sizes and colours are set once here, so buttons, chips, tabs and date boxes match on every page. */
+:root {--pill-h: 40px; --pill-h-sm: 34px; --field-h: 44px; --pill-fs: 14px; --pill-fs-sm: 13px;
+  --fs-xs: 12px; --fs-sm: 13px; --fs: 15px; --fs-md: 16px; --fs-lg: 17px;}
+@media (max-width: 600px) { :root {--pill-h: 38px; --pill-h-sm: 32px; --field-h: 42px;} }
+
+/* Buttons: same height, padding, text size and weight */
+.pill-btn, .refresh-btn, .out-btn {display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: var(--pill-h); height: auto;
+  padding: 0 16px; border-radius: 999px; font-size: var(--pill-fs); font-weight: 600; line-height: 1.2; white-space: nowrap;}
+.pill-btn {white-space: normal; text-align: center; max-width: 100%; padding-top: 6px; padding-bottom: 6px;}  /* a long label wraps instead of running off a phone */
+@media (max-width: 600px) { .refresh-btn {width: var(--pill-h); padding: 0;} }
+.pill-btn.sm, .live-ask-btns .pill-btn {min-height: var(--pill-h-sm); padding: 0 14px; font-size: var(--pill-fs-sm);}
+.pill-btn svg, .refresh-btn svg, .out-btn svg {width: 17px; height: 17px;}
+.pill-btn:not(.primary):not(.danger):not(.ci-remove):hover, .refresh-btn:hover {background: var(--soft);}
+
+/* Boxes that hold a value (text, numbers, drop-downs, the date pill) share one height */
+input.in:not(.sm), select.in {min-height: var(--field-h);}
+.cal-btn {height: var(--field-h); border-width: 1px; font-size: var(--pill-fs); padding: 0 14px;}
+.w-tools .sel {min-height: var(--pill-h-sm); font-size: var(--pill-fs-sm); border-radius: 999px;}
+
+/* Chips: one size and shape; chosen ones are tinted with the accent colour */
+.chip, .wa-chip span {display: inline-flex; align-items: center; gap: 6px; min-height: var(--pill-h-sm); padding: 0 14px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink-2); font-size: var(--pill-fs-sm); font-weight: 600;}
+.chip.on, .wa-chip input:checked + span {background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line));}
+button.chip:not(.on):hover, .wa-chip:hover span {border-color: var(--accent); color: var(--accent);}
+.tag, .badge {font-size: var(--fs-xs); padding: 4px 10px; border-radius: 999px;}
+.ask-nums i {border: 1px solid var(--line); font-size: var(--pill-fs-sm); min-height: 30px; display: inline-flex; align-items: center; padding: 0 12px;}
+
+/* Switch-groups (Light/Dark, Line/Bar, Easy to read/As sent, the days row): a soft track, the chosen one a white pill */
+.mode, .seg, .pv-seg, .ld-days, .seg2 {border-radius: 999px; padding: 3px; gap: 2px; background: var(--soft); border: 1px solid var(--line);}
+.mode button, .seg:not(.ci-seg) button, .pv-seg button, .ld-days button, .seg2 button {min-height: 30px; padding: 0 12px; border-radius: 999px;
+  font-size: var(--pill-fs-sm); font-weight: 600; color: var(--ink-2); background: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px;}
+.mode button[aria-pressed="true"], .seg button[aria-pressed="true"], .pv-seg button[aria-pressed="true"], .ld-days button.on, .seg2 button[aria-selected="true"]
+  {background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(8, 15, 30, .14);}
+.seg.ci-seg {border-radius: 999px;} .seg.ci-seg button {border-radius: 999px; font-size: var(--pill-fs); font-weight: 600;}
+
+/* Text sizes: page title, card and widget titles, their lines underneath, small print */
+.card h2, .w-tt h2, .wa-acc > summary, .sheet .card-head h2 {font-size: var(--fs-lg); font-weight: 600;}
+.w-tt p, .wa-txt small, .wa-sec small, .wa-sheet .switch small, .wa-state, .note, .cal-key {font-size: var(--fs-sm);}
+.head p {font-size: var(--fs);}
+.wa-txt b, .wa-sheet .switch b, .cal-head b, .svc-head, .lv-svc-top b {font-size: var(--fs-md);}
+.link-btn {font-size: var(--fs-sm);}
+
+/* The livestream offer on the Summary page in the page's own colours */
+.wa-page .live-note {background: var(--soft); border-color: var(--line);} .wa-page .live-note > b {color: var(--accent);}
+.wa-page .live-note small, .wa-page .live-note span {color: var(--ink-2);}
+/* Filter pills (Everyone, Members, teams...) match the chips; the chosen one uses the accent colour, or its team's colour */
+.rpill {min-height: var(--pill-h-sm); padding: 0 14px; font-size: var(--pill-fs-sm); font-weight: 600;}
+.rpill span {font-size: var(--fs-xs);}
+.rpill:not(.tint)[aria-selected="true"], .rpill:not(.tint)[aria-pressed="true"] {background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); box-shadow: none;}
+.rpill.tint[aria-selected="true"], .rpill.tint[aria-pressed="true"] {background: var(--rc, var(--accent)); color: #fff;}
+[data-theme="dark"] .rpill.tint[aria-selected="true"]:not([style]), [data-theme="dark"] .rpill.tint[aria-pressed="true"]:not([style]) {background: var(--accent); color: var(--accent-ink);}
+/* A date pill never gets cut short by a narrow column */
+div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 </style>
 </head>
 <body>
