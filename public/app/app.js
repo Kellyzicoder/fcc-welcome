@@ -1275,6 +1275,31 @@ const WIDGETS = {
         return `<div class="lv-line" aria-hidden="true"><svg viewBox="0 0 100 90" preserveAspectRatio="none"><defs><linearGradient id="lvg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--red)" stop-opacity=".22"/><stop offset="1" stop-color="var(--red)" stop-opacity="0"/></linearGradient></defs>
           <polygon points="0,90 ${pts} 96,90" fill="url(#lvg)"/><polyline points="${pts}" fill="none" stroke="var(--red)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/></svg>
           <span class="lv-now" style="top:${Y(last) / 90 * 100}%"><em>now ${last}</em></span></div>`; };
+      // "Viewers" chart, like a learning-progress chart: a smooth glowing line over a grid, dots, a tooltip on hover or tap,
+      // and This service / This week; beside it a ring of how the viewers split across YouTube, Facebook and Zoom
+      const curve = p => p.map((q, i, a) => { if (!i) return `M${q[0].toFixed(1)},${q[1].toFixed(1)}`;
+        const a0 = a[i - 2] || a[i - 1], a1 = a[i - 1], a3 = a[i + 1] || q, f = v => v.toFixed(1);
+        const cy = v => f(Math.min(200, Math.max(0, v)));  // never dips below 0 or over the top
+        return `C${f(a1[0] + (q[0] - a0[0]) / 6)},${cy(a1[1] + (q[1] - a0[1]) / 6)} ${f(q[0] - (a3[0] - a1[0]) / 6)},${cy(q[1] - (a3[1] - a1[1]) / 6)} ${f(q[0])},${f(q[1])}`; }).join(" ");
+      const progChart = (pts, empty) => {
+        if (pts.length < 2) return `<p class="lv-empty">${empty}</p>`;
+        const max = Math.max(1, ...pts.map(p => p.v)), step = Math.max(1, Math.ceil(max / 4)), top = step * 4, W = 600, H = 200;
+        const xy = pts.map((p, i) => [i / (pts.length - 1) * W, H - p.v / top * H]), every = Math.max(1, Math.ceil(pts.length / 7)), keep = new Set();
+        for (let i = 0; i < pts.length; i += every) keep.add(i);
+        const lastM = Math.max(...keep); if (lastM && pts.length - 1 - lastM < every * 0.7) keep.delete(lastM); keep.add(pts.length - 1);  // labels never crowd
+        return `<div class="lv-chart" data-n="${pts.length}"><div class="lv-y">${[4, 3, 2, 1, 0].map(k => `<span>${k * step}</span>`).join("")}</div>
+          <div class="lv-plot"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="lvp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--red)" stop-opacity=".28"/><stop offset="1" stop-color="var(--red)" stop-opacity="0"/></linearGradient></defs>
+            ${[0, 1, 2, 3, 4].map(k => `<line x1="0" x2="${W}" y1="${k * H / 4}" y2="${k * H / 4}" class="lv-grid" vector-effect="non-scaling-stroke"/>`).join("")}
+            <path d="${curve(xy)} L${W},${H} L0,${H} Z" fill="url(#lvp)"/><path d="${curve(xy)}" class="lv-path" vector-effect="non-scaling-stroke"/></svg>
+            ${xy.map(([x, y], i) => keep.has(i) ? `<i class="lv-dot" style="left:${x / W * 100}%;top:${y / H * 100}%"></i>` : "").join("")}
+            <i class="lv-guide" hidden></i><div class="lv-tip" hidden></div><div class="lv-hit"></div></div>
+          <div class="lv-x">${pts.map((p, i) => keep.has(i) ? `<span style="left:${i / (pts.length - 1) * 100}%">${esc(p.label)}</span>` : "").join("")}</div></div>`;
+      };
+      const ring = (rows, note) => { const all = rows.reduce((s, r) => s + r[2], 0); let at = 0;
+        return `<div class="lv-ring-wrap"><b class="lv-side-t">Platforms</b><div class="lv-ring"><svg viewBox="0 0 42 42" aria-hidden="true"><circle cx="21" cy="21" r="15.9" class="lv-ring-bg"/>
+          ${all ? rows.filter(r => r[2] > 0).map(r => { const pc = r[2] / all * 100, s = `<circle cx="21" cy="21" r="15.9" stroke="${PC[r[0]]}" stroke-dasharray="${Math.max(0, pc - 1.5)} ${100 - Math.max(0, pc - 1.5)}" stroke-dashoffset="${25 - at}"/>`; at += pc; return s; }).join("") : ""}</svg>
+          <span><b>${all}</b><small>${note}</small></span></div>
+          <div class="lv-ring-legend">${rows.map(r => `<span><i style="background:${PC[r[0]]}"></i>${r[1]}<em><b>${r[2]}</b> · ${all ? Math.round(r[2] / all * 100) : 0}%</em></span>`).join("")}</div></div>`; };
       const word = x => x.status === "live" ? (x.viewers === null ? "Hidden" : "Live") : {offline: "Offline", not_configured: "Not set up", error: "Error"}[x.status] || "Off";
       const church = S.church, call = async (init = {}, q = "") => {
         if (S.session.expires_at - Date.now() < 60000) await refresh();
@@ -1314,17 +1339,47 @@ const WIDGETS = {
             <div class="lv-card live-nums">
               <div class="lv-pair"><div><span class="lv-key"><i class="ring hot"></i>Watching now</span><b class="lv-big">${j.total}</b><small class="${live ? "lv-up" : ""}">${live ? "right now" : "not live"}</small></div>
                 <div><span class="lv-key"><i class="ring"></i>Peak</span><b class="lv-big">${peakNow ?? "–"}</b><small>this service</small></div></div>
-              ${h.length > 1 ? line(h.map(x => x.total)) : ""}
-              ${split(PL.map(([k, t]) => { const x = j.platforms[k], on = x.status === "live" && x.viewers !== null; return [k, t, on ? x.viewers : 0, on ? x.viewers : "–", x.status === "live" ? "" : word(x)]; }))}</div>
+              <div class="lv-prog"><div class="lv-prog-main"><div class="lv-prog-top"><b class="lv-side-t">Viewers</b>
+                  ${j.home ? `<select class="in sel lv-range" aria-label="Show"><option value="service">This service</option><option value="week" ${S.lvRange === "week" ? "selected" : ""}>This week</option></select>` : ""}</div>
+                <div class="lv-prog-body"></div></div><div class="lv-prog-side"></div></div>
+              ${PL.some(([k]) => j.platforms[k].status !== "live") ? `<p class="lv-off">${PL.filter(([k]) => j.platforms[k].status !== "live").map(([k, t]) => `${t}: ${word(j.platforms[k])}`).join(" · ")}</p>` : ""}</div>
             ${j.platforms.zoom.status === "live" ? `<p class="note" style="margin:10px 0 0">Zoom includes the host and co-host: take 2 off for the attendance count.</p>` : ""}
             ${j.channel ? `<div class="live-ch"><small>YouTube channel: <b>${esc(j.channel)}</b></small><button type="button" class="link-btn" data-change>Change</button></div>` : ""}`;
           el.querySelector("[data-change]")?.addEventListener("click", () => connect(j.channel));
+          // the chart: this service from the recent history, or the week from the saved services (each day's highest)
+          const hmm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
+          const drawProg = () => {
+            const body = el.querySelector(".lv-prog-body"), side = el.querySelector(".lv-prog-side"); if (!body) return;
+            const week = S.lvRange === "week" && j.home, L = S.liveAll, DAYMS = 864e5;
+            let pts;
+            if (week) {
+              if (!L) { body.innerHTML = `<p class="lv-empty">Loading the week…</p>`; }
+              else { const dk = t => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+                pts = Array.from({length: 7}, (_, i) => { const t = Date.now() - (6 - i) * DAYMS, k = dk(t), v = Math.max(0, ...L.list.filter(x => dk(x.start) === k).map(x => x.youtube + x.facebook + x.zoom));
+                  return {v, label: new Date(t).toLocaleDateString([], {weekday: "short"}), tip: `${new Date(t).toLocaleDateString([], {weekday: "short", day: "numeric", month: "short"})} · ${v} watched`}; }); }
+            } else pts = h.map(x => ({v: x.total, label: hmm(x.t), tip: `${hmm(x.t)} · ${x.total} watching`}));
+            if (pts) body.innerHTML = progChart(pts, live ? "The line starts after a minute or two of the livestream." : "Not live right now. Pick This week to see the last seven days.");
+            // the ring: who's watching where now, or the latest service's peaks when not live
+            const nowRows = PL.map(([k, t]) => [k, t, j.platforms[k].status === "live" ? j.platforms[k].viewers || 0 : 0]);
+            const lastSvc = L?.list?.[L.list.length - 1];
+            side.innerHTML = nowRows.some(r => r[2]) || !lastSvc ? ring(nowRows, "watching") : ring(PL.map(([k, t]) => [k, t, lastSvc[k] || 0]), `peak ${new Date(lastSvc.start).toLocaleDateString([], {weekday: "short"})}`);
+            const chart = body.querySelector(".lv-chart"); if (!chart) return;
+            const plot = chart.querySelector(".lv-plot"), tip = chart.querySelector(".lv-tip"), guide = chart.querySelector(".lv-guide"), n = pts.length;
+            const at = e => { const r = plot.getBoundingClientRect(), x = ((e.touches?.[0] || e).clientX - r.left) / r.width, i = Math.max(0, Math.min(n - 1, Math.round(x * (n - 1))));
+              const p = pts[i], top = Math.max(1, Math.ceil(Math.max(1, ...pts.map(q => q.v)) / 4)) * 4, left = i / (n - 1) * 100, y = 100 - p.v / top * 100;
+              guide.hidden = tip.hidden = false; guide.style.left = left + "%"; tip.style.left = Math.max(12, Math.min(88, left)) + "%"; tip.style.top = y + "%"; tip.innerHTML = `<b>${p.v}</b>${esc(p.tip.split(" · ")[0])}`; };
+            const hit = chart.querySelector(".lv-hit"); hit.onmousemove = at; hit.ontouchstart = hit.ontouchmove = at;
+            hit.onmouseleave = () => { guide.hidden = tip.hidden = true; };
+          };
+          drawProg();
+          el.querySelector(".lv-range")?.addEventListener("change", e => { S.lvRange = e.target.value; drawProg(); });
           if (j.home) {  // the services the live dashboard keeps (30 days): pick a day from the row; the numbers stay after a stream ends
             const box = document.createElement("div"); box.className = "live-day"; el.querySelector(".live-nums").after(box);
             const DAY = 864e5, dkey = t => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
             const hm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
             const sum = x => x.youtube + x.facebook + x.zoom;  // each platform's own peak, added together
             const show = () => {
+              drawProg();
               const L = S.liveAll, todayK = dkey(Date.now()), yK = dkey(Date.now() - DAY);
               if (!L) { box.innerHTML = `<p class="note">Loading the saved numbers…</p>`; return; }
               const by = {}; for (const x of L.list) (by[dkey(x.start)] ??= []).push(x);
