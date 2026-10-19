@@ -910,7 +910,7 @@ function pages() {  // the menu, in groups; what each role can actually load is 
           ["PEOPLE", [["people", "Congregation"], ["pastors", "Pastors"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ["archive", "Archive"]]],
           ["SHARE", [["reports", "Reports"]]],
           ...(r === "admin" ? [["CHURCHES", [["overview", "Churches"]]]] : []),
-          ...(r === "team" ? [] : [["SETTINGS", [...(r === "admin" ? [["admin", "Settings"]] : []), ["activity", "Activity log"]]]]),
+          ...(r === "team" ? [] : [[r === "admin" ? "ADMIN" : "RECORDS", [...(r === "admin" ? [["admin", "Admin"]] : []), ["activity", "Activity log"]]]]),
           ["", [["ask", "Ask a question"], ["help", "Help"]]]];
 }
 // Settings each person picks for themselves: colour, theme, text size and so on. Kept on this phone or laptop, per person.
@@ -962,7 +962,7 @@ function render() {
         <button type="button" class="side-tg" data-mini aria-label="${S.mini ? "Show menu names" : "Icons only"}" title="${S.mini ? "Show menu names" : "Icons only"}" aria-pressed="${!!S.mini}">${svg("panel")}</button></div>
       ${groups.map(([h, items]) => (h ? `<h6>${h}</h6>` : "") + items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" title="${t}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}<span class="nl">${t}</span>${
         k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : ""}</button>`).join("")).join("")}
-      ${S.me.role === "admin" ? `<h6>CHURCH</h6><button class="church on" data-view="overview" title="See every church and switch to another one"><i></i><span>${esc(S.church)}</span><em>Change</em></button>` : ""}
+      ${S.me.role === "admin" ? `<h6>CHURCH</h6><div class="ch-pick"><button type="button" class="church on" data-chpick aria-haspopup="listbox" aria-expanded="false" title="Switch to another church"><i></i><span>${esc(S.church)}</span><em>Change</em></button></div>` : ""}
       <div class="side-foot">${S.me.base === "admin" ? (S.preview ? `<button class="nav" data-unpreview title="Back to Admin">${svg("back")}<span class="nl">Back to Admin</span></button>`
           : `<button class="nav" data-viewas title="View as another role">${svg("eye")}<span class="nl">View as another role</span></button>`) : ""}${S.canSwitch ? `<button class="nav" data-switch title="${switchLabel()}">${svg("pastors")}<span class="nl">${switchLabel()}</span></button>` : ""}<button class="nav out" data-out title="Log out">${svg("out")}<span class="nl">Log out</span></button></div></aside>
     <main class="main">${S.preview ? `<div class="preview-bar">${svg("eye")}<span>Viewing as <b>${esc(previewName())}</b>. View only: nothing you do here is saved.</span>
@@ -986,6 +986,32 @@ function render() {
   document.onkeydown = e => { if (e.key === "Escape") menu(false); };
   applyLook();
   root.querySelectorAll("[data-view]").forEach(b => b.onclick = () => go(b.dataset.view));
+  // Change church: a short list opens right there; picking one switches church and stays on the same page
+  root.querySelectorAll("[data-chpick]").forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const old = document.querySelector(".ch-pop"); if (old) { old.remove(); b.setAttribute("aria-expanded", "false"); return; }
+    const pop = document.createElement("div"), r = b.getBoundingClientRect(), mini = root.querySelector(".shell.mini") && innerWidth > 900;
+    pop.className = "ch-pop"; pop.setAttribute("role", "listbox"); pop.setAttribute("aria-label", "Churches");
+    pop.innerHTML = `<p>Switch church</p>${S.churches.map(c => `<button type="button" role="option" aria-selected="${c === S.church}" data-chto="${esc(c)}"><i></i><span>${esc(c)}</span>${c === S.me.home ? "<small>Home</small>" : ""}${c === S.church ? svg("tick") : ""}</button>`).join("")}
+      <button type="button" class="ch-all" data-chall>${svg("overview")}See all churches</button>`;
+    document.body.append(pop);
+    const h = pop.offsetHeight, top = Math.max(8, Math.min(r.bottom + 6, innerHeight - h - 8));
+    Object.assign(pop.style, {left: (mini ? r.right + 8 : r.left) + "px", top: (mini ? Math.max(8, Math.min(r.top, innerHeight - h - 8)) : top < r.bottom ? Math.max(8, r.top - h - 6) : top) + "px", width: mini ? "240px" : Math.max(220, r.width) + "px"});
+    b.setAttribute("aria-expanded", "true");
+    const close = () => { pop.remove(); b.setAttribute("aria-expanded", "false"); document.removeEventListener("click", out, true); document.removeEventListener("keydown", key); },
+      out = ev => { if (!pop.contains(ev.target) && ev.target !== b && !b.contains(ev.target)) close(); },
+      key = ev => { if (ev.key === "Escape") { close(); b.focus(); } };
+    setTimeout(() => document.addEventListener("click", out, true));
+    document.addEventListener("keydown", key);
+    pop.querySelector('[aria-selected="true"]')?.focus();
+    pop.onclick = ev => {
+      const t = ev.target.closest("[data-chto]"), all = ev.target.closest("[data-chall]"); if (!t && !all) return;
+      close(); menu(false);
+      if (all) return go("overview");
+      if (t.dataset.chto === S.church) return;
+      S.church = t.dataset.chto; render(); toast(`Now in ${S.church}.`);
+    };
+  });
   root.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => { setMode(b.dataset.mode, true); if (look().theme) saveLook({theme: b.dataset.mode}); });
   root.querySelectorAll("[data-out]").forEach(b => b.onclick = signOut);
   // Refresh: loads the latest check-ins and changes made by others, only when tapped (nothing runs in the background,
@@ -1364,10 +1390,17 @@ const WIDGETS = {
       const pull = async () => {  // every 30 seconds while the widget is on screen
         if (!el.isConnected) return clearInterval(t);
         if (el.querySelector(".live-set")) return;  // don't wipe a link someone is typing
+        if (document.hidden && el.querySelector(".live-top")) return;  // the app is in the background: save the battery
         try {
           const j = await call();
           if (j.setup) return connect();
           const live = Object.values(j.platforms).some(x => x.status === "live"), h = j.history || [], top = Math.max(1, ...h.map(x => x.total));
+          // Same numbers as last time (or someone is pointing at the chart): only the "Updated" time changes, so nothing on the page moves
+          const sig = JSON.stringify([live, j.platforms, h.length, h[h.length - 1]?.total]);
+          if (el.dataset.sig === sig || (el.querySelector(".live-top") && (el.matches(":hover") || el.contains(document.activeElement)))) {
+            const u = el.querySelector(".live-top small"); if (u) u.textContent = `Updated ${new Date(j.updatedAt).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"})}`;
+            return; }
+          el.dataset.sig = sig;
           // "peak this service" is this stream's peak only: morning prayers (4:30 to 6:30 am) are their own, and nothing shows between services
           const prayer = x => { const d = new Date(x), m = d.getHours() * 60 + d.getMinutes(); return m >= 270 && m < 390; };
           const peakNow = live ? Math.max(j.total, ...h.filter(x => prayer(x.t) === prayer(Date.now())).map(x => x.total)) : null;
@@ -2661,7 +2694,7 @@ async function manageChurches(box, rows) {
   draw();
 }
 async function admin(el) {
-  el.innerHTML = head("Settings", "Sign-ins, messages and space") + `<p class="empty">Loading…</p>`;
+  el.innerHTML = head("Admin", "Sign-ins, messages and space") + `<p class="empty">Loading…</p>`;
   const users = await api("app_users?select=email,role,church,name,pastor,title&order=email").catch(() => api("app_users?select=email,role,church,name,pastor&order=email")).catch(() => api("app_users?select=email,role,church,name&order=email")).catch(() => []);
   const pnames = [...new Set(Object.values(S.pastorList).flat())].sort();  // names on every church's pastor list
   const space = await api("rpc/app_db_size", {method: "POST", body: {}}).catch(() => null);  // null until the newer setup SQL has been run
@@ -2694,7 +2727,7 @@ async function admin(el) {
   const TABS = [["messages", "Messages", fresh.length], ["names", "Sign-ins", users.length], ["space", "Space", 0]];  // churches are managed on the Churches page
   if (!TABS.some(t => t[0] === S.adminTab)) S.adminTab = fresh.length ? "messages" : "names";
   const tab = k => `data-at="${k}" ${S.adminTab === k ? "" : "hidden"}`;
-  el.innerHTML = head("Settings", "Who can sign in, messages from Help, and database space") + `<div class="atabs" role="tablist" aria-label="Settings">${TABS.map(([k, name, n]) =>
+  el.innerHTML = head("Admin", "Who can sign in, messages from Help, and database space") + `<div class="atabs" role="tablist" aria-label="Admin">${TABS.map(([k, name, n]) =>
       `<button role="tab" data-atab="${k}" aria-selected="${S.adminTab === k}">${name}${k === "messages" && n ? ` <span class="anum new">${n}</span>` : k !== "space" && k !== "messages" ? ` <span class="anum">${n}</span>` : ""}</button>`).join("")}</div>
     <section ${tab("messages")}>${inboxCard}</section><section ${tab("space")}>${spaceCard}</section>
     <section ${tab("names")}>
@@ -3491,11 +3524,9 @@ async function freshCheck() {
     if (sessionStorage.getItem(key)) return;
     // Only reload by itself on a fresh, untouched page; otherwise the Refresh button gets a dot and loads the new version when
     // tapped, so the page never jumps while someone is reading or working on it
-    const busy = scrollY > 80 || document.querySelector(".modal") || /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName || "") || S.view === "summary";
-    if (busy) { S.newVersion = true; document.querySelectorAll("[data-refresh]").forEach(b => { b.classList.add("new"); b.title = "A newer version of the app is ready: tap to load it"; }); return; }
-    sessionStorage.setItem(key, "1");
-    try { history.scrollRestoration = "manual"; } catch {}
-    location.reload();
+    // Never reload by itself (that made the page jump): the Refresh button gets a dot and loads the new version when tapped,
+    // and the next time the app is opened it starts on the new version anyway
+    S.newVersion = true; document.querySelectorAll("[data-refresh]").forEach(b => { b.classList.add("new"); b.title = "A newer version of the app is ready: tap to load it"; });
   } catch {}
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") freshCheck(); });
