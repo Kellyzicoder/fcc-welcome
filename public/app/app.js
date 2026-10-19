@@ -1033,14 +1033,16 @@ const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, summary: 6, followup: 3, past
 // Pastors and bishops are greeted with their title; a title already in their name (Pastor, Rev, Elder...) is kept.
 const GREET_TITLES = /^(pastor|ps|bishop|reverend|rev|elder|deacon|deaconess|lady|prophet|prophetess|apostle|evangelist|dr|mrs?|ms|minister)\.?$/i;
 function greetName() {
-  const raw = String(S.me?.pastor || S.me?.name || "").trim().replace(/\s+/g, " "); if (!raw) return "";
+  // Always the signed-in person's own name (Your account). The name on the Pastors list can be someone else's,
+  // for example while an admin looks at the app as a pastor.
+  const raw = String(S.me?.name || "").trim().replace(/\s+/g, " "); if (!raw) return "";
   const w = raw.split(" "), lead = [];
   while (w.length > 1 && GREET_TITLES.test(w[0])) lead.push(w.shift());
   const first = w[0];
   if (GREET_TITLES.test(first)) return raw;  // the name is only a title, e.g. "Bishop"
   if (lead.length) return `${lead.join(" ")} ${first}`;
-  const role = S.me.role, title = S.me.title;
-  return role === "bishop" ? `Bishop ${first}` : role === "pastor" || title === "Lead pastor" ? `Pastor ${first}` : first;
+  const role = S.me.role, title = S.me.title, pastors = role === "pastor" || title === "Lead pastor" || (!S.preview && S.me.pastor);
+  return role === "bishop" ? `Bishop ${first}` : pastors ? `Pastor ${first}` : first;
 }
 function greeting() {
   const name = greetName(), h = new Date().getHours(), key = "fcc-seen:" + (S.me?.email || "");
@@ -1051,7 +1053,7 @@ function greeting() {
   const part = S.greet || (h < 5 ? "Good evening" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening");
   return `${part}${name ? `, ${esc(name)}` : ""}`;
 }
-const head = (title, sub, buttons = "") => `<div class="head">${ICON[S.view] ? `<span class="hico" style="--wc:var(--h${NAVHUE[S.view] || 1});--wb:var(--h${NAVHUE[S.view] || 1}b)">${svg(S.view)}</span>` : ""}<div>${["dashboard", "mine", "overview"].includes(S.view) ? `<p class="greet">${greeting()}</p>` : ""}<h1>${title}</h1>${sub ? `<p>${sub}</p>` : ""}</div><span class="gap" style="flex:1"></span>${buttons}</div>`;
+const head = (title, sub, buttons = "") => `<div class="head">${ICON[S.view] ? `<span class="hico" style="--wc:var(--h${NAVHUE[S.view] || 1});--wb:var(--h${NAVHUE[S.view] || 1}b)">${svg(S.view)}</span>` : ""}<div><h1>${["dashboard", "mine", "overview"].includes(S.view) ? greeting() : title}</h1>${sub ? `<p>${sub}</p>` : ""}</div><span class="gap" style="flex:1"></span>${buttons}</div>`;
 const badge = f => `<span class="badge ${f}">${FLAG[f]}</span>`;
 
 // ---------------------------------------------------------------- dashboard
@@ -2836,7 +2838,7 @@ function mine(el) {
     if (n.length) out.push("", ["📞", "Please call:"], ...n.map(x => `- ${x.full_name} (${x.missed} missed${x.phone ? ", " + x.phone : ""})`));
     return wa(out);
   };
-  el.innerHTML = head(`Hello${S.me.name ? ", " + esc(S.me.name.split(" ")[0]) : ""}`, p.last ? `${esc(svcName(p.last))} · ${esc(nice(p.last, true))}` : "No services recorded yet",
+  el.innerHTML = head("", p.last ? `${esc(svcName(p.last))} · ${esc(nice(p.last, true))}` : "No services recorded yet",
     `<button class="pill-btn" id="wa">Message for WhatsApp</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `
     <div class="tiles"><div class="card tile"><div class="label">Your people</div><div class="num">${list.length}</div></div>
       <div class="card tile"><div class="label">Came</div><div class="num">${came.length}</div></div>
