@@ -947,6 +947,32 @@ button.chip:not(.on):hover, .wa-chip:hover span {border-color: var(--accent); co
 [data-theme="dark"] .rpill.tint[aria-selected="true"]:not([style]), [data-theme="dark"] .rpill.tint[aria-pressed="true"]:not([style]) {background: var(--accent); color: var(--accent-ink);}
 /* A date pill never gets cut short by a narrow column */
 div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
+/* Livestream "Viewers" chart and the platform ring */
+.lv-prog {display: grid; grid-template-columns: minmax(0, 1fr) 190px; gap: 14px;}
+.lv-prog-main, .lv-prog-side {border: 1px solid var(--line); border-radius: 16px; background: var(--card); padding: 14px 16px; min-width: 0;}
+.lv-prog-top {display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px;}
+.lv-side-t {font-size: var(--fs-md, 16px); font-weight: 600;} .lv-prog-top select.lv-range {width: auto; flex: none; min-height: var(--pill-h-sm, 34px);}
+.lv-off {margin: 0; font-size: var(--fs-sm, 13px); color: var(--ink-3);} .lv-ring-legend em b {color: var(--ink); font-weight: 600;}
+.lv-chart {display: grid; grid-template-columns: 30px minmax(0, 1fr); grid-template-rows: 170px auto; column-gap: 6px;}
+.lv-y {display: flex; flex-direction: column; justify-content: space-between; font-size: 11px; color: var(--ink-3); text-align: right; margin: -6px 0;}
+.lv-plot {position: relative;} .lv-plot svg {width: 100%; height: 100%; display: block; overflow: visible;}
+.lv-grid {stroke: var(--line); stroke-width: 1;}
+.lv-path {fill: none; stroke: var(--red); stroke-width: 2.5; stroke-linecap: round; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--red) 55%, transparent));}
+.lv-dot {position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--card); border: 2px solid var(--red); box-shadow: 0 0 8px color-mix(in srgb, var(--red) 60%, transparent);}
+.lv-guide {position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--ink-3);}
+.lv-tip {position: absolute; transform: translate(-50%, calc(-100% - 12px)); background: var(--ink); color: var(--card); border-radius: 10px; padding: 6px 10px; font-size: 12px; white-space: nowrap; pointer-events: none; display: grid; text-align: center;}
+.lv-tip b {font-size: 15px;}
+.lv-hit {position: absolute; inset: 0; cursor: crosshair;}
+.lv-x {grid-column: 2; position: relative; height: 22px; margin-top: 6px; font-size: 11.5px; color: var(--ink-3);} .lv-x span {position: absolute; transform: translateX(-50%); white-space: nowrap;}
+.lv-x span:first-child {transform: none;} .lv-x span:last-child {transform: translateX(-100%);}
+.lv-empty {margin: 0; padding: 40px 8px; text-align: center; color: var(--ink-3); font-size: var(--fs-sm, 13px);}
+.lv-ring-wrap {display: grid; gap: 12px; justify-items: center;} .lv-ring-wrap .lv-side-t {justify-self: start;}
+.lv-ring {position: relative; width: 130px; height: 130px;} .lv-ring svg {width: 100%; height: 100%; transform: rotate(0deg);}
+.lv-ring circle {fill: none; stroke-width: 4.5; stroke-linecap: round;} .lv-ring .lv-ring-bg {stroke: var(--soft);}
+.lv-ring > span {position: absolute; inset: 0; display: grid; place-content: center; text-align: center;} .lv-ring > span b {font-size: 26px; line-height: 1;} .lv-ring > span small {font-size: 11.5px; color: var(--ink-3);}
+.lv-ring-legend {display: grid; gap: 6px; width: 100%; font-size: var(--fs-sm, 13px);} .lv-ring-legend span {display: flex; align-items: center; gap: 8px;} .lv-ring-legend i {width: 9px; height: 9px; border-radius: 50%;}
+.lv-ring-legend em {margin-left: auto; font-style: normal; color: var(--ink-3); font-variant-numeric: tabular-nums;}
+@container (max-width: 560px) { .lv-prog {grid-template-columns: minmax(0, 1fr);} .lv-ring-wrap {grid-template-columns: auto 1fr; align-items: center; justify-items: start;} .lv-ring-wrap .lv-side-t {grid-column: 1 / -1;} .lv-ring {width: 110px; height: 110px;} }
 </style>
 </head>
 <body>
