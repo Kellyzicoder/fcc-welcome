@@ -1016,7 +1016,29 @@ addEventListener("popstate", () => {
 const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", pastors: "Pastors", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", archive: "Archive",
                activity: "Activity", reports: "Reports", overview: "All churches", admin: "Admin"};
 const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, summary: 6, followup: 3, pastors: 4, people: 5, signups: 6, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
-const head = (title, sub, buttons = "") => `<div class="head">${ICON[S.view] ? `<span class="hico" style="--wc:var(--h${NAVHUE[S.view] || 1});--wb:var(--h${NAVHUE[S.view] || 1}b)">${svg(S.view)}</span>` : ""}<div><h1>${title}</h1>${sub ? `<p>${sub}</p>` : ""}</div><span class="gap" style="flex:1"></span>${buttons}</div>`;
+// A greeting on the home pages: "Good morning, Kelvin", or "Welcome back, Pastor Grace" after a day or more away.
+// Pastors and bishops are greeted with their title; a title already in their name (Pastor, Rev, Elder...) is kept.
+const GREET_TITLES = /^(pastor|ps|bishop|reverend|rev|elder|deacon|deaconess|lady|prophet|prophetess|apostle|evangelist|dr|mrs?|ms|minister)\.?$/i;
+function greetName() {
+  const raw = String(S.me?.pastor || S.me?.name || "").trim().replace(/\s+/g, " "); if (!raw) return "";
+  const w = raw.split(" "), lead = [];
+  while (w.length > 1 && GREET_TITLES.test(w[0])) lead.push(w.shift());
+  const first = w[0];
+  if (GREET_TITLES.test(first)) return raw;  // the name is only a title, e.g. "Bishop"
+  if (lead.length) return `${lead.join(" ")} ${first}`;
+  const role = S.me.role, title = S.me.title;
+  return role === "bishop" ? `Bishop ${first}` : role === "pastor" || title === "Lead pastor" ? `Pastor ${first}` : first;
+}
+function greeting() {
+  const name = greetName(), h = new Date().getHours(), key = "fcc-seen:" + (S.me?.email || "");
+  if (S.greet === undefined) {  // worked out once per visit: away a day or more, or a first visit, says welcome back
+    let last = 0; try { last = Number(localStorage.getItem(key)) || 0; localStorage.setItem(key, String(Date.now())); } catch {}
+    S.greet = last && Date.now() - last > 864e5 ? "Welcome back" : "";
+  }
+  const part = S.greet || (h < 5 ? "Good evening" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening");
+  return `${part}${name ? `, ${esc(name)}` : ""}`;
+}
+const head = (title, sub, buttons = "") => `<div class="head">${ICON[S.view] ? `<span class="hico" style="--wc:var(--h${NAVHUE[S.view] || 1});--wb:var(--h${NAVHUE[S.view] || 1}b)">${svg(S.view)}</span>` : ""}<div>${["dashboard", "mine", "overview"].includes(S.view) ? `<p class="greet">${greeting()}</p>` : ""}<h1>${title}</h1>${sub ? `<p>${sub}</p>` : ""}</div><span class="gap" style="flex:1"></span>${buttons}</div>`;
 const badge = f => `<span class="badge ${f}">${FLAG[f]}</span>`;
 
 // ---------------------------------------------------------------- dashboard
