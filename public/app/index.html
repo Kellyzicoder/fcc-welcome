@@ -1005,6 +1005,11 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 .lv-guide {position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--ink-3);}
 .lv-tip {position: absolute; transform: translate(-50%, calc(-100% - 12px)); background: var(--ink); color: var(--card); border-radius: 10px; padding: 6px 10px; font-size: 12px; white-space: nowrap; pointer-events: none; display: grid; text-align: center;}
 .lv-tip b {font-size: 15px;}
+/* Livestream graph: a band per platform, with its colour key and each one's number in the tip */
+.lv-path.lv-pl {stroke-width: 2; filter: none;}
+.lv-chart-key {justify-content: center; margin-top: 10px; font-family: inherit; font-size: var(--fs-sm, 13px);}
+.lv-tip-pl {display: grid; gap: 2px; margin-top: 4px; text-align: left;} .lv-tip-pl em {font-style: normal; display: flex; align-items: center; gap: 6px;}
+.lv-tip-pl i {width: 8px; height: 8px; border-radius: 50%; flex: none;}
 .lv-hit {position: absolute; inset: 0; cursor: crosshair;}
 .lv-x {grid-column: 2; position: relative; height: 22px; margin-top: 6px; font-size: 11.5px; color: var(--ink-3);} .lv-x span {position: absolute; transform: translateX(-50%); white-space: nowrap;}
 .lv-x span:first-child {transform: none;} .lv-x span:last-child {transform: translateX(-100%);}
