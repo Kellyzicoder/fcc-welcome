@@ -390,7 +390,7 @@ $$ select coalesce(app_role() = 'admin' or (app_role() = 'lead' and app_church()
 
 create or replace function app_who() returns text language sql stable security definer set search_path = public as
 $$ select left(coalesce(nullif(trim(u.name), ''), u.email) || ' (' ||
-          case u.role when 'admin' then 'Admin' when 'lead' then case when u.title = 'Lead pastor' then 'Lead pastor' else 'Church admin' end when 'bishop' then 'Bishop' when 'pastor' then 'Pastor' else 'Team' end || ')', 80)
+          case u.role when 'admin' then case when u.title = 'Tech admin' then 'Tech admin' else 'Admin' end when 'lead' then case when u.title = 'Lead pastor' then 'Lead pastor' else 'Church admin' end when 'bishop' then 'Bishop' when 'pastor' then 'Pastor' else 'Team' end || ')', 80)
    from app_users u where u.email = lower(auth.jwt() ->> 'email') $$;
 
 drop policy if exists "app: see sign-ups" on registrations;
