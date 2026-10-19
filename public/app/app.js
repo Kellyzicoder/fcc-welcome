@@ -188,6 +188,54 @@ function prettyMsg(t) {
     return `<div class="pm-line${sp}">${fmt(l)}</div>`;
   }).join("");
 }
+// A friendlier date picker for the app's date boxes: the date shows as a pill, and tapping it opens a month calendar.
+// Days with a recorded service have a dot, today has a ring, and days after the box's latest allowed day can't be picked.
+// The original date box stays (hidden), so everything that listens to it keeps working.
+const svcDays = () => new Set((S.ticks || []).map(t => t.service_date));
+function calPick(inp, marked = svcDays()) {
+  if (!inp || inp.dataset.cal) return;
+  inp.dataset.cal = "1"; inp.classList.add("cal-src"); inp.tabIndex = -1;
+  const btn = document.createElement("button"); btn.type = "button"; btn.className = "cal-btn"; btn.setAttribute("aria-haspopup", "dialog");
+  const label = () => { const v = inp.value;
+    btn.innerHTML = `${svg("calpick")}<span>${v ? new Date(v + "T12:00:00").toLocaleDateString([], {weekday: "short", day: "numeric", month: "short", year: "numeric"}) : "Pick a date"}</span>${svg("caret")}`; };
+  inp.after(btn); label();
+  if (inp.id) document.querySelectorAll(`label[for="${inp.id}"]`).forEach(l => l.onclick = e => { e.preventDefault(); btn.click(); });
+  const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  let pop = null;
+  const close = () => { if (!pop) return; pop.remove(); pop = null; btn.setAttribute("aria-expanded", "false");
+    document.removeEventListener("pointerdown", out, true); document.removeEventListener("keydown", key); removeEventListener("resize", close); removeEventListener("scroll", close); };
+  const out = e => { if (pop && !pop.contains(e.target) && !btn.contains(e.target)) close(); };
+  const key = e => { if (e.key === "Escape") { close(); btn.focus(); } };
+  const pick = k => { if (inp.max && k > inp.max || inp.min && k < inp.min) return;
+    inp.value = k; label(); close(); inp.dispatchEvent(new Event("change", {bubbles: true})); };
+  btn.onclick = () => {
+    if (pop) return close();
+    const sel = inp.value || today(); let view = new Date(sel.slice(0, 7) + "-01T12:00:00");
+    pop = document.createElement("div"); pop.className = "cal-pop"; pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", "Pick a date");
+    const draw = () => {
+      const y = view.getFullYear(), m = view.getMonth(), lead = (new Date(y, m, 1, 12).getDay() + 6) % 7, days = new Date(y, m + 1, 0).getDate(), t = today();
+      const cells = Array.from({length: Math.ceil((lead + days) / 7) * 7}, (_, i) => new Date(y, m, 1 - lead + i, 12));
+      const nextOk = !inp.max || iso(new Date(y, m + 1, 1, 12)) <= inp.max;
+      pop.innerHTML = `<div class="cal-head"><b>${view.toLocaleDateString([], {month: "long", year: "numeric"})}</b><span class="gap"></span>
+          <button type="button" data-m="-1" aria-label="Previous month">${svg("prev")}</button><button type="button" data-today>Today</button>
+          <button type="button" data-m="1" aria-label="Next month" ${nextOk ? "" : "disabled"}>${svg("next")}</button></div>
+        <div class="cal-grid">${["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].map(w => `<i>${w}</i>`).join("")}${cells.map(d => { const k = iso(d), bad = inp.max && k > inp.max || inp.min && k < inp.min;
+          return `<button type="button" data-d="${k}" class="${d.getMonth() !== m ? "off" : ""} ${k === sel ? "on" : ""} ${k === t ? "now" : ""} ${marked.has(k) ? "has" : ""}" ${bad ? "disabled" : ""}
+            aria-label="${d.toLocaleDateString([], {weekday: "long", day: "numeric", month: "long"})}${marked.has(k) ? ", a service" : ""}" aria-pressed="${k === sel}">${d.getDate()}</button>`; }).join("")}</div>
+        ${marked.size ? `<p class="cal-key"><i></i>A service was recorded</p>` : ""}`;
+      pop.querySelectorAll("[data-m]").forEach(b => b.onclick = () => { view = new Date(y, m + +b.dataset.m, 1, 12); draw(); });
+      pop.querySelector("[data-today]").onclick = () => pick(t);
+      pop.querySelectorAll("[data-d]").forEach(b => b.onclick = () => pick(b.dataset.d));
+    };
+    draw(); document.body.append(pop); btn.setAttribute("aria-expanded", "true");
+    const r = btn.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+    pop.style.left = Math.max(12, Math.min(r.left, innerWidth - w - 12)) + "px";
+    pop.style.top = (r.bottom + 8 + h > innerHeight && r.top - h - 8 > 0 ? r.top - h - 8 : Math.min(r.bottom + 8, Math.max(12, innerHeight - h - 12))) + "px";
+    setTimeout(() => { document.addEventListener("pointerdown", out, true); document.addEventListener("keydown", key); addEventListener("resize", close); addEventListener("scroll", close, {passive: true}); }, 0);
+    pop.querySelector("button.on, button.now")?.focus({preventScroll: true});
+  };
+  inp.addEventListener("change", label);  // changed elsewhere: keep the pill's text up to date
+}
 function waDialog(title, build, opts = {}) {
   document.querySelectorAll(".modal").forEach(m => m.remove());
   const st = {names: false, link: "", follow: false, day: opts.day || ""}, d = document.createElement("div");
@@ -202,6 +250,10 @@ function waDialog(title, build, opts = {}) {
   let liveStarts = [], liveList = [];  // the day's livestreamed services: start times for naming the boxes, and their peaks
   const hm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
   const others = shareTo().filter(k => k !== "sms" || onPhone()), native = onPhone() && !!navigator.share;
+  // what can be added to the message, as chips: [id, label, on, a short note]
+  const incl = [...(opts.names ? [["m-names", opts.fields ? "First-timers' names" : "Names", false, opts.fields ? "" : "Leave names off for big group chats."]] : []),
+    ...(opts.follow ? [["m-follow", "Follow-up", false, "Follow-up lists who missed services."]] : []),
+    ...(opts.noEmoji ? [] : [["m-emoji", "Emojis", S.emoji, ""]])];
   const toggle = (id, label, hint, on) => `<label class="switch"><span><b>${label}</b><small>${hint}</small></span><input type="checkbox" id="${id}" ${on ? "checked" : ""}><i></i></label>`;
   d.className = opts.into ? "wa-page" : "modal";  // opts.into: shown on a page (the Summary tab) instead of as a pop-up
   d.innerHTML = `<div class="${opts.into ? "card" : "sheet"} wa-sheet" ${opts.into ? "" : `role="dialog" aria-modal="true"`} aria-label="${esc(title)}">
@@ -210,9 +262,8 @@ function waDialog(title, build, opts = {}) {
         ${opts.day ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-day">Service date</label></b><small>The service this summary is for</small></div><input class="in wa-pill" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}
         ${opts.fields ? `${toggle("m-multi", "More than one service today", "Fill in each service on its own; the message keeps them apart", st.multi)}
           <div class="wa-sec"><b>Service details</b><small>What the check-in can't count. Boxes left empty count as 0.</small></div><div id="m-fields"></div>` : ""}
-        ${opts.noEmoji ? "" : toggle("m-emoji", "Emojis", "Turn off for a plain-text message", S.emoji)}
-        ${opts.names ? toggle("m-names", "Include names", opts.fields ? "First-timers' names" : "Leave off for big group chats", false) : ""}
-        ${opts.follow ? toggle("m-follow", "Include follow-up", "Who missed services, with numbers and names", false) : ""}
+        ${incl.length ? `<div class="opt wa-inc"><div class="wa-txt"><b>Include in the message</b><small>Tap to add or leave out. ${esc(incl.map(c => c[3]).join(" "))}</small></div>
+          <div class="wa-chips">${incl.map(([id, t, on]) => `<label class="wa-chip"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>${svg("tick")}${t}</span></label>`).join("")}</div></div>` : ""}
         ${opts.link ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-link">Livestream link</label></b><small>Optional. It goes at the end of the message</small></div><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>` : ""}
         ${opts.fields ? `<div class="draft-line"><span id="m-draft"></span><button type="button" class="link-btn" data-clear hidden>Start again</button></div>` : ""}
       </div>
@@ -222,6 +273,7 @@ function waDialog(title, build, opts = {}) {
       ${native ? `<button type="button" class="chip" data-share="native">More apps…</button>` : ""}</div>` : ""}
     <div class="modal-foot">${opts.fields ? `<button class="pill-btn" id="m-save">Save draft</button>` : `<button class="pill-btn" data-x>Close</button>`}<button class="pill-btn ${onPhone() ? "" : "primary"}" id="m-copy">Copy</button>${onPhone() ? `<button class="pill-btn primary" id="m-send">Open in WhatsApp</button>` : ""}</div></div>`;
   (opts.into || document.body).append(d);
+  calPick(d.querySelector("#m-day"));
   const text = d.querySelector("#m-text");
   let turn = 0, msg = "";  // msg: the message exactly as it's copied and sent; the preview can show it laid out for reading
   const show = () => { text.classList.toggle("nice", !S.pvRaw && !text.classList.contains("muted"));
@@ -732,6 +784,9 @@ function picture(upTo = today()) {  // everything the pages show, as things stoo
 
 // ---------------------------------------------------------------- page frame
 const ICON = {
+  calpick: '<rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  caret: '<path d="M7 10l5 5 5-5"/>',
+  tick: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   summary: '<path d="M20 11.5a8 8 0 0 1-11.6 7.2L4 20l1.3-4.2A8 8 0 1 1 20 11.5z"/><path d="M8.5 10h7M8.5 13.5h4.5"/>',
   refresh: '<path d="M20 11a8 8 0 0 0-14.6-4.5L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.6 4.5L20 16"/><path d="M20 20v-4h-4"/>',
   upload: '<path d="M12 15V4"/><path d="M7 9l5-5 5 5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/>',
@@ -1150,7 +1205,7 @@ const WIDGETS = {
     draw(el) {
       const PL = [["youtube", "YouTube"], ["facebook", "Facebook"], ["zoom", "Zoom"]];
       // A platform split bar with its legend, and a line of the numbers through the service
-      const PC = {youtube: "#f0483e", facebook: "#6a7cf6", zoom: "#38bdf8"};
+      const PC = {youtube: "#ff0000", facebook: "#4267b2", zoom: "#2d8cff"};  // the platforms' own colours
       const split = rows => { const all = rows.reduce((s, r) => s + r[2], 0);
         return `<div class="lv-bar" aria-hidden="true">${all ? rows.filter(r => r[2] > 0).map(r => `<i style="flex-grow:${r[2]};background:${PC[r[0]]}"></i>`).join("") : "<i></i>"}</div>
           <div class="lv-legend">${rows.map(r => `<span><i style="background:${PC[r[0]]}"></i>${r[1]} <b>${r[3]}</b>${r[4] ? ` <em>${r[4]}</em>` : ""}</span>`).join("")}</div>`; };
@@ -1785,6 +1840,7 @@ function checkin(el) {
     busy = false; draw(); pull();
   };
   const svc = el.querySelector("#svc"); svc.value = svcLabel(); drawParts();
+  calPick(el.querySelector("#d"));
   el.querySelector("#d").onchange = e => { S.date = e.target.value || today(); armedPart = false; svc.value = svcLabel(); here = {}; lock = null; drawParts(); draw(); showLock(); pull(); };
   if (!pastor) svc.onchange = async () => {
     const name = svc.value.trim().replace(/\s+/g, " "), n = curPart(), was = svcLabel();
@@ -1851,6 +1907,7 @@ function followup(el) {
       ${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th class="hide-sm">Pastor</th><th>Phone</th></tr></thead>
       <tbody>${rowsHtml(list, true)}</tbody></table></div>` : `<p class="empty">${had ? "Nobody in this list." : `No service was recorded on ${esc(nice(day || today(), true))}.`}</p>`}</div>`;
   el.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { S.filter = b.dataset.f; render(); });
+  calPick(el.querySelector("#fu-day"));
   el.querySelector("#fu-day").onchange = e => { S.fuDay = e.target.value; render(); };
   const back = el.querySelector("#fu-latest"); if (back) back.onclick = () => { S.fuDay = ""; render(); };
   el.querySelector("#dl").onclick = () => download(`${norm(tabs[S.filter]).replace(/ /g, "_")}_${S.church}_${day || today()}.csv`,
@@ -2781,6 +2838,7 @@ async function activity(el) {
       <div style="flex:0 0 170px"><label class="f" for="a-day">Day</label><input class="in" id="a-day" type="date" value="${S.actDay}"></div>
       <div class="chips" style="margin:0">${Object.entries(shows).map(([k, t]) => `<button class="chip ${S.actShow === k ? "on" : ""}" data-show="${k}">${t}</button>`).join("")}</div></div></div>${body}`;
   const bind = () => {
+    calPick(el.querySelector("#a-day"), new Set());
     el.querySelector("#a-day").onchange = e => { S.actDay = e.target.value || today(); render(); };
     el.querySelectorAll("[data-show]").forEach(b => b.onclick = () => { S.actShow = b.dataset.show; render(); });
   };
