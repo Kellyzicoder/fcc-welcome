@@ -56,7 +56,8 @@ const peaks = (h: unknown, now: Record<string, number | null>) => {
   return out;
 };
 const hist = (h: unknown) => (Array.isArray(h) ? h.slice(-90) : [])
-  .map((x: { t: number; youtube?: number; facebook?: number; zoom?: number }) => ({ t: x.t, total: (x.youtube || 0) + (x.facebook || 0) + (x.zoom || 0) }));
+  .map((x: { t: number; youtube?: number; facebook?: number; zoom?: number }) => ({ t: x.t, total: (x.youtube || 0) + (x.facebook || 0) + (x.zoom || 0),
+    youtube: x.youtube || 0, facebook: x.facebook || 0, zoom: x.zoom || 0 }));  // each platform too, for the graph's coloured bands
 
 export async function GET(req: Request) {
   const d = dashboard();
@@ -74,7 +75,8 @@ export async function GET(req: Request) {
       const r = await ask(`${d.base}/api/minutes?${d.q}from=${from}&to=${to}`);
       const s = r?.ok ? await r.json().catch(() => null) : null;
       if (!s || !Array.isArray(s.points)) return say("The live dashboard needs updating to give the last 24 hours.", 502);
-      return Response.json({ church: w.c, points: s.points.slice(0, 400).map((x: Record<string, unknown>) => ({ t: Number(x.t) || 0, total: Number(x.total) || 0 })) },
+      return Response.json({ church: w.c, points: s.points.slice(0, 400).map((x: Record<string, unknown>) => ({ t: Number(x.t) || 0, total: Number(x.total) || 0,
+        ...(x.youtube !== undefined ? { youtube: Number(x.youtube) || 0, facebook: Number(x.facebook) || 0, zoom: Number(x.zoom) || 0 } : {}) })) },
         { headers: { "cache-control": "no-store" } });
     }
     // ...or, with peaks=1, the highest on each platform between the two times (a service's own start and end)
