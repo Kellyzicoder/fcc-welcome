@@ -242,7 +242,7 @@ function waDialog(title, build, opts = {}) {
   const memo = () => `fcc-wa:${S.church}:${st.day}`, recall = () => { try { return JSON.parse(localStorage.getItem(memo()) || "{}"); } catch { return {}; } };
   // A day with more than one service: the boxes come once per service (preacher, Zoom, YouTube... for each),
   // and the message keeps the services apart. It's switched on by the person, or already on when Check-in split the day.
-  const FKEY = /^(preacher|sermon|zoomA|zoomK|yt|fb|converts|time|end)(_\d)?$/;
+  const FKEY = /^(preacher|sermon|zoomA|zoomK|yt|fb|converts|time|end|px[a-z0-9]+)(_\d)?$/;
   const loadDraft = () => { for (const k of Object.keys(st)) if (FKEY.test(k)) delete st[k]; const r = recall();
     Object.assign(st, Object.fromEntries(Object.entries(r).filter(([k]) => FKEY.test(k))), {_at: r._at || 0,
       multi: r.multi ?? partsOf(st.day).length > 1, count: Math.min(3, Math.max(2, r.count || partsOf(st.day).length || 2))}); };
@@ -262,17 +262,17 @@ function waDialog(title, build, opts = {}) {
     ${opts.into ? "" : `<div class="card-head"><h2>${esc(title)}</h2><span class="gap"></span><button class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>`}
     <div class="modal-grid"><div class="opts">
         ${acc("Service", `${opts.day ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-day">Service date</label></b><small>The service this summary is for</small></div><input class="in wa-pill" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}`)}
-        ${opts.fields ? acc("Service details", `<div class="wa-sec"><b>Service details</b><small>What the check-in can't count. Boxes left empty count as 0.</small></div>${opts.fields.some(f => f[0] === "yt") && ["admin", "lead"].includes(S.me.role)
-          ? `<div class="live-fill" role="note">${svg("live")}<span><b>The livestream fills in by itself.</b> Pick the service's start and end times below, and YouTube, Facebook and Zoom are filled in from those times.</span></div>` : ""}<div id="m-fields"></div>`) : ""}
+        ${opts.fields ? acc("Service details", `<div class="wa-sec"><b>Service details</b></div>${opts.fields.some(f => f[0] === "yt") && ["admin", "lead"].includes(S.me.role)
+          ? `<div class="live-fill" role="note">${svg("live")}<span><b>Livestream numbers fill in for you.</b> Set the service's start and end time below, and YouTube, Facebook and Zoom are filled in from the livestream. You can still change any of them by hand.</span></div>` : ""}<div id="m-fields"></div>${opts.plat ? `<div class="plat-row" id="m-plat"></div>` : ""}`) : ""}
         ${incl.length ? acc("Include in the message", `<div class="opt wa-inc"><div class="wa-txt"><b>Include in the message</b><small>Tap to add or leave out. ${esc(incl.map(c => c[3]).join(" "))}</small></div>
           <div class="wa-chips">${incl.map(([id, t, on]) => `<label class="wa-chip"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>${svg("tick")}${t}</span></label>`).join("")}</div></div>`) : ""}
         ${opts.link ? acc("Livestream link", `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-link">Livestream link</label></b><small>Optional. It goes at the end of the message</small></div><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>`, false) : ""}
         ${opts.fields ? `<div class="draft-line"><span id="m-draft"></span><button type="button" class="link-btn" data-clear hidden>Start again</button></div>` : ""}
-        ${opts.into ? acc("The message", `<div class="prev-top"><small>This is the message that Copy and WhatsApp will send.</small><div class="pv-seg" role="group" aria-label="Message style"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Easy to read</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">As sent</button></div></div>
+        ${opts.into ? acc("Preview", `<div class="prev-top"><small>This is the message that Copy and WhatsApp will send.</small><div class="pv-seg" role="group" aria-label="Message style"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Easy to read</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">As sent</button></div></div>
           <div class="preview ${S.pvRaw ? "" : "nice"}" id="m-text" tabindex="0"></div>`, false) : ""}
       </div>
       ${opts.into ? `<aside class="wa-side"><div class="wa-side-card"><span class="wa-eyebrow">Send</span><p id="wa-state" class="wa-state"></p><div id="wa-actions"></div></div>
-        <div class="wa-side-card"><span class="wa-eyebrow">On this page</span><nav class="wa-toc">${[opts.day || opts.fields ? "Service" : "", opts.fields ? "Service details" : "", incl.length ? "Include in the message" : "", opts.link ? "Livestream link" : "", "The message"].filter(Boolean)
+        <div class="wa-side-card"><span class="wa-eyebrow">On this page</span><nav class="wa-toc">${[opts.day || opts.fields ? "Service" : "", opts.fields ? "Service details" : "", incl.length ? "Include in the message" : "", opts.link ? "Livestream link" : "", "Preview"].filter(Boolean)
           .map(t => `<button type="button" data-jump="wa-${t.toLowerCase().replace(/[^a-z]+/g, "-")}">${t}</button>`).join("")}</nav></div></aside>` : ""}
       ${opts.into ? "" : `<div class="opt"><div class="prev-top"><span class="f">Preview</span><div class="pv-seg" role="group" aria-label="Preview style"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Easy to read</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">As sent</button></div></div>
         <div class="preview ${S.pvRaw ? "" : "nice"}" id="m-text" tabindex="0"></div></div>`}</div>
@@ -814,6 +814,28 @@ async function load() {
   S.partsOk = parts !== null; S.parts = {}; for (const r of parts || []) (S.parts[r.service_date] ??= []).push({part: r.part, name: r.name});
   S.pticks = pticks;
 }
+// Before a page opens: what may have changed lately (people, and the last two weeks' ticks and services). Quicker than load().
+let freshAt = 0;
+async function freshen() {
+  if (Date.now() - freshAt < 5000) return;  // just done
+  const since = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10);
+  const [members, ticks, services, parts, pticks, pending] = await Promise.all([
+    all("members?select=id,full_name,phone,email,address,type,status,age_group,gender,pastor,church,role,group_name,date_joined,first_visit,created_at,version&order=full_name")
+      .catch(() => all("members?select=id,full_name,phone,type,status,age_group,gender,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name"))
+      .catch(() => all("members?select=id,full_name,phone,type,status,age_group,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name")),
+    all(`attendance?select=service_date,member_id,checked_at&service_date=gte.${since}&order=service_date`),
+    all(`services?select=service_date,name&service_date=gte.${since}`),
+    all(`service_parts?select=service_date,part,name&church=eq.${encodeURIComponent(S.church)}&service_date=gte.${since}&order=service_date,part`).catch(() => null),
+    all(`service_ticks?select=service_date,part,member_id&service_date=gte.${since}`).catch(() => null),
+    canApprove() ? api("registrations?select=id&status=eq.pending").then(r => r.length).catch(() => S.pending) : 0]);
+  S.members = S.me.role === "pastor" && S.me.base !== "pastor" ? members.filter(m => pastorsOf(m).some(n => norm(n) === norm(S.me.pastor))) : members;
+  S.ticks = S.ticks.filter(t => t.service_date < since).concat(ticks);
+  for (const k of Object.keys(S.names)) if (k >= since) delete S.names[k];
+  for (const s of services) S.names[s.service_date] = s.name;
+  if (parts) { for (const k of Object.keys(S.parts)) if (k >= since) delete S.parts[k]; for (const r of parts) (S.parts[r.service_date] ??= []).push({part: r.part, name: r.name}); }
+  if (pticks) S.pticks = S.pticks.filter(t => t.service_date < since).concat(pticks);
+  S.pending = pending; freshAt = Date.now();
+}
 // A day split into services (two or more): each one's name and how many of this church's people came to it.
 // The day's own ticks still decide who was there, so someone at both services counts once in the day's total.
 const partsOf = d => (S.parts?.[d] || []).length > 1 ? S.parts[d] : [];
@@ -955,7 +977,12 @@ function render() {
   if (!allowed.includes(S.view)) S.view = allowed[0];
   const short = {dashboard: "Home", overview: "Churches", people: "People", followup: "Follow-up"};  // the bottom bar on phones: the four most-used pages, then More
   const dock = groups.flatMap(g => g[1]).filter(x => ["mine", "dashboard", "checkin", "followup", "people", "overview"].includes(x[0])).slice(0, 4).map(([k, t]) => [k, short[k] || t]);
-  const go = to => { S.view = to; render(); };
+  const go = async to => {  // opening a page first loads what changed (ticks, people), so it opens up to date and stays still
+    const me = S.goTok = (S.goTok || 0) + 1; document.body.classList.add("going");
+    try { await Promise.race([freshen(), new Promise(r => setTimeout(r, 4000))]); } catch {}
+    if (me !== S.goTok) return;  // another page was tapped meanwhile
+    document.body.classList.remove("going"); S.view = to; render();
+  };
   const where = S.me.role === "bishop" ? "All churches" : S.church;
   if (S.mini === undefined) { try { S.mini = localStorage.getItem("fcc-mini") === "1"; } catch { S.mini = false; } }
   root.innerHTML = `<div class="shell ${S.mini ? "mini" : ""}">
@@ -1095,20 +1122,22 @@ function membersAt(p, d, part) {
   const day = p.byDate[d] || {}, ids = new Set(S.pticks.filter(t => t.service_date === d && t.part === part && day[t.member_id]).map(t => t.member_id));
   return p.mine.filter(m => ids.has(m.id));
 }
+// Other platforms added on the Summary (TikTok, Instagram...): [name, the box's key]
+const platKeys = () => (S.platforms || []).map(nm => [nm, "px" + nm.toLowerCase().replace(/[^a-z0-9]/g, "")]);
 // The standard message for a day with more than one service: each service on its own, then the whole day (each person once).
 function reportMulti(p, o) {
-  const day = p.last, n = o.count || 2, parts = partsOf(day), num = k => Math.max(0, parseInt(o[k], 10) || 0);
+  const XP = platKeys(), day = p.last, n = o.count || 2, parts = partsOf(day), num = k => Math.max(0, parseInt(o[k], 10) || 0);
   const sum = k => Array.from({length: n}, (_, j) => num(`${k}_${j + 1}`)).reduce((a, b) => a + b, 0);
   const out = [`${svcName(day).toUpperCase()} ATTENDANCE (${n} SERVICES)`, "", `DAY - ${new Date(day + "T12:00:00").toLocaleDateString("en-NZ", {weekday: "long"}).toUpperCase()}`, "",
     `DATE - ${dmy(day)}`, "", `BRANCH/MISSION - ${S.church}`, ""];
   for (let i = 1; i <= n; i++) {
     const part = parts[i - 1], ppl = part ? membersAt(p, day, part.part) : null, kidsIn = ppl ? ppl.filter(isKid).length : 0, adultsIn = ppl ? ppl.length - kidsIn : 0;
     out.push(`— ${(o.groups?.[i - 1] || part?.name || `Service ${i}`).toUpperCase()} —`, `PREACHER NAME - ${o["preacher_" + i] || ""}`, `SERMON TITLE: ${o["sermon_" + i] || ""}`, "",
-      `*ADULTS - ${adultsIn + num("zoomA_" + i) + num("yt_" + i) + num("fb_" + i)}`, ...(ppl ? [`[Attending: Adults - ${adultsIn}]`] : []),
-      `[Zoom: Adults - ${num("zoomA_" + i)}]`, `[Youtube -  ${num("yt_" + i)}]`, `[Facebook -  ${num("fb_" + i)}]`, "",
+      `*ADULTS - ${adultsIn + num("zoomA_" + i) + num("yt_" + i) + num("fb_" + i) + XP.reduce((a, [, k]) => a + num(k + "_" + i), 0)}`, ...(ppl ? [`[Attending: Adults - ${adultsIn}]`] : []),
+      `[Zoom: Adults - ${num("zoomA_" + i)}]`, `[Youtube -  ${num("yt_" + i)}]`, `[Facebook -  ${num("fb_" + i)}]`, ...XP.map(([nm, k]) => `[${nm} -  ${num(k + "_" + i)}]`), "",
       `*CHILDREN - ${kidsIn + num("zoomK_" + i)}`, ...(ppl ? [`[Attending - ${kidsIn}]`] : []), `[Zoom - ${num("zoomK_" + i)}]`, "", `New Converts - ${num("converts_" + i)}`, "");
   }
-  const kidsIn = p.kids, adultsIn = p.present.length - kidsIn, online = sum("zoomA") + sum("yt") + sum("fb");
+  const kidsIn = p.kids, adultsIn = p.present.length - kidsIn, online = sum("zoomA") + sum("yt") + sum("fb") + XP.reduce((a, [, k]) => a + sum(k), 0);
   const firsts = p.present.filter(m => m.type === "first_timer");
   out.push("— WHOLE DAY (each person counted once) —", `*ADULTS - ${adultsIn + online}`, `[Attending: Adults - ${adultsIn}]`, `[Online - ${online}]`, "",
     `*CHILDREN - ${kidsIn + sum("zoomK")}`, `[Attending - ${kidsIn}]`, `[Zoom - ${sum("zoomK")}]`, "",
@@ -1126,12 +1155,12 @@ function reportMulti(p, o) {
 function report(p, o = {}) {
   if (o.multi) return reportMulti(p, o);
   const day = p.last, kidsIn = p.kids, adultsIn = p.present.length - kidsIn, n = k => Math.max(0, parseInt(o[k], 10) || 0);
-  const adults = adultsIn + n("zoomA") + n("yt") + n("fb"), kids = kidsIn + n("zoomK");
+  const XP = platKeys(), adults = adultsIn + n("zoomA") + n("yt") + n("fb") + XP.reduce((a, [, k]) => a + n(k), 0), kids = kidsIn + n("zoomK");
   const firsts = p.present.filter(m => m.type === "first_timer");
   const out = [`${svcName(day).toUpperCase()} ATTENDANCE`, "", `DAY - ${new Date(day + "T12:00:00").toLocaleDateString("en-NZ", {weekday: "long"}).toUpperCase()}`, "",
     `DATE - ${dmy(day)}`, "", `PREACHER NAME - ${o.preacher || ""}`, "", `SERMON TITLE: ${o.sermon || ""}`, "", `BRANCH/MISSION - ${S.church}`, "",
     ...(partsOf(day).length ? [`SERVICES - ${partCounts(p, day).map(x => `${x.name}: ${x.n}`).join(", ")} (${p.present.length} people in total)`, ""] : []),
-    `*ADULTS - ${adults}`, `[Attending: Adults - ${adultsIn}]`, `[Zoom: Adults - ${n("zoomA")}]`, `[Youtube -  ${n("yt")}]`, `[Facebook -  ${n("fb")}]`, "",
+    `*ADULTS - ${adults}`, `[Attending: Adults - ${adultsIn}]`, `[Zoom: Adults - ${n("zoomA")}]`, `[Youtube -  ${n("yt")}]`, `[Facebook -  ${n("fb")}]`, ...XP.map(([nm, k]) => `[${nm} -  ${n(k)}]`), "",
     `*CHILDREN - ${kids}`, `[Attending - ${kidsIn}]`, `[Zoom - ${n("zoomK")}]`, "",
     `First timers - ${firsts.length}`, ...(o.names && firsts.length ? [firsts.map(m => m.full_name).join(", ")] : []), "",
     `Visitors - ${p.visitors}`, ...(o.names && p.visitors ? [p.present.filter(m => m.type === "visitor").map(m => m.full_name).join(", ")] : []), "",
@@ -1348,19 +1377,21 @@ const WIDGETS = {
         const a0 = a[i - 2] || a[i - 1], a1 = a[i - 1], a3 = a[i + 1] || q, f = v => v.toFixed(1);
         const cy = v => f(Math.min(200, Math.max(0, v)));  // never dips below 0 or over the top
         return `C${f(a1[0] + (q[0] - a0[0]) / 6)},${cy(a1[1] + (q[1] - a0[1]) / 6)} ${f(q[0] - (a3[0] - a1[0]) / 6)},${cy(q[1] - (a3[1] - a1[1]) / 6)} ${f(q[0])},${f(q[1])}`; }).join(" ");
-      const progChart = (pts, empty) => {
+      const progChart = (pts, empty, wide = 0) => {  // wide: the graph's width in pixels, to swipe back through
         if (pts.length < 2) return `<p class="lv-empty">${empty}</p>`;
         const max = Math.max(1, ...pts.map(p => p.v)), step = Math.max(1, Math.ceil(max / 4)), top = step * 4, W = 600, H = 200;
         const xy = pts.map((p, i) => [i / (pts.length - 1) * W, H - p.v / top * H]), every = Math.max(1, Math.ceil(pts.length / 7)), keep = new Set();
         for (let i = 0; i < pts.length; i += every) keep.add(i);
         const lastM = Math.max(...keep); if (lastM && pts.length - 1 - lastM < every * 0.7) keep.delete(lastM); keep.add(pts.length - 1);  // labels never crowd
+        if (wide) { keep.clear(); pts.forEach((p, i) => { if (p.hour) keep.add(i); }); }  // the long graph: a label each hour
         return `<div class="lv-chart" data-n="${pts.length}"><div class="lv-y">${[4, 3, 2, 1, 0].map(k => `<span>${k * step}</span>`).join("")}</div>
-          <div class="lv-plot"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="lvp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--red)" stop-opacity=".28"/><stop offset="1" stop-color="var(--red)" stop-opacity="0"/></linearGradient></defs>
+          ${wide ? `<div class="lv-scroll"><div class="lv-wide" style="width:${wide}px">` : ""}<div class="lv-plot"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="lvp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--red)" stop-opacity=".28"/><stop offset="1" stop-color="var(--red)" stop-opacity="0"/></linearGradient></defs>
             ${[0, 1, 2, 3, 4].map(k => `<line x1="0" x2="${W}" y1="${k * H / 4}" y2="${k * H / 4}" class="lv-grid" vector-effect="non-scaling-stroke"/>`).join("")}
             <path d="${curve(xy)} L${W},${H} L0,${H} Z" fill="url(#lvp)"/><path d="${curve(xy)}" class="lv-path" vector-effect="non-scaling-stroke"/></svg>
-            ${xy.map(([x, y], i) => keep.has(i) ? `<i class="lv-dot" style="left:${x / W * 100}%;top:${y / H * 100}%"></i>` : "").join("")}
+            ${xy.map(([x, y], i) => keep.has(i) && !(wide && !pts[i].v) ? `<i class="lv-dot" style="left:${x / W * 100}%;top:${y / H * 100}%"></i>` : "").join("")}
             <i class="lv-guide" hidden></i><div class="lv-tip" hidden></div><div class="lv-hit"></div></div>
-          <div class="lv-x">${pts.map((p, i) => keep.has(i) ? `<span style="left:${i / (pts.length - 1) * 100}%">${esc(p.label)}</span>` : "").join("")}</div></div>`;
+          <div class="lv-x">${pts.map((p, i) => keep.has(i) ? `<span style="left:${i / (pts.length - 1) * 100}%">${esc(p.label)}</span>` : "").join("")}</div>${wide ? "</div></div>" : ""}</div>
+          ${wide ? `<p class="lv-hint">Swipe the graph sideways to go back through the last 24 hours.</p>` : ""}`;
       };
       const ring = (rows, note) => { const all = rows.reduce((s, r) => s + r[2], 0); let at = 0;
         return `<div class="lv-ring-wrap"><b class="lv-side-t">Platforms</b><div class="lv-ring"><svg viewBox="0 0 42 42" aria-hidden="true"><circle cx="21" cy="21" r="15.9" class="lv-ring-bg"/>
@@ -1413,11 +1444,10 @@ const WIDGETS = {
           el.innerHTML = `<div class="live-top"><span class="live-dot ${live ? "on" : ""}">${live ? "Live now" : "Not live right now"}</span><span class="gap" style="flex:1"></span>
               <small>Updated ${new Date(j.updatedAt).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"})}</small></div>
             <div class="lv-card live-nums">
-              <div class="lv-pair"><div><span class="lv-key"><i class="ring hot"></i>Watching now</span><b class="lv-big">${j.total}</b><small class="${live ? "lv-up" : ""}">${live ? "right now" : "not live"}</small></div>
-                <div><span class="lv-key"><i class="ring"></i>Peak</span><b class="lv-big">${peakNow ?? "–"}</b><small>this service</small></div></div>
+              <div class="lv-pair lv-one"><div><span class="lv-key"><i class="ring hot"></i>Watching now</span><b class="lv-big">${j.total}</b><small class="${live ? "lv-up" : ""}">${live ? "right now" : "not live"}</small></div></div>
               ${PL.some(([k]) => j.platforms[k].status !== "live") ? `<p class="lv-off">${PL.filter(([k]) => j.platforms[k].status !== "live").map(([k, t]) => `${t}: ${word(j.platforms[k])}`).join(" · ")}</p>` : ""}</div>
             <div class="lv-prog"><div class="lv-prog-main"><div class="lv-prog-top"><b class="lv-side-t">Viewers</b>
-                  ${j.home ? `<select class="in sel lv-range" aria-label="Show"><option value="service">This service</option><option value="week" ${S.lvRange === "week" ? "selected" : ""}>This week</option></select>` : ""}</div>
+                  ${j.home ? `<select class="in sel lv-range" aria-label="Show"><option value="day">Last 24 hours</option><option value="week" ${S.lvRange === "week" ? "selected" : ""}>This week</option></select>` : ""}</div>
                 <div class="lv-prog-body"></div></div></div>
             ${j.platforms.zoom.status === "live" ? `<p class="note" style="margin:10px 0 0">Zoom includes the host and co-host: take 2 off for the attendance count.</p>` : ""}
             ${j.channel ? `<div class="live-ch"><small>YouTube channel: <b>${esc(j.channel)}</b></small><button type="button" class="link-btn" data-change>Change</button></div>` : ""}`;
@@ -1427,14 +1457,36 @@ const WIDGETS = {
           const drawProg = () => {
             const body = el.querySelector(".lv-prog-body"); if (!body) return;
             const week = S.lvRange === "week" && j.home, L = S.liveAll, DAYMS = 864e5;
-            let pts;
+            let pts, wide = 0;
             if (week) {
               if (!L) { body.innerHTML = `<p class="lv-empty">Loading the week…</p>`; }
               else { const dk = t => { const d = new Date(t); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
                 pts = Array.from({length: 7}, (_, i) => { const t = Date.now() - (6 - i) * DAYMS, k = dk(t), v = Math.max(0, ...L.list.filter(x => dk(x.start) === k).map(x => x.youtube + x.facebook + x.zoom));
                   return {v, label: new Date(t).toLocaleDateString([], {weekday: "short"}), tip: `${new Date(t).toLocaleDateString([], {weekday: "short", day: "numeric", month: "short"})} · ${v} watched`}; }); }
+            } else if (j.home) {  // the last 24 hours in 5-minute steps; the graph opens at now and swipes back
+              const D = S.lvDay, now = Date.now();
+              if ((!D || now - D.at > 60000) && !S.lvDayBusy) {
+                S.lvDayBusy = true; const to = now, from = to - DAYMS;
+                call({}, `&from=${from}&to=${to}&minutes=1`).then(r => { S.lvDay = {at: Date.now(), to, list: Array.isArray(r.points) ? r.points : null}; })
+                  .catch(() => { S.lvDay = {at: Date.now(), to, list: null}; }).finally(() => { S.lvDayBusy = false; if (body.isConnected) drawProg(); });
+              }
+              if (!D) body.innerHTML = `<p class="lv-empty">Loading the last 24 hours…</p>`;
+              else if (D.list) {
+                const step = 3e5, end = Math.floor(D.to / step) * step, by = new Map();
+                for (const p of D.list) { const k = Math.floor(p.t / step) * step; by.set(k, Math.max(by.get(k) || 0, Number(p.total) || 0)); }
+                pts = Array.from({length: 289}, (_, i) => { const t = end - (288 - i) * step, v = by.get(t) || 0; return {v, label: hmm(t), hour: new Date(t).getMinutes() === 0, tip: `${hmm(t)} · ${v} watching`}; });
+                wide = 289 * 8;  // 8 pixels for each 5 minutes: about 2½ hours on a phone, 8 on a computer
+              } else pts = h.map(x => ({v: x.total, label: hmm(x.t), tip: `${hmm(x.t)} · ${x.total} watching`}));  // the dashboard can't give the day yet: the last few hours
             } else pts = h.map(x => ({v: x.total, label: hmm(x.t), tip: `${hmm(x.t)} · ${x.total} watching`}));
-            if (pts) body.innerHTML = progChart(pts, live ? "The line starts after a minute or two of the livestream." : "Not live right now. Pick This week to see the last seven days.");
+            if (pts) body.innerHTML = progChart(pts, live ? "The line starts after a minute or two of the livestream." : "Not live right now. Pick This week to see the last seven days.", wide);
+            const sc = body.querySelector(".lv-scroll");  // opens at now; stays where it was swiped to when the numbers update
+            if (sc) {
+              const place = () => { sc.scrollLeft = sc.scrollWidth - sc.clientWidth - (S.lvBack || 0); };
+              place(); requestAnimationFrame(place);
+              const mine = () => { sc.dataset.user = "1"; };  // only a person's own swipe moves where it opens next time
+              for (const ev of ["pointerdown", "touchstart", "wheel"]) sc.addEventListener(ev, mine, {passive: true});
+              sc.onscroll = () => { if (sc.dataset.user) S.lvBack = sc.scrollWidth - sc.clientWidth - sc.scrollLeft; };
+            }
             const chart = body.querySelector(".lv-chart"); if (!chart) return;
             const plot = chart.querySelector(".lv-plot"), tip = chart.querySelector(".lv-tip"), guide = chart.querySelector(".lv-guide"), n = pts.length;
             const at = e => { const r = plot.getBoundingClientRect(), x = ((e.touches?.[0] || e).clientX - r.left) / r.width, i = Math.max(0, Math.min(n - 1, Math.round(x * (n - 1))));
@@ -1460,10 +1512,10 @@ const WIDGETS = {
               const list = by[sel] || [], best = Math.max(0, ...list.map(sum));
               const label = k => k === todayK ? "Today" : k === yK ? "Yesterday" : (d => `${d.toLocaleDateString([], {weekday: "short"})} ${d.getDate()}`)(new Date(k + "T12:00:00"));
               box.innerHTML = `<div class="ld-days" role="tablist" aria-label="Pick a day">${days.map(k => `<button type="button" role="tab" class="${k === sel ? "on" : ""}" aria-selected="${k === sel}" data-lk="${k}">
-                  <b>${esc(label(k))}</b><small>${by[k] ? `${Math.max(...by[k].map(sum))} watching` : "no stream yet"}</small></button>`).join("")}</div>
+                  <b>${esc(label(k))}</b></button>`).join("")}</div>
                 ${L.failed ? `<p class="note">Some days couldn't be loaded. Try again in a minute.</p>` : ""}
-                ${list.length ? `${list.length > 1 ? `<p class="note">Highest of the day: <b>${best}</b> watching</p>` : ""}${`<div class="lv-svcs">${list.map(x => `<div class="lv-card">
-                  <div class="lv-svc-top"><b>${hm(x.start)} service</b><small>${x.end ? `to ${hm(x.end)}` : "still going"}</small></div>
+                ${list.length ? `${`<div class="lv-svcs">${list.map(x => `<div class="lv-card">
+                  <div class="lv-svc-top"><b>${hm(x.start)} – ${x.end ? hm(x.end) : "now"}</b>${x.end ? "" : "<small>still going</small>"}</div>
                   <b class="lv-big">${sum(x)} <small>watched</small></b>
                   ${split([["youtube", "YouTube", x.youtube, x.youtube], ["facebook", "Facebook", x.facebook, x.facebook], ["zoom", "Zoom", x.zoom, x.zoom]])}</div>`).join("")}</div>`}`
                 : `<p class="note">No livestream yet today: the numbers stay here after it ends.</p>`}`;
@@ -1597,18 +1649,43 @@ async function saveBoard(b, list) {
   try { localStorage.setItem("fcc-dash:" + S.me.email, JSON.stringify(raw)); } catch {}
   if (S.dashDb !== false) try { await api("app_prefs?on_conflict=email", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {email: S.me.email, dash: raw}}); } catch { S.dashDb = false; }
 }
-// The WhatsApp summary, as its own page: the settings on the left, the message's preview on the right, Copy / Open in WhatsApp under them
+// The summary, as its own page: the settings on the left, the message's preview on the right, Copy / Open in WhatsApp under them
 function summaryPage(el) {
   const p = picture();
-  el.innerHTML = head("Summary", "The service summary for WhatsApp. Fill in each part, then copy it or send it from the side.") + `<div id="sumbox"></div>`;
-  waDialog("Summary for WhatsApp", o => !p.dates.includes(o.day) ? null : report(o.day !== p.last ? picture(o.day) : p, o), {names: true, link: true, follow: true, noEmoji: true, day: p.last || today(),
-    fields: [["preacher", "Preacher name"], ["sermon", "Sermon title"], ["zoomA", "Zoom: adults", "num"], ["zoomK", "Zoom: children", "num"], ["yt", "YouTube", "num"], ["fb", "Facebook", "num"], ["converts", "New converts", "num"]],
-    into: el.querySelector("#sumbox")});
+  if (S.platforms === undefined) {  // other platforms added for every church (TikTok, Instagram...): loaded once
+    el.innerHTML = `<p class="empty">Loading…</p>`;
+    api("settings?select=value&key=eq.platforms").then(r => r?.[0]?.value || "").catch(() => "")
+      .then(v => { S.platforms = String(v).split("\n").map(x => x.trim()).filter(Boolean); if (el.isConnected) summaryPage(el); });
+    return;
+  }
+  el.innerHTML = head("Summary", "The service summary. Fill in each part, then copy it or send it from the side.") + `<div id="sumbox"></div>`;
+  waDialog("Summary", o => !p.dates.includes(o.day) ? null : report(o.day !== p.last ? picture(o.day) : p, o), {names: true, link: true, follow: true, noEmoji: true, day: p.last || today(),
+    fields: [["preacher", "Preacher name"], ["sermon", "Sermon title"], ["zoomA", "Zoom: adults", "num"], ["zoomK", "Zoom: children", "num"], ["yt", "YouTube", "num"], ["fb", "Facebook", "num"], ...platKeys().map(([nm, k]) => [k, nm, "num"]), ["converts", "New converts", "num"]],
+    plat: ["admin", "lead"].includes(S.me.role), into: el.querySelector("#sumbox")});
+  // Other platforms: a chip for each (tap × twice to remove), and Add a platform. Each gets its own box and line in the message.
+  const box = el.querySelector("#m-plat"); if (!box) return;
+  box.innerHTML = `<span class="plat-t">Other platforms</span>${S.platforms.map((nm, i) => `<span class="chip">${esc(nm)}<button type="button" class="plat-x" data-prm="${i}" aria-label="Remove ${esc(nm)}" title="Remove ${esc(nm)}">×</button></span>`).join("")}
+    <button type="button" class="pill-btn sm" data-padd>${svg("plus")}Add a platform</button>`;
+  const save = async list => {
+    await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key: "platforms", value: list.join("\n")}});
+    S.platforms = list; if (el.isConnected) summaryPage(el);
+  };
+  box.querySelector("[data-padd]").onclick = () => formDialog("Add a platform", [{k: "name", label: "Platform name", value: "",
+      hint: "For example TikTok or Instagram. It gets its own box under Service details and its own line in the message, counted with the adults online. Every church sees it."}],
+    async v => { const nm = String(v.name || "").trim().replace(/\s+/g, " ").slice(0, 30);
+      if (!nm || !/[a-z0-9]/i.test(nm)) throw new Error("Type the platform's name.");
+      if ([...S.platforms, "YouTube", "Facebook", "Zoom"].some(x => norm(x) === norm(nm))) throw new Error(`${nm} is already there.`);
+      await save([...S.platforms, nm]); toast(`${nm} added.`); }, "Add");
+  box.querySelectorAll("[data-prm]").forEach(b => b.onclick = async () => {
+    const i = +b.dataset.prm, nm = S.platforms[i];
+    if (!b.dataset.sure) { b.dataset.sure = "1"; b.textContent = "Remove?"; return; }
+    try { await save(S.platforms.filter((_, j) => j !== i)); toast(`${nm} removed.`); } catch (e) { toast("Not saved: " + e.message); }
+  });
 }
 async function dashboard(el) {
   const p = picture();
   el.innerHTML = head("Dashboard", p.last ? `${esc(svcName(p.last))} · ${esc(nice(p.last, true))}` : "No services recorded yet",
-    `<button class="pill-btn" id="addw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">WhatsApp summary</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `<div class="wgrid" id="wgrid"></div>`;
+    `<button class="pill-btn" id="addw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `<div class="wgrid" id="wgrid"></div>`;
   el.querySelector("#wa").onclick = () => { S.view = "reports"; S.repTab = "summary"; render(); };  // the WhatsApp summary: a tab on Reports
   el.querySelector("#addw").onclick = () => addWidget("home");
   el.querySelector("[data-go]").onclick = () => { S.view = "checkin"; render(); };
@@ -1884,8 +1961,10 @@ function checkin(el) {
     here = n ? Object.fromEntries((prows || []).filter(r => r.part === n && dayHere[r.member_id]).map(r => [r.member_id, r.checked_at || dayHere[r.member_id]])) : dayHere;
     for (const [id, v] of pending) { if (v) here[id] ??= v; else delete here[id]; }  // taps still saving win over an older copy from the server
     S.ticks = S.ticks.filter(t => t.service_date !== S.date).concat(rows.map(r => ({...r, service_date: S.date})));
-    if (document.activeElement?.type !== "checkbox") draw();
+    const sig = JSON.stringify(Object.keys(here).sort());  // the same ticks as last time: nothing on the page changes
+    if (sig !== pullSig && document.activeElement?.type !== "checkbox") { pullSig = sig; draw(); }
   };
+  let pullSig = "";
   const pending = new Map();  // ticks shown straight away while they save in the background
   // Save & lock: once a service is done, its ticks are frozen on every phone until someone unlocks it
   let lock = null; const lockKey = () => `lock:${S.date}:${S.church}`;
@@ -3100,9 +3179,9 @@ async function activity(el) {
 // ---------------------------------------------------------------- reports: the WhatsApp summary, the emailed report and downloads, as tabs
 function reports(el) {
   const boss = ["admin", "lead"].includes(S.me.role);
-  const tabs = [["summary", "WhatsApp summary"], ...(boss ? [["email", "Email reports"], ["downloads", "Downloads"]] : [])];
+  const tabs = [["summary", "Summary"], ...(boss ? [["email", "Email reports"], ["downloads", "Downloads"]] : [])];
   if (!tabs.some(t => t[0] === S.repTab)) S.repTab = "summary";
-  el.innerHTML = head("Reports", boss ? "Share the service's numbers: on WhatsApp, by email, or as lists to download" : "The service summary for WhatsApp")
+  el.innerHTML = head("Reports", boss ? "Share the service's numbers: as a message, by email, or as lists to download" : "The service summary")
     + `<div class="rep-tabs" role="tablist" aria-label="Reports">${tabs.map(([k, t]) => `<button role="tab" data-rt="${k}" aria-selected="${S.repTab === k}">${t}</button>`).join("")}</div>
     <div class="rep-body" data-tab="${S.repTab}"></div>`;
   el.querySelectorAll("[data-rt]").forEach(b => b.onclick = () => { S.repTab = b.dataset.rt; render(); });
@@ -3413,24 +3492,24 @@ function ask(el) {
 
 // ---------------------------------------------------------------- your own account
 function account(el) {
-  el.innerHTML = head("Your account", "") + `
-    <form class="card" id="me" style="max-width:560px;margin-bottom:14px"><label class="f" for="my-name">Your name</label>
+  el.innerHTML = head("Your account", "") + `<div class="acct-page">
+    <form class="card" id="me"><label class="f" for="my-name">Your name</label>
       <input class="in" id="my-name" maxlength="80" autocomplete="name" value="${esc(S.me.name || "")}" placeholder="e.g. Grace Mensah">
       <p class="facts" style="margin-top:14px">Email: ${esc(S.me.email)}<br>Role: ${roleName(S.me)}${S.me.church ? "<br>Church: " + esc(S.me.church) : ""}${S.me.role === "pastor" && S.me.pastor ? "<br>Your people: those assigned to " + esc(S.me.pastor) : ""}</p>
       
       <div style="margin-top:14px"><button class="pill-btn primary">Save name</button></div></form>
     <div id="look"></div>
-    <form class="card" id="setpw" style="max-width:560px;margin-bottom:14px"><div class="card-head"><h2>Password</h2></div>
+    <form class="card" id="setpw"><div class="card-head"><h2>Password</h2></div>
       <p class="note" style="margin-top:0">Set a password to skip the email code when you sign in, or change the one you have. You stay signed in.</p>
       <input type="email" autocomplete="username" value="${esc(S.me.email)}" readonly hidden>
       <label class="f" for="pw1">New password</label><input class="in" id="pw1" type="password" autocomplete="new-password" maxlength="72" required>
       <label class="f" for="pw2" style="margin-top:12px">Type it again</label><input class="in" id="pw2" type="password" autocomplete="new-password" maxlength="72" required>
       <ul class="pw-rules" id="pw-rules" aria-live="polite"></ul>
       <div style="margin-top:14px"><button class="pill-btn primary" id="pw-go">Save password</button></div></form>
-    ${S.canSwitch ? `<div class="card" style="max-width:560px;margin-bottom:14px"><div class="card-head"><h2>Your views</h2></div>
+    ${S.canSwitch ? `<div class="card"><div class="card-head"><h2>Your views</h2></div>
       <p class="note" style="margin-top:0">You're ${baseName() === "Admin" ? "an" : "a"} ${baseName()} and also a pastor (${esc(S.me.pastor)}). Switch any time, no need to sign in again.</p>
       <button class="pill-btn primary" data-switch>${svg("pastors")}${switchLabel()}</button></div>` : ""}
-    <div class="card" style="max-width:560px"><button class="pill-btn" data-bye>${svg("out")}Log out</button></div>`;
+    <div class="card"><button class="pill-btn" data-bye>${svg("out")}Log out</button></div></div>`;
   el.querySelector("#me").onsubmit = async e => {
     e.preventDefault();
     try { S.me.name = await api("rpc/app_set_my_name", {method: "POST", body: {new_name: el.querySelector("#my-name").value}}); toast("Saved."); render(); }
