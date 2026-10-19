@@ -40,6 +40,9 @@ html, body {margin: 0;}
 body {font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); font-size: 15px;
       background: linear-gradient(160deg, var(--page), var(--page-2)); min-height: 100vh; -webkit-font-smoothing: antialiased;}
 button {font: inherit; color: inherit; cursor: pointer;}
+/* Everything you can tap or click shows the pointer (hand) cursor: menu tabs, buttons, links, chips, switches, rows that open */
+a[href], summary, select, label:has(> input[type="checkbox"]), label:has(> input[type="radio"]), [role="tab"], [role="button"], [data-view], [data-person], [data-day], [data-go], [data-lk], [data-share], .nav, .chip, .wa-chip, .switch, .w-grip {cursor: pointer;}
+button:disabled, [aria-disabled="true"] {cursor: default;}
 .shell {display: grid; grid-template-columns: 248px minmax(0, 1fr); gap: 20px; max-width: 1440px; margin: 0 auto; padding: 20px;}
 
 /* sidebar */
