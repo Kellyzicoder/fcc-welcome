@@ -204,15 +204,16 @@ function waDialog(title, build, opts = {}) {
   const others = shareTo().filter(k => k !== "sms" || onPhone()), native = onPhone() && !!navigator.share;
   const toggle = (id, label, hint, on) => `<label class="switch"><span><b>${label}</b><small>${hint}</small></span><input type="checkbox" id="${id}" ${on ? "checked" : ""}><i></i></label>`;
   d.className = "modal";
-  d.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+  d.innerHTML = `<div class="sheet wa-sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}">
     <div class="card-head"><h2>${esc(title)}</h2><span class="gap"></span><button class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
     <div class="modal-grid"><div class="opts">
-        ${opts.day ? `<div class="opt"><label class="f" for="m-day">Service date</label><input class="in" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}
-        ${opts.fields ? `${toggle("m-multi", "More than one service today", "Fill in each service on its own; the message keeps them apart", st.multi)}<div id="m-fields"></div>` : ""}
+        ${opts.day ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-day">Service date</label></b><small>The service this summary is for</small></div><input class="in wa-pill" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}
+        ${opts.fields ? `${toggle("m-multi", "More than one service today", "Fill in each service on its own; the message keeps them apart", st.multi)}
+          <div class="wa-sec"><b>Service details</b><small>What the check-in can't count. Boxes left empty count as 0.</small></div><div id="m-fields"></div>` : ""}
         ${opts.noEmoji ? "" : toggle("m-emoji", "Emojis", "Turn off for a plain-text message", S.emoji)}
         ${opts.names ? toggle("m-names", "Include names", opts.fields ? "First-timers' names" : "Leave off for big group chats", false) : ""}
         ${opts.follow ? toggle("m-follow", "Include follow-up", "Who missed services, with numbers and names", false) : ""}
-        ${opts.link ? `<div class="opt"><label class="f" for="m-link">Livestream link (optional)</label><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>` : ""}
+        ${opts.link ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-link">Livestream link</label></b><small>Optional. It goes at the end of the message</small></div><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>` : ""}
         ${opts.fields ? `<div class="draft-line"><span id="m-draft"></span><button type="button" class="link-btn" data-clear hidden>Start again</button></div>` : ""}
       </div>
       <div class="opt"><div class="prev-top"><span class="f">Preview</span><div class="pv-seg" role="group" aria-label="Preview style"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Easy to read</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">As sent</button></div></div>

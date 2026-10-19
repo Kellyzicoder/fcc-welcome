@@ -757,6 +757,27 @@ input.in:focus, select.in:focus, textarea.in:focus {border-color: var(--accent);
 input.in::placeholder, textarea.in::placeholder {color: var(--ink-3); opacity: 1;}
 .preview.muted {color: var(--ink-3); font-family: inherit;}
 /* Summary popup: drafts, livestream note and the extra places to send it */
+/* The summary pop-up, laid out like a settings page: a title and a line of explanation for each
+   setting, the switch on the left, thin lines between the settings, soft rounded boxes and chips */
+.wa-sheet .card-head {flex-wrap: nowrap;} .wa-sheet .card-head h2 {font-size: clamp(19px, 5vw, 24px); font-weight: 600; letter-spacing: -.01em;}
+.wa-sheet .opts {gap: 0; align-content: start;}
+.wa-sheet .opts > .switch, .wa-sheet .opts > .opt, .wa-sheet .opts > .wa-sec, .wa-sheet #m-fields > .opt {background: none; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 20px 4px;}
+.wa-sheet .opts > :first-child {border-top: 0; padding-top: 6px;}
+.wa-sheet .wa-sec {display: block; padding-bottom: 4px !important;} .wa-sheet .wa-sec + #m-fields > .opt:first-child {border-top: 0; padding-top: 10px;}
+.wa-sheet .switch {gap: 18px; align-items: flex-start;}
+.wa-sheet .switch i {order: -1; width: 54px; height: 32px; margin-top: 2px;} .wa-sheet .switch i::after {width: 26px; height: 26px;}
+.wa-sheet .switch input:checked + i::after {transform: translateX(22px);}
+.wa-sheet .switch b, .wa-txt b, .wa-sec b {display: block; font-size: 16px; font-weight: 600; letter-spacing: .005em; color: var(--ink);}
+.wa-sheet .switch small, .wa-txt small, .wa-sec small {display: block; margin-top: 3px; font-size: 13px; line-height: 1.45; letter-spacing: .015em; color: var(--ink-2);}
+.wa-row {display: flex !important; align-items: center; gap: 12px 16px; flex-wrap: wrap;} .wa-txt {flex: 1 1 150px; min-width: 0;} .wa-sheet .wa-row .in.wa-pill {flex: 0 0 auto; width: auto; max-width: 100%;}
+.wa-row #m-link {flex: 1 1 100%;}
+.wa-pill {width: auto; min-height: 0; border-radius: 999px; padding: 10px 16px; border: 1.5px solid var(--ink-3); background: var(--card); font-weight: 600;}
+.wa-sheet .fields-grid {gap: 2px 12px;} .wa-sheet .fields-grid .f {font-size: 13px; font-weight: 600; color: var(--ink-2); margin-top: 8px;}
+.wa-sheet .opts .in:not(.wa-pill) {background: var(--soft); border-color: transparent; border-radius: 12px;}
+.wa-sheet .opts .in:not(.wa-pill):focus {background: var(--card); border-color: var(--accent);}
+.wa-sheet .share-row .chip {border: 0; background: var(--soft); border-radius: 10px; padding: 9px 16px; color: var(--ink); font-weight: 500;}
+.wa-sheet .share-row .chip:hover {background: color-mix(in srgb, var(--accent) 12%, var(--soft)); color: var(--ink);}
+.wa-sheet .draft-line {padding: 14px 4px 0; border-top: 1px solid var(--line);}
 .draft-line {display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--ink-3); font-size: 13px;} .draft-line:empty {display: none;}
 .set-card .chips {margin: 0;} .chip[aria-pressed="true"] {background: var(--accent); color: var(--accent-ink); border-color: transparent;}
 .share-row {display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px;} .share-row small {color: var(--ink-3); margin-right: 2px;}
