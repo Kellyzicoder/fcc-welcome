@@ -394,6 +394,19 @@ button.chip {cursor: pointer; font: inherit; font-weight: 500;} button.chip:not(
 .center {min-height: 100vh; display: grid; place-items: center; padding: 20px;}
 .login {width: min(420px, 100%); background: var(--panel); border-radius: 24px; box-shadow: var(--shadow); padding: 28px;}
 .login h1 {font-size: 22px; margin: 14px 0 4px;} .login p {color: var(--ink-2); margin: 0 0 16px;}
+.login.tf {width: min(560px, 100%);} .tf .f {margin-top: 4px;}
+.tf-roles {display: grid; gap: 6px; margin: 14px 0; padding: 12px 14px; border-radius: 14px; background: var(--soft); font-size: 13.5px;} .tf-roles b {margin-right: 6px;} .tf-roles span {color: var(--ink-2);}
+#tf-rows {display: grid; gap: 10px; margin-bottom: 10px;}
+.tf-row {display: flex; gap: 6px; align-items: flex-start; padding: 10px; border: 1px solid var(--line); border-radius: 14px;}
+.tf-fields {flex: 1; display: grid; gap: 8px; grid-template-columns: 1fr 1fr;} .tf-fields [data-k="email"] {grid-column: 1 / -1; order: 2;} .tf-fields [data-k="role"] {order: 1;}
+.tf-acts {display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 12px;}
+.tf-made {margin-top: 12px;} .tf-made .tf-acts {justify-content: flex-start;}
+.tf-links {display: grid; gap: 6px;} .tf-links > div {display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px;}
+.tf-links span {display: grid;} .tf-group td {vertical-align: top;} .tf-group .in.sm {padding: 6px 10px; font-size: 13.5px; min-height: 0; height: auto; min-width: 130px;}
+.tf-group select.in.sm {padding-right: 28px; background-position: right 8px center;} .tf-group .badge {margin-top: 4px;}
+@media (max-width: 480px) {.tf-fields {grid-template-columns: 1fr;} .tf-fields [data-k="role"] {order: 3;}}
+@media (max-width: 600px) {.tf-group thead {display: none;} .tf-group table, .tf-group tbody {display: block; min-width: 0;} .tf-group tr {display: grid; grid-template-columns: 28px 1fr; gap: 6px 8px; padding: 10px 0; border-bottom: 1px solid var(--line);}
+  .tf-group td {display: block; padding: 0; border: 0;} .tf-group td:nth-child(n+3) {grid-column: 2;} .tf-group td:last-child:has([hidden]) {display: none;} .tf-group .in.sm {width: 100%;}}
 label.f {display: block; font-size: 13px; color: var(--ink-2); font-weight: 500; margin: 12px 0 6px;}
 input.in, select.in {width: 100%; font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line);
   border-radius: 14px; padding: 11px 14px; outline: none;}
