@@ -3277,7 +3277,7 @@ async function signups(el) {
 // signing in and lists their people with a role. Nobody can sign in until an admin or that church's admin approves.
 const TEAM_ROLES = [["team", "Team", "Ushers: tick people in at services"], ["pastor", "Pastor", "Sees and ticks only their own people"],
                     ["lead", "Church admin", "The whole church: people, follow-up, reports"]];
-const teamLink = tok => `${location.origin}/app/?team=${encodeURIComponent(tok)}`;
+const teamLink = tok => `${location.origin}/app/index.html?team=${encodeURIComponent(tok)}`;
 async function teamForm(tok) {
   const brand = `<div class="brand" style="padding:0"><span class="brand-mark">✝</span>Favourite Child Church</div>`;
   root.innerHTML = `<div class="center"><div class="login tf">${brand}<p class="empty">Loading…</p></div></div>`;
@@ -3890,7 +3890,7 @@ function settings(box) {
 let saved = null; try { saved = localStorage.getItem("fcc-mode"); } catch {}
 setMode(saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
 try { S.emoji = localStorage.getItem("fcc-emoji") !== "off"; } catch {}
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/app/sw.js").catch(() => {});
 
 // Phones (iPhones especially) can keep running an old copy of the app for days. Each time the app is opened or
 // brought back to the front, compare the copy we have with the one on the server; if a newer one exists, reload.
@@ -3914,9 +3914,9 @@ async function freshCheck(force = false) {
   }
   try {  // a server without the version yet: compare the stored copy of app.js with the server's
     const tag = r => r.headers.get("etag") || r.headers.get("last-modified") || "";
-    const have = tag(await fetch("app.js", {cache: "force-cache"}));
-    const live = tag(await fetch("app.js", {cache: "reload"}));   // also refreshes the phone's stored copy
-    await fetch("index.html", {cache: "reload"});
+    const have = tag(await fetch("/app/app.js", {cache: "force-cache"}));
+    const live = tag(await fetch("/app/app.js", {cache: "reload"}));   // also refreshes the phone's stored copy
+    await fetch("/app/index.html", {cache: "reload"});
     if (!have || !live || have === live) return;
     const key = "fcc-updated:" + live;                            // never loop: reload at most once per version
     if (sessionStorage.getItem(key)) return;
