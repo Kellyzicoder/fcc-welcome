@@ -1271,7 +1271,7 @@ const avaStyle = s => `style="background:var(--h${hueOf(s)}b);color:var(--h${hue
 const whoBtn = m => `<button class="who" data-person="${esc(m.id)}" title="See their attendance history"><span ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</button>`;
 function donut(el, parts) {  // parts: [flag, label, count]; a ring with a gap between segments and the total in the middle
   const total = parts.reduce((n, x) => n + x[2], 0), R = 54, C = 2 * Math.PI * R, gap = total && parts.filter(x => x[2]).length > 1 ? 3 : 0;
-  let at = 0, s = `<svg viewBox="0 0 140 140" role="img" aria-label="Where everyone stands: ${parts.map(x => `${x[2]} ${x[1]}`).join(", ")}">
+  let at = 0, s = `<svg viewBox="0 0 140 140" role="img" aria-label="Pastoral care: ${parts.map(x => `${x[2]} ${x[1]}`).join(", ")}">
     <circle cx="70" cy="70" r="${R}" fill="none" stroke="var(--line)" stroke-width="16"/>`;
   parts.forEach(([f, label, n], i) => {
     if (!n) return;
@@ -1701,7 +1701,7 @@ const WIDGETS = {
       el.innerHTML = need.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th>Phone</th></tr></thead>
         <tbody>${rowsHtml(need.slice(0, 6))}</tbody></table></div>` : `<p class="empty">Nobody has missed ${YELLOW_AT} or more services in a row.</p>`;
     }},
-  stands: {name: "Where everyone stands", sub: "Came, missed once, or need a call", size: "narrow", icon: "people", hue: 5,
+  stands: {name: "Pastoral care", sub: "Came, missed once, or need a call", size: "narrow", icon: "people", hue: 5,
     draw(el, p) {
       const stands = [["ok", "came this service"], ["blue", "missed this service"], ["yellow", `missed ${YELLOW_AT}–${RED_AT - 1} in a row`], ["red", `missed ${RED_AT} or more`]].map(([f, t]) => [f, t, p.count(f)]);
       el.innerHTML = `<div class="stand"><div class="donut"></div><div class="stand-rows">
