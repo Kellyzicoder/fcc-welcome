@@ -1946,7 +1946,7 @@ function checkin(el) {
         ${pastor ? "" : `<div class="ci-part-acts">${ps.length < 3 ? `<button type="button" class="pill-btn sm" data-split>${svg("plus")}Add ${ORDINAL[ps.length + 1].toLowerCase()} service</button>` : ""}
         ${boss ? `<button type="button" class="pill-btn sm ci-remove" data-unsplit>${armedPart ? `Tap again to remove ${esc(partName(S.date, lastPart()))}` : `Remove ${esc(partName(S.date, lastPart()))}`}</button>` : ""}</div>`}</div>
         <p class="note ci-part-note">Ticks here are for <b>${esc(partName(S.date, n))}</b>. Someone who comes to two or three services is counted once in the day's total.</p>`
-      : pastor ? "" : `<button type="button" class="pill-btn sm" data-split style="margin-top:12px">${svg("plus")}Two services today? Add a second service</button>`;
+      : pastor ? "" : `<button type="button" class="pill-btn sm" data-split style="margin-top:12px" title="Two services today? Split the day into services">${svg("plus")}Add a second service</button>`;
     wrap.querySelectorAll("[data-part]").forEach(b => b.onclick = () => { (S.ciParts ??= {})[S.date] = +b.dataset.part; armedPart = false; here = {}; svc.value = svcLabel(); drawParts(); draw(); pull(); });
     wrap.querySelector("[data-split]")?.addEventListener("click", split);
     wrap.querySelector("[data-unsplit]")?.addEventListener("click", unsplit);
