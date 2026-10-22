@@ -1024,6 +1024,7 @@ function setMode(mode, remember) {
 }
 function render() {
   clearInterval(S.poll); S.poll = 0; S.unwatch?.(); S.unwatch = null; S.onShow = null;  // the last page's listening stops
+  const moved = S.shown !== S.view;  // a different page: it eases in (see pageIn)
   if (S.shown && S.shown !== S.view && !S.goingBack) {  // moved to another page: remember where from
     S.hist = [...(S.hist || []), S.shown].slice(-30);
     try { history.pushState({fcc: S.hist.length}, ""); } catch {}
@@ -1125,7 +1126,27 @@ function render() {
     const t = e.target.closest("[data-to-pastor]"); if (t) { S.pastor = t.dataset.toPastor; S.pastorJump = true; go("pastors"); }
   };
   root.querySelectorAll("[data-back]").forEach(b => b.onclick = () => history.back());  // same as the phone's back gesture
+  if (moved) pageIn(view);
   ({mine, dashboard, checkin, summary: summaryPage, followup, pastors, people, person, signups, teamforms, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
+}
+// Smooth movement. A new page eases in for a moment only, so ticking or editing later never makes things flicker.
+const stillMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.classList.contains("calm");
+function pageIn(el) {
+  if (stillMotion()) return;
+  el.classList.add("page-in"); clearTimeout(S.pageInT); S.pageInT = setTimeout(() => el.classList.remove("page-in"), 900);
+}
+// Popups, messages and the church list fade out instead of vanishing. A copy does the fading while the real one goes
+// straight away, so the next popup (and anything looking for its fields) is never confused by the old one.
+{
+  const drop = Element.prototype.remove;
+  Element.prototype.remove = function () {
+    if (this.isConnected && this.classList?.length && /^(modal|toast|ch-pop)$/.test(this.classList[0]) && !this.classList.contains("leaving") && !stillMotion()) {
+      const ghost = this.cloneNode(true); ghost.classList.add("leaving"); ghost.setAttribute("aria-hidden", "true"); ghost.inert = true;
+      ghost.querySelectorAll("[id]").forEach(x => x.removeAttribute("id")); ghost.removeAttribute("id");
+      this.after(ghost); setTimeout(() => drop.call(ghost), 220);
+    }
+    return drop.call(this);
+  };
 }
 // An arrow that jumps back to the top of a long page; it shows once you have scrolled down a fair way.
 {

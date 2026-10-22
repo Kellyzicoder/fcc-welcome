@@ -1097,6 +1097,38 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 .live-fill {display: flex; align-items: flex-start; gap: 10px; margin: 4px 0 14px; padding: 12px 14px; border-radius: 12px; background: var(--yellow-bg); border: 1px solid color-mix(in srgb, var(--yellow) 55%, transparent); color: var(--ink); font-size: var(--fs-sm, 13px); line-height: 1.45;}
 .live-fill svg {width: 18px; height: 18px; flex: none; margin-top: 1px; color: #b07800;} [data-theme="dark"] .live-fill svg {color: var(--yellow);}
 .live-fill b {font-weight: 600;}
+/* Smooth movement: pages, tabs, popups and menus ease in and out. Off with Settings → Reduce motion, or the phone's own
+   reduce-motion setting. Only opacity and transform move, so nothing on the page shifts or jumps. */
+@keyframes fcc-rise {from {opacity: 0; transform: translateY(8px);} to {opacity: 1; transform: none;}}
+@keyframes fcc-fade {from {opacity: 0;} to {opacity: 1;}}
+@keyframes fcc-pop {from {opacity: 0; transform: translateY(14px) scale(.97);} to {opacity: 1; transform: none;}}
+@keyframes fcc-up {from {opacity: 0; transform: translateY(40px);} to {opacity: 1; transform: none;}}
+@keyframes fcc-toast {from {opacity: 0; transform: translate(-50%, 12px) scale(.96);} to {opacity: 1; transform: translateX(-50%);}}
+@keyframes fcc-drop {from {opacity: 0; transform: translateY(-6px) scale(.98);} to {opacity: 1; transform: none;}}
+@media (prefers-reduced-motion: no-preference) {
+  .page-in > *, .page-in .card {animation: fcc-rise .32s cubic-bezier(.2, .7, .2, 1) both;}
+  .page-in .card:nth-child(2) {animation-delay: .04s;} .page-in .card:nth-child(3) {animation-delay: .08s;}
+  .page-in .card:nth-child(4) {animation-delay: .12s;} .page-in .card:nth-child(n+5) {animation-delay: .16s;}
+  .rep-body, section[data-at]:not([hidden]) {animation: fcc-rise .26s cubic-bezier(.2, .7, .2, 1) both;}
+  .modal {animation: fcc-fade .2s ease both;}
+  .modal > .sheet, .modal > form, .modal > div:not(.tour-spot) {animation: fcc-pop .26s cubic-bezier(.2, .8, .2, 1) both;}
+  .modal.leaving {animation: fcc-fade .18s ease reverse both; pointer-events: none;}
+  .modal.leaving > * {animation: fcc-pop .18s ease reverse both;}
+  .toast {animation: fcc-toast .24s cubic-bezier(.2, .8, .2, 1) both;}
+  .toast.leaving {animation: fcc-toast .2s ease reverse both;}
+  .ch-pop {animation: fcc-drop .18s ease both; transform-origin: top left;} .ch-pop.leaving {animation: fcc-drop .14s ease reverse both;}
+  .shell.open .scrim {animation: fcc-fade .2s ease both;}
+  .side {transition: transform .26s cubic-bezier(.2, .8, .2, 1), visibility .26s;}
+  details[open] > :not(summary) {animation: fcc-rise .22s ease both;}
+  .nav, .atabs button, .rep-tabs button, .rpill, .chip, .dock button {transition: background-color .2s ease, color .2s ease, box-shadow .2s ease, padding .2s ease, transform .1s ease;}
+  .pill-btn, .icon-btn, .chip, .rpill, .nav, .dock button, .atabs button, .rep-tabs button {transition: background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease, transform .1s ease;}
+  .pill-btn:active, .icon-btn:active, .chip:active, .rpill:active, .nav:active, .dock button:active, .atabs button:active, .rep-tabs button:active {transform: scale(.97);}
+  .dock button.on span {animation: fcc-fade .22s ease both;}
+  .login {animation: fcc-pop .34s cubic-bezier(.2, .8, .2, 1) both;}
+}
+@media (prefers-reduced-motion: no-preference) and (max-width: 720px) {
+  .modal > .sheet, .modal > form {animation-name: fcc-up;} .modal.leaving > * {animation-name: fcc-up;}
+}
 </style>
 </head>
 <body>
