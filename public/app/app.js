@@ -3298,13 +3298,25 @@ async function signups(el) {
 // signing in and lists their people with a role. Nobody can sign in until an admin or that church's admin approves.
 const TEAM_ROLES = [["team", "Team", "Ushers: tick people in at services"], ["pastor", "Pastor", "Sees and ticks only their own people"],
                     ["lead", "Church admin", "The whole church: people, follow-up, reports"]];
-const teamLink = tok => `${location.origin}/app/index.html?team=${encodeURIComponent(tok)}`;
-async function teamForm(tok) {
-  const brand = `<div class="brand" style="padding:0"><span class="brand-mark">✝</span>Favourite Child Church</div>`;
-  root.innerHTML = `<div class="center"><div class="login tf">${brand}<p class="empty">Loading…</p></div></div>`;
-  const box = root.querySelector(".tf");
-  let info = null; try { info = await api("rpc/app_team_form", {method: "POST", body: {tok}}); } catch {}
-  if (!info) { box.innerHTML = brand + `<h1>This link has expired</h1><p>Form links work for 14 days. Ask the person who sent it to you for a new one.</p>`; return; }
+const teamLink = tok => `${location.origin}/app/index.html?${window.FCC_DEMO ? "demo&" : ""}team=${encodeURIComponent(tok)}`;
+// The form a branch leader fills in. With a church name instead of a link (preview), it opens in a popup for the admin
+// to see exactly what the leader will see; it can be filled in to try it, but nothing is sent.
+async function teamForm(tok, preview) {
+  let brand = `<div class="brand" style="padding:0"><span class="brand-mark">✝</span>Favourite Child Church</div>`, box;
+  if (preview) {
+    const d = document.createElement("div"); d.className = "modal";
+    d.innerHTML = `<div class="login tf" role="dialog" aria-modal="true" aria-label="Preview of the form"></div>`;
+    const onKey = e => { if (e.key === "Escape") close(); }, close = () => { d.remove(); document.removeEventListener("keydown", onKey); };
+    d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
+    document.addEventListener("keydown", onKey); document.body.append(d); box = d.firstElementChild;
+    brand = `<div class="tf-prev"><span>${svg("eye")}Preview: what the leader sees. Nothing is sent from here.</span><button type="button" class="icon-btn" data-x aria-label="Close preview">${svg("close")}</button></div>` + brand;
+  } else {
+    root.innerHTML = `<div class="center"><div class="login tf">${brand}<p class="empty">Loading…</p></div></div>`;
+    box = root.querySelector(".tf");
+  }
+  let info = preview ? {church: preview, by: S.me?.name || S.me?.email} : null;
+  if (!preview) try { info = await api("rpc/app_team_form", {method: "POST", body: {tok}}); } catch {}
+  if (!info) { box.innerHTML = brand + `<h1>This link isn't working</h1><p>It may have run out (form links work for 14 days), or only part of it was copied. Ask the person who sent it to you for a new one.</p>`; return; }
   const row = () => `<div class="tf-row"><div class="tf-fields">
       <input class="in" data-k="name" maxlength="80" autocomplete="off" placeholder="Full name" aria-label="Full name">
       <input class="in" data-k="email" type="email" inputmode="email" autocapitalize="none" autocomplete="off" maxlength="120" placeholder="Email they will sign in with" aria-label="Email">
@@ -3332,6 +3344,7 @@ async function teamForm(tok) {
     box.querySelector("#tf-form").onsubmit = async e => {
       e.preventDefault(); err.hidden = true;
       const fail = (t, el) => { err.textContent = t; err.hidden = false; el?.focus(); };
+      err.classList.add("bad");
       const me = box.querySelector("#tf-me"), who = me.value.trim().replace(/\s+/g, " ");
       if (who.length < 2) return fail("Type your own name at the top.", me);
       const people = [], seen = new Set();
@@ -3344,6 +3357,7 @@ async function teamForm(tok) {
         seen.add(email); people.push({name, email, role: f("role").value});
       }
       if (!people.length) return fail("Add at least one person.", rows.querySelector("input"));
+      if (preview) { err.classList.remove("bad"); return fail(`That would send ${people.length} ${people.length === 1 ? "person" : "people"} for ${info.church}. This is only a preview, so nothing was sent.`); }
       go.disabled = true; go.textContent = "Sending…";
       try {
         const n = await api("rpc/app_team_submit", {method: "POST", body: {tok, from_name: who, people}});
@@ -3380,7 +3394,7 @@ async function teamforms(el) {
       <p class="note" style="margin:0 2px 12px">Make a link for a church and send it to its leader. They list their people and roles; nobody can sign in until it's approved here.</p>
       <div class="row"><div style="flex:1 1 200px"><label class="f" for="tf-ch">Church</label>
         <select class="in" id="tf-ch">${S.churches.map(c => `<option ${c === S.church ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></div>
-        <div style="flex:0 0 auto;align-self:flex-end"><button class="pill-btn primary" id="tf-make">Make link</button></div></div>
+        <div style="flex:0 0 auto;align-self:flex-end;display:flex;gap:8px"><button class="pill-btn" id="tf-prev">${svg("eye")}Preview</button><button class="pill-btn primary" id="tf-make">Make link</button></div></div>
       <div id="tf-out"></div>
       ${links.length ? `<p class="f" style="margin:16px 2px 6px">Links still open</p><div class="tf-links">${links.map(l => `<div><span><b>${esc(l.church)}</b><small class="muted">${esc(l.made_by_name || "")} · until ${esc(day(l.expires_at))}</small></span>
         <button class="pill-btn sm" data-copy="${esc(l.token)}">Copy link</button></div>`).join("")}</div>` : ""}</div>
@@ -3397,17 +3411,19 @@ async function teamforms(el) {
       : `<div class="card"><p class="empty">Nothing waiting. Lists sent in from a form show here.</p></div>`}
     <datalist id="tf-pn">${pnames.map(n => `<option value="${esc(n)}">`).join("")}</datalist>`;
   const share = (tok, church) => {
+    if (!tok) throw new Error("no link came back. Please try again.");
     const url = teamLink(tok), msg = `Hi, please list who will use the FCC Attendance app for ${church} (name, email and role): ${url}`;
     el.querySelector("#tf-out").innerHTML = `<div class="tf-made"><input class="in" readonly value="${esc(url)}" aria-label="Form link">
       <div class="tf-acts" style="margin-top:8px"><button class="pill-btn sm" data-c>Copy</button>
         <a class="pill-btn sm" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">WhatsApp</a>
         <a class="pill-btn sm" href="mailto:?subject=${encodeURIComponent("FCC Attendance: who will sign in for " + church)}&body=${encodeURIComponent(msg)}">Email</a>
         ${onPhone() && navigator.share ? `<button class="pill-btn sm" data-s>More…</button>` : ""}</div>
-      <p class="note" style="margin:6px 2px 0">Works for 14 days.</p></div>`;
+      <p class="note" style="margin:6px 2px 0">Copying doesn't use it up: the same link works for everyone you send it to, for 14 days.</p></div>`;
     const out = el.querySelector("#tf-out");
     out.querySelector("[data-c]").onclick = e => navigator.clipboard?.writeText(url).then(() => { e.target.textContent = "Copied"; toast("Link copied."); }).catch(() => toast("Couldn't copy: press and hold the link instead."));
     const s = out.querySelector("[data-s]"); if (s) s.onclick = () => navigator.share({text: msg}).catch(() => {});
   };
+  el.querySelector("#tf-prev").onclick = () => teamForm(null, el.querySelector("#tf-ch").value);
   el.querySelector("#tf-make").onclick = async e => {
     const church = el.querySelector("#tf-ch").value; e.target.disabled = true;
     try { share(await api("rpc/app_team_link", {method: "POST", body: {ch: church}}), church); }
