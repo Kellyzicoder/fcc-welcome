@@ -1038,3 +1038,149 @@ do $$ begin
     end if;
   end if;
 end $$;
+
+-- ---------------------------------------------------------------- Team forms: a branch sends in who should sign in
+-- An admin or church admin makes a form link for a church and sends it (WhatsApp, email). The branch leader opens it
+-- without signing in, lists the people who will look after that church's data (name, email, role) and sends it.
+-- Nobody can sign in yet: an admin, or that church's own church admin, checks each row and approves. Only then is
+-- the person added to the sign-ins. A link works for 14 days; the form can only ask for Team, Pastor or Church admin.
+-- Safe to run again.
+create table if not exists team_links (
+  token text primary key,
+  church text not null references churches(name) on update cascade on delete cascade,
+  made_by text, made_by_name text,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null default now() + interval '14 days'
+);
+create table if not exists team_requests (
+  id uuid primary key default gen_random_uuid(),
+  link text references team_links(token) on delete set null,
+  church text not null references churches(name) on update cascade on delete cascade,
+  sent_by text not null,
+  name text not null check (length(name) between 2 and 80),
+  email text not null check (email = lower(email) and length(email) <= 120),
+  role text not null check (role in ('team', 'pastor', 'lead')),
+  pastor text,
+  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+  created_at timestamptz not null default now(),
+  handled_by text, handled_at timestamptz
+);
+create index if not exists team_requests_pending on team_requests (church) where status = 'pending';
+alter table team_links enable row level security;
+alter table team_requests enable row level security;
+
+-- who may handle a church's requests: the admin, or that church's own church admin
+create or replace function app_can_team(ch text) returns boolean language sql stable security definer set search_path = public as
+$$ select coalesce(app_role() = 'admin' or (app_role() = 'lead' and app_church() = ch), false) $$;
+
+drop policy if exists "app: see team links" on team_links;
+create policy "app: see team links" on team_links for select to authenticated
+  using (app_can_team(church) or made_by = lower(auth.jwt() ->> 'email'));
+drop policy if exists "app: see team requests" on team_requests;
+create policy "app: see team requests" on team_requests for select to authenticated using (app_can_team(church));
+grant select on team_links, team_requests to authenticated;
+-- every change goes through the functions below
+revoke insert, update, delete on team_links, team_requests from anon, authenticated;
+
+-- Make a form link for a church (an admin, or any church admin: they may be sending it to another branch's leader).
+create or replace function app_team_link(ch text) returns text
+language plpgsql security definer set search_path = public as $$
+declare tok text := replace(gen_random_uuid()::text, '-', '') || substr(replace(gen_random_uuid()::text, '-', ''), 1, 8);
+        me text := lower(auth.jwt() ->> 'email');
+begin
+  if app_role() not in ('admin', 'lead') or app_role() is null then raise exception 'not allowed'; end if;
+  if not exists (select 1 from churches where name = ch) then raise exception 'there is no church called %', ch; end if;
+  if (select count(*) from team_links where made_by = me and created_at > now() - interval '1 day') >= 20 then
+    raise exception 'You have made 20 links today. Please use one of those.';
+  end if;
+  insert into team_links (token, church, made_by, made_by_name)
+  values (tok, ch, me, (select coalesce(nullif(trim(name), ''), email) from app_users where email = me));
+  return tok;
+end $$;
+
+-- What the form shows before anyone fills it in: which church, who sent it, until when. Null for a wrong or old link.
+create or replace function app_team_form(tok text) returns json
+language sql stable security definer set search_path = public as $$
+  select json_build_object('church', l.church, 'by', l.made_by_name, 'until', l.expires_at,
+                           'sent', (select count(*) from team_requests r where r.link = l.token))
+  from team_links l where l.token = tok and l.expires_at > now() $$;
+
+-- The form is sent: up to 50 people at once, 150 per link in all. Each needs a name, an email and a role.
+create or replace function app_team_submit(tok text, from_name text, people json) returns int
+language plpgsql security definer set search_path = public as $$
+declare l team_links; p json; n int := 0; em text; nm text; rl text; pn text;
+        who text := left(trim(regexp_replace(coalesce(from_name, ''), '\s+', ' ', 'g')), 80);
+begin
+  select * into l from team_links where token = tok and expires_at > now();
+  if l.token is null then raise exception 'This form link has expired. Ask for a new one.'; end if;
+  if length(who) < 2 then raise exception 'Type your own name at the top.'; end if;
+  if json_typeof(people) <> 'array' or json_array_length(people) = 0 then raise exception 'Add at least one person.'; end if;
+  if json_array_length(people) > 50 then raise exception 'Send at most 50 people at a time.'; end if;
+  if (select count(*) from team_requests where link = tok) + json_array_length(people) > 150 then
+    raise exception 'This link has had 150 people already. Ask for a new one.';
+  end if;
+  for p in select * from json_array_elements(people) loop
+    nm := left(trim(regexp_replace(coalesce(p ->> 'name', ''), '\s+', ' ', 'g')), 80);
+    em := lower(trim(coalesce(p ->> 'email', '')));
+    rl := coalesce(p ->> 'role', '');
+    pn := nullif(left(trim(regexp_replace(coalesce(p ->> 'pastor', ''), '\s+', ' ', 'g')), 80), '');
+    if length(nm) < 2 then raise exception 'Every person needs a name.'; end if;
+    if em !~ '^[a-z0-9._%+''-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$' or length(em) > 120 then
+      raise exception '% needs a proper email address.', nm;
+    end if;
+    if rl not in ('team', 'pastor', 'lead') then raise exception 'Pick a role for %.', nm; end if;
+    -- the same email sent again on this link and still waiting: keep the newest details
+    delete from team_requests where link = tok and email = em and status = 'pending';
+    insert into team_requests (link, church, sent_by, name, email, role, pastor)
+    values (tok, l.church, who, nm, em, rl, case when rl = 'pastor' then coalesce(pn, nm) else pn end);
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+
+-- Approve: each item is {id, role, pastor}; the role and pastor name can be changed before approving. All or nothing.
+-- Someone who can already sign in is left exactly as they are (their request is just closed).
+-- Returns how many were added and how many could already sign in.
+create or replace function app_team_approve(items json, at_txt text default null) returns json
+language plpgsql security definer set search_path = public as $$
+declare it json; r team_requests; rl text; pn text; added int := 0; had int := 0; who text := app_who();
+        stamp text := left(coalesce(nullif(trim(at_txt), ''), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF')), 40);
+begin
+  if app_role() not in ('admin', 'lead') or app_role() is null then raise exception 'not allowed'; end if;
+  for it in select * from json_array_elements(items) loop
+    update team_requests set status = 'approved', handled_by = who, handled_at = now()
+     where id = (it ->> 'id')::uuid and status = 'pending' and app_can_team(church) returning * into r;
+    if not found then raise exception 'already handled'; end if;
+    rl := coalesce(nullif(it ->> 'role', ''), r.role);
+    if rl not in ('team', 'pastor', 'lead') then raise exception 'that role cannot be given here'; end if;
+    pn := nullif(trim(regexp_replace(coalesce(it ->> 'pastor', r.pastor, ''), '\s+', ' ', 'g')), '');
+    if rl = 'pastor' and pn is null then raise exception '% needs their name as it is on the Pastors list', r.name; end if;
+    if exists (select 1 from app_users where email = r.email) then had := had + 1; continue; end if;
+    insert into app_users (email, role, church, name, pastor) values (r.email, rl, r.church, r.name, case when rl = 'pastor' then pn end);
+    insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+    values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), stamp, 'role_change', null, null,
+            left(r.email || ': ' || r.name || ' · ' || case rl when 'lead' then 'Church admin' when 'pastor' then 'Pastor' else 'Team' end
+                 || ' · ' || r.church || ' (team form from ' || r.sent_by || ')', 300), who, 'done');
+    added := added + 1;
+  end loop;
+  return json_build_object('added', added, 'had', had);
+end $$;
+
+-- Turn requests down. Returns how many were still waiting.
+create or replace function app_team_reject(ids uuid[]) returns int
+language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  if app_role() not in ('admin', 'lead') or app_role() is null then raise exception 'not allowed'; end if;
+  update team_requests set status = 'rejected', handled_by = app_who(), handled_at = now()
+   where id = any(ids) and status = 'pending' and app_can_team(church);
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+revoke all on function app_can_team(text), app_team_link(text), app_team_form(text), app_team_submit(text, text, json),
+  app_team_approve(json, text), app_team_reject(uuid[]) from public, anon;
+grant execute on function app_team_form(text), app_team_submit(text, text, json) to anon, authenticated;
+grant execute on function app_can_team(text), app_team_link(text), app_team_approve(json, text), app_team_reject(uuid[]) to authenticated;
+
+notify pgrst, 'reload schema';

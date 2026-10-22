@@ -55,6 +55,7 @@ const genderOf = m => ({f: "Female", female: "Female", m: "Male", male: "Male"})
 const rolesOf = m => String(m.role || "").split(",").map(x => x.trim().replace(/\s+/g, " ")).filter(Boolean);  // "Tech Team, Worship Team" is two roles
 const byName = (a, b) => norm(a.full_name).localeCompare(norm(b.full_name));
 const canApprove = () => S.me.role === "admin" || (S.me.role === "lead" && S.me.church === S.me.home);
+const canTeam = () => ["admin", "lead"].includes(S.me.role);  // Team forms: an admin (every church) or a church admin (their own)
 // WhatsApp text: a line is a string, or [emoji, text]; the emoji is left out when emojis are switched off
 const wa = lines => lines.map(l => Array.isArray(l) ? (S.emoji ? `${l[0]} ${l[1]}` : l[1]) : l).join("\n").trim();
 const isKid = m => ["child", "kid", "kids", "children"].includes(norm(m.age_group));
@@ -711,6 +712,8 @@ async function start() {
     S.cfg = await fetch("/app-config").then(r => r.json()).catch(() => null);
     if (!S.cfg?.url || !S.cfg?.key) { root.innerHTML = `<div class="center"><p class="empty">The app isn't connected to the database yet.</p></div>`; return; }
   }
+  const teamTok = new URLSearchParams(location.search).get("team");  // a Team form link: no sign-in needed
+  if (teamTok) return teamForm(teamTok);
   const hash = new URLSearchParams(location.hash.slice(1));  // arriving from the emailed link
   if (hash.get("access_token")) { keep(Object.fromEntries(hash)); history.replaceState(null, "", location.pathname); S.via = "email"; }
   else if (hash.get("error_description")) { history.replaceState(null, "", location.pathname); return loginView(hash.get("error_description").replace(/\+/g, " "), true); }
@@ -884,6 +887,7 @@ async function freshen() {
   if (parts) { for (const k of Object.keys(S.parts)) if (k >= since) delete S.parts[k]; for (const r of parts) (S.parts[r.service_date] ??= []).push({part: r.part, name: r.name}); }
   if (pticks) S.pticks = S.pticks.filter(t => t.service_date < since).concat(pticks);
   S.pending = pending; freshAt = Date.now();
+  S.teamPending = canTeam() ? await api("team_requests?select=id&status=eq.pending").then(r => r.length).catch(() => 0) : 0;
 }
 // A day split into services (two or more): each one's name and how many of this church's people came to it.
 // The day's own ticks still decide who was there, so someone at both services counts once in the day's total.
@@ -963,6 +967,7 @@ const ICON = {
   pastors: '<circle cx="9" cy="8" r="3.5"/><path d="M2 21a7 7 0 0 1 14 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a7 7 0 0 1 4 6.5"/>',
   person: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   signups: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h5"/>',
+  teamforms: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 11l2 2 4-4"/>',
   archive: '<rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9M10 13h4"/>',
   activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
   reports: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 8l9 6 9-6"/>',
@@ -983,7 +988,7 @@ function pages() {  // the menu, in groups; what each role can actually load is 
   if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people
   // Grouped by what people come to do: take attendance, look after people, share the numbers, run the churches, settings
   return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["followup", "Follow-up"]]],
-          ["PEOPLE", [["people", "Congregation"], ["pastors", "Pastors"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ["archive", "Archive"]]],
+          ["PEOPLE", [["people", "Congregation"], ["pastors", "Pastors"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ...(canTeam() ? [["teamforms", "Team forms"]] : []), ["archive", "Archive"]]],
           ["SHARE", [["reports", "Reports"]]],
           ...(r === "admin" ? [["CHURCHES", [["overview", "Churches"]]]] : []),
           ...(r === "team" ? [] : [[r === "admin" ? "ADMIN" : "RECORDS", [...(r === "admin" ? [["admin", "Admin"]] : []), ["activity", "Activity log"]]]]),
@@ -1046,7 +1051,7 @@ function render() {
         ? `<button type="button" class="church on" data-chpick aria-haspopup="listbox" aria-expanded="false" title="Working in ${esc(S.church)}: tap to switch church"><i></i><b class="ch-ab" aria-hidden="true">${esc(churchAbbr(S.church))}</b><span>${esc(S.church)}</span><em>Change</em></button>`
         : `<div class="church on" title="Your church"><i></i><b class="ch-ab" aria-hidden="true">${esc(churchAbbr(S.church))}</b><span>${esc(S.church)}</span></div>`}</div>`}
       ${groups.map(([h, items]) => (h ? `<h6>${h}</h6>` : "") + items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" title="${t}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}<span class="nl">${t}</span>${
-        k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : ""}</button>`).join("")).join("")}
+        k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : k === "teamforms" && S.teamPending ? `<span class="count">${S.teamPending}</span>` : ""}</button>`).join("")).join("")}
       <div class="side-foot">${S.me.base === "admin" ? (S.preview ? `<button class="nav" data-unpreview title="Back to Admin">${svg("back")}<span class="nl">Back to Admin</span></button>`
           : `<button class="nav" data-viewas title="View as another role">${svg("eye")}<span class="nl">View as another role</span></button>`) : ""}${S.canSwitch ? `<button class="nav" data-switch title="${switchLabel()}">${svg("pastors")}<span class="nl">${switchLabel()}</span></button>` : ""}<button class="nav out" data-out title="Log out">${svg("out")}<span class="nl">Log out</span></button></div></aside>
     <main class="main">${S.preview ? `<div class="preview-bar">${svg("eye")}<span>Viewing as <b>${esc(previewName())}</b>. View only: nothing you do here is saved.</span>
@@ -1120,7 +1125,7 @@ function render() {
     const t = e.target.closest("[data-to-pastor]"); if (t) { S.pastor = t.dataset.toPastor; S.pastorJump = true; go("pastors"); }
   };
   root.querySelectorAll("[data-back]").forEach(b => b.onclick = () => history.back());  // same as the phone's back gesture
-  ({mine, dashboard, checkin, summary: summaryPage, followup, pastors, people, person, signups, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
+  ({mine, dashboard, checkin, summary: summaryPage, followup, pastors, people, person, signups, teamforms, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
 }
 // An arrow that jumps back to the top of a long page; it shows once you have scrolled down a fair way.
 {
@@ -1136,9 +1141,9 @@ addEventListener("popstate", () => {
   if (!S.me || !S.hist?.length) return;
   S.view = S.hist.pop(); S.goingBack = true; document.querySelectorAll(".modal").forEach(m => m.remove()); render();
 });
-const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", pastors: "Pastors", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", archive: "Archive",
+const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", pastors: "Pastors", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", teamforms: "Team forms", archive: "Archive",
                activity: "Activity", reports: "Reports", overview: "All churches", admin: "Admin"};
-const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, summary: 6, followup: 3, pastors: 4, people: 5, signups: 6, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
+const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, summary: 6, followup: 3, pastors: 4, people: 5, signups: 6, teamforms: 3, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
 // A greeting on the home pages: "Good morning, Kelvin", or "Welcome back, Pastor Grace" after a day or more away.
 // Pastors and bishops are greeted with their title; a title already in their name (Pastor, Rev, Elder...) is kept.
 const GREET_TITLES = /^(pastor|ps|bishop|reverend|rev|elder|deacon|deaconess|lady|prophet|prophetess|apostle|evangelist|dr|mrs?|ms|minister)\.?$/i;
@@ -3265,6 +3270,157 @@ async function signups(el) {
     };
   });
   const count = document.querySelector('.nav[data-view="signups"] .count'); if (count) regs.length ? count.textContent = regs.length : count.remove();
+}
+
+// ---------------------------------------------------------------- team forms: a branch sends in who should sign in
+// An admin or church admin makes a link for a church and sends it to the branch leader. The leader opens it without
+// signing in and lists their people with a role. Nobody can sign in until an admin or that church's admin approves.
+const TEAM_ROLES = [["team", "Team", "Ushers: tick people in at services"], ["pastor", "Pastor", "Sees and ticks only their own people"],
+                    ["lead", "Church admin", "The whole church: people, follow-up, reports"]];
+const teamLink = tok => `${location.origin}/app/?team=${encodeURIComponent(tok)}`;
+async function teamForm(tok) {
+  const brand = `<div class="brand" style="padding:0"><span class="brand-mark">✝</span>Favourite Child Church</div>`;
+  root.innerHTML = `<div class="center"><div class="login tf">${brand}<p class="empty">Loading…</p></div></div>`;
+  const box = root.querySelector(".tf");
+  let info = null; try { info = await api("rpc/app_team_form", {method: "POST", body: {tok}}); } catch {}
+  if (!info) { box.innerHTML = brand + `<h1>This link has expired</h1><p>Form links work for 14 days. Ask the person who sent it to you for a new one.</p>`; return; }
+  const row = () => `<div class="tf-row"><div class="tf-fields">
+      <input class="in" data-k="name" maxlength="80" autocomplete="off" placeholder="Full name" aria-label="Full name">
+      <input class="in" data-k="email" type="email" inputmode="email" autocapitalize="none" autocomplete="off" maxlength="120" placeholder="Email they will sign in with" aria-label="Email">
+      <select class="in" data-k="role" aria-label="Role">${TEAM_ROLES.map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</select></div>
+    <button type="button" class="icon-btn" data-rm aria-label="Remove this person" title="Remove">${svg("close")}</button></div>`;
+  const draw = () => {
+    box.innerHTML = brand + `<h1>Who will look after ${esc(info.church)}?</h1>
+      <p>${esc(info.by || "Your admin")} asked you to list the people who will use the FCC Attendance app for ${esc(info.church)}. Nobody can sign in until an admin approves the list.</p>
+      <form id="tf-form" novalidate>
+        <label class="f" for="tf-me">Your name</label><input class="in" id="tf-me" maxlength="80" autocomplete="name" required>
+        <div class="tf-roles">${TEAM_ROLES.map(([, t, d]) => `<div><b>${t}</b><span>${d}</span></div>`).join("")}</div>
+        <div id="tf-rows">${row()}</div>
+        <button type="button" class="pill-btn sm" id="tf-more">${svg("plus")}Add another person</button>
+        <div class="msg bad" id="tf-err" hidden></div>
+        <button class="pill-btn primary block" id="tf-go" style="margin-top:16px">Send the list</button>
+      </form>`;
+    const rows = box.querySelector("#tf-rows"), err = box.querySelector("#tf-err"), go = box.querySelector("#tf-go");
+    const tidy = () => rows.querySelectorAll("[data-rm]").forEach(b => b.hidden = rows.children.length < 2);
+    rows.onclick = e => { const b = e.target.closest("[data-rm]"); if (b) { b.closest(".tf-row").remove(); tidy(); } };
+    box.querySelector("#tf-more").onclick = () => {
+      if (rows.children.length >= 50) { err.textContent = "Send at most 50 people at a time. Send this list, then the rest."; err.hidden = false; return; }
+      rows.insertAdjacentHTML("beforeend", row()); tidy(); rows.lastElementChild.querySelector("input").focus();
+    };
+    tidy();
+    box.querySelector("#tf-form").onsubmit = async e => {
+      e.preventDefault(); err.hidden = true;
+      const fail = (t, el) => { err.textContent = t; err.hidden = false; el?.focus(); };
+      const me = box.querySelector("#tf-me"), who = me.value.trim().replace(/\s+/g, " ");
+      if (who.length < 2) return fail("Type your own name at the top.", me);
+      const people = [], seen = new Set();
+      for (const r of rows.querySelectorAll(".tf-row")) {
+        const f = k => r.querySelector(`[data-k="${k}"]`), name = f("name").value.trim().replace(/\s+/g, " "), email = f("email").value.trim().toLowerCase();
+        if (!name && !email) continue;  // an empty row is left out
+        if (name.length < 2) return fail("Every person needs their full name.", f("name"));
+        const wrong = emailProblem(email); if (wrong) return fail(`${name}: ${wrong}`, f("email"));
+        if (seen.has(email)) return fail(`${email} is on the list twice.`, f("email"));
+        seen.add(email); people.push({name, email, role: f("role").value});
+      }
+      if (!people.length) return fail("Add at least one person.", rows.querySelector("input"));
+      go.disabled = true; go.textContent = "Sending…";
+      try {
+        const n = await api("rpc/app_team_submit", {method: "POST", body: {tok, from_name: who, people}});
+        box.innerHTML = brand + `<h1>Thank you, ${esc(who)}</h1>
+          <p>${n} ${n === 1 ? "person" : "people"} sent for ${esc(info.church)}. Once an admin approves them, they sign in at <b>${esc(location.host)}/app</b> with the email you gave.</p>
+          <button class="pill-btn block" id="tf-again">Send more people</button>`;
+        box.querySelector("#tf-again").onclick = draw;
+      } catch (ex) { go.disabled = false; go.textContent = "Send the list"; fail(ex.message); }
+    };
+  };
+  draw();
+}
+// The page for admins and church admins: make a link, then approve or turn down what comes in.
+async function teamforms(el) {
+  const sub = "Ask a branch who should sign in, then approve them";
+  el.innerHTML = head("Team forms", sub) + `<p class="empty">Loading…</p>`;
+  let reqs, links;
+  try {
+    [reqs, links] = await Promise.all([
+      api("team_requests?select=id,church,sent_by,name,email,role,pastor,created_at&status=eq.pending&order=created_at"),
+      api(`team_links?select=token,church,made_by_name,expires_at&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&order=created_at.desc&limit=8`)]);
+  } catch (e) { el.innerHTML = head("Team forms", sub) + `<div class="msg bad">Team forms need the latest setup SQL: run it in Supabase once, then open this page again. (${esc(e.message)})</div>`; return; }
+  if (S.view !== "teamforms") return;
+  S.teamPending = reqs.length;
+  const signed = S.me.role === "admin" ? new Set((await api("app_users?select=email").catch(() => [])).map(u => u.email)) : new Set();
+  if (S.view !== "teamforms") return;
+  const pnames = [...new Set(Object.values(S.pastorList || {}).flat())].sort();
+  const day = t => new Date(t).toLocaleDateString(undefined, {day: "numeric", month: "short"});
+  const groups = {};
+  for (const r of reqs) (groups[`${r.church}\n${r.sent_by}`] ??= []).push(r);
+  const roleSel = r => `<select class="in sm" data-role aria-label="Role for ${esc(r.name)}">${TEAM_ROLES.map(([v, t]) => `<option value="${v}" ${v === r.role ? "selected" : ""}>${t}</option>`).join("")}</select>`;
+  el.innerHTML = head("Team forms", sub) + `
+    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Send a form</h2></div>
+      <p class="note" style="margin:0 2px 12px">Make a link for a church and send it to its leader. They list their people and roles; nobody can sign in until it's approved here.</p>
+      <div class="row"><div style="flex:1 1 200px"><label class="f" for="tf-ch">Church</label>
+        <select class="in" id="tf-ch">${S.churches.map(c => `<option ${c === S.church ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></div>
+        <div style="flex:0 0 auto;align-self:flex-end"><button class="pill-btn primary" id="tf-make">Make link</button></div></div>
+      <div id="tf-out"></div>
+      ${links.length ? `<p class="f" style="margin:16px 2px 6px">Links still open</p><div class="tf-links">${links.map(l => `<div><span><b>${esc(l.church)}</b><small class="muted">${esc(l.made_by_name || "")} · until ${esc(day(l.expires_at))}</small></span>
+        <button class="pill-btn sm" data-copy="${esc(l.token)}">Copy link</button></div>`).join("")}</div>` : ""}</div>
+    ${reqs.length ? Object.entries(groups).map(([k, list]) => { const [church, from] = k.split("\n"); return `
+      <div class="card tf-group" style="margin-bottom:14px"><div class="card-head"><h2>${esc(church)}</h2><span class="gap"></span>
+        <span style="color:var(--ink-3);font-size:13px">From ${esc(from)} · ${esc(day(list[list.length - 1].created_at))}</span></div>
+        <div class="scroll"><table class="utable"><thead><tr><th><input type="checkbox" data-all checked aria-label="Tick all"></th><th>Name</th><th>Role</th><th>Pastor name (for a Pastor)</th></tr></thead><tbody>
+        ${list.map(r => `<tr data-id="${esc(r.id)}"><td><input type="checkbox" data-pick checked aria-label="Include ${esc(r.name)}"></td>
+          <td><b>${esc(r.name)}</b><small class="muted" style="display:block">${esc(r.email)}</small>${signed.has(r.email) ? `<span class="badge yellow">Can already sign in</span>` : ""}</td>
+          <td>${roleSel(r)}</td><td><input class="in sm" data-pastor ${r.role === "pastor" ? "" : "hidden"} list="tf-pn" value="${esc(r.pastor || "")}" placeholder="As on the Pastors list" aria-label="Pastor name for ${esc(r.name)}"></td></tr>`).join("")}
+        </tbody></table></div>
+        <p class="note" style="margin:8px 2px 0">Change a role before approving if needed. A Pastor needs their name exactly as it is on the Pastors list.</p>
+        <div class="tf-acts"><button class="pill-btn" data-no>Turn down ticked</button><button class="pill-btn primary" data-ok>Approve ticked</button></div></div>`; }).join("")
+      : `<div class="card"><p class="empty">Nothing waiting. Lists sent in from a form show here.</p></div>`}
+    <datalist id="tf-pn">${pnames.map(n => `<option value="${esc(n)}">`).join("")}</datalist>`;
+  const share = (tok, church) => {
+    const url = teamLink(tok), msg = `Hi, please list who will use the FCC Attendance app for ${church} (name, email and role): ${url}`;
+    el.querySelector("#tf-out").innerHTML = `<div class="tf-made"><input class="in" readonly value="${esc(url)}" aria-label="Form link">
+      <div class="tf-acts" style="margin-top:8px"><button class="pill-btn sm" data-c>Copy</button>
+        <a class="pill-btn sm" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">WhatsApp</a>
+        <a class="pill-btn sm" href="mailto:?subject=${encodeURIComponent("FCC Attendance: who will sign in for " + church)}&body=${encodeURIComponent(msg)}">Email</a>
+        ${onPhone() && navigator.share ? `<button class="pill-btn sm" data-s>More…</button>` : ""}</div>
+      <p class="note" style="margin:6px 2px 0">Works for 14 days.</p></div>`;
+    const out = el.querySelector("#tf-out");
+    out.querySelector("[data-c]").onclick = e => navigator.clipboard?.writeText(url).then(() => { e.target.textContent = "Copied"; toast("Link copied."); }).catch(() => toast("Couldn't copy: press and hold the link instead."));
+    const s = out.querySelector("[data-s]"); if (s) s.onclick = () => navigator.share({text: msg}).catch(() => {});
+  };
+  el.querySelector("#tf-make").onclick = async e => {
+    const church = el.querySelector("#tf-ch").value; e.target.disabled = true;
+    try { share(await api("rpc/app_team_link", {method: "POST", body: {ch: church}}), church); }
+    catch (err) { toast("No link made: " + err.message); }
+    e.target.disabled = false;
+  };
+  el.querySelectorAll("[data-copy]").forEach(b => b.onclick = () => navigator.clipboard?.writeText(teamLink(b.dataset.copy))
+    .then(() => { b.textContent = "Copied"; toast("Link copied."); setTimeout(() => b.textContent = "Copy link", 2500); }).catch(() => {}));
+  el.querySelectorAll(".tf-group").forEach(card => {
+    const picks = () => [...card.querySelectorAll("tbody tr")].filter(tr => tr.querySelector("[data-pick]").checked);
+    const lock = on => card.querySelectorAll("button").forEach(b => b.disabled = on);
+    card.querySelectorAll("[data-role]").forEach(s => s.onchange = () => { const i = s.closest("tr").querySelector("[data-pastor]"); i.hidden = s.value !== "pastor"; if (!i.hidden && !i.value) i.focus(); });
+    card.querySelector("[data-all]").onchange = e => card.querySelectorAll("[data-pick]").forEach(c => c.checked = e.target.checked);
+    card.querySelector("[data-ok]").onclick = async () => {
+      const rows = picks(); if (!rows.length) return toast("Tick at least one person.");
+      const items = rows.map(tr => { const role = tr.querySelector("[data-role]").value; return {id: tr.dataset.id, role, pastor: role === "pastor" ? tr.querySelector("[data-pastor]").value.trim() : ""}; });
+      const gap = rows.find(tr => tr.querySelector("[data-role]").value === "pastor" && !tr.querySelector("[data-pastor]").value.trim());
+      if (gap) { gap.querySelector("[data-pastor]").focus(); return toast("A Pastor needs their name as it is on the Pastors list."); }
+      lock(true);
+      try {
+        const r = await api("rpc/app_team_approve", {method: "POST", body: {items, at_txt: isoLocal()}});
+        toast(`${r.added ? `${r.added} can now sign in.` : "Nobody new added."}${r.had ? ` ${r.had} could already sign in, so they were left as they are.` : ""}`);
+      } catch (err) { toast(/already handled/.test(err.message) ? "Someone else already handled some of these, so nothing was changed. Here's the latest." : "Not saved: " + err.message); }
+      render();
+    };
+    card.querySelector("[data-no]").onclick = async e => {
+      const rows = picks(); if (!rows.length) return toast("Tick at least one person.");
+      if (!e.target.dataset.sure) { e.target.dataset.sure = 1; e.target.textContent = `Tap again to turn down ${rows.length}`; setTimeout(() => { delete e.target.dataset.sure; e.target.textContent = "Turn down ticked"; }, 4000); return; }
+      lock(true);
+      try { const n = await api("rpc/app_team_reject", {method: "POST", body: {ids: rows.map(tr => tr.dataset.id)}}); toast(`${n} turned down.`); }
+      catch (err) { toast("Not saved: " + err.message); }
+      render();
+    };
+  });
 }
 
 // ---------------------------------------------------------------- archive: not seen for two years
