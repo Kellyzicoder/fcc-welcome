@@ -1032,6 +1032,12 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 .lv-tip b {font-size: 15px;}
 /* Livestream: a small graph for each platform, one under the other; the date under each stream's times */
 .lv-mini + .lv-mini {margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line);}
+.lv-tg {width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--line); background: var(--soft); border-radius: 12px; padding: 10px 12px; font: inherit; color: var(--ink); cursor: pointer; text-align: left;}
+.lv-tg[aria-expanded="true"] {margin-top: 12px; background: none;} .lv-tops {display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: var(--fs-sm, 13px); color: var(--ink-2);}
+.lv-tops small {color: var(--ink-3); font-size: var(--fs-xs, 12px);} .lv-tops > span {display: inline-flex; align-items: center; gap: 6px;} .lv-tops i {width: 9px; height: 9px; border-radius: 50%;} .lv-tops b {color: var(--ink);}
+.lv-tg em {font-style: normal; font-weight: 600; color: var(--accent); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-size: var(--fs-sm, 13px);}
+.lv-tg svg {width: 16px; height: 16px; transition: transform .2s;} .lv-tg[aria-expanded="true"] svg {transform: rotate(180deg);}
+@media (prefers-reduced-motion: no-preference) { .lv-in > .lv-mini, .lv-in > .lv-chart {animation: fcc-rise .28s cubic-bezier(.2, .7, .2, 1) both;} .lv-in > .lv-mini + .lv-mini {animation-delay: .05s;} }
 .lv-mini-t {display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 14px; font-size: var(--fs-sm, 13px); font-weight: 600;}
 .lv-mini-t span {display: inline-flex; align-items: center; gap: 8px;} .lv-mini-t i {width: 10px; height: 10px; border-radius: 50%;}
 .lv-mini-t small {color: var(--ink-3); font-weight: 500;} .lv-mini-t small b {color: var(--ink);}
