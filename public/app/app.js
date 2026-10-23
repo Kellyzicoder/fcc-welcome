@@ -1585,8 +1585,15 @@ const WIDGETS = {
             const empty = live ? "The line starts after a minute or two of the livestream." : "Not live right now. Pick This week to see the last seven days.";
             const sets = pts.some(p => p.yt != null) ? [["youtube", "YouTube", "yt"], ["facebook", "Facebook", "fb"], ["zoom", "Zoom", "zm"]]
               .map(([k, t, f]) => ({k, t, ps: pts.map(p => ({v: p[f] || 0, label: p.label, hour: p.hour, tip: p.tip.split(" · ")[0]}))})) : [{k: "", t: "", ps: pts}];
+            // The graphs start folded: a row with each platform's highest, tap to open them (remembered until the app is closed)
+            const open = !!S.lvOpen, tops = sets.map(s => [s.k, s.t || "Watching", Math.max(0, ...s.ps.map(p => p.v))]);
+            const tg = `<button type="button" class="lv-tg" aria-expanded="${open}">${open ? "<span></span>" : `<span class="lv-tops"><small>Highest</small>${tops.map(([k, t, v]) => `<span>${k ? `<i style="background:${PC[k]}"></i>` : ""}${t} <b>${v}</b></span>`).join("")}</span>`}<em>${open ? "Hide graphs" : "Show graphs"}${svg("caret")}</em></button>`;
+            const tgBind = () => { const b = body.querySelector(".lv-tg"); if (b) b.onclick = () => { S.lvOpen = !open; S.lvJust = true; drawProg(); }; };
+            if (!open) { body.innerHTML = tg; tgBind(); return; }
+            body.classList.toggle("lv-in", !!S.lvJust); if (S.lvJust) { S.lvJust = false; setTimeout(() => body.classList.remove("lv-in"), 500); }
             body.innerHTML = sets.map(s => s.k ? `<div class="lv-mini"><div class="lv-mini-t"><span><i style="background:${PC[s.k]}"></i>${s.t}</span><small>highest <b>${Math.max(0, ...s.ps.map(p => p.v))}</b></small></div>${progChart(s.ps, empty, wide, PC[s.k], true)}</div>`
-              : progChart(s.ps, empty, wide, "", true)).join("") + (wide ? `<p class="lv-hint">Swipe sideways to move through the day.</p>` : "");
+              : progChart(s.ps, empty, wide, "", true)).join("") + (wide ? `<p class="lv-hint">Swipe sideways to move through the day.</p>` : "") + tg;
+            tgBind();
             const scs = [...body.querySelectorAll(".lv-scroll")];
             if (scs.length) {  // opens at now (or a past day's first stream); stays where it was swiped to when the numbers update
               const back = (S.lvBackBy ??= {})[skey];
