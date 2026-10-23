@@ -14,7 +14,8 @@ const ROLE_OPTS = [["team", "Team (ushers)"], ["pastor", "Pastor (only their own
 // (in the Activity log, Sign-ins and the top bar).
 const roleName = u => u?.role === "lead" && u?.title === "Lead pastor" ? "Lead pastor" : u?.role === "admin" && u?.title === "Tech admin" ? "Tech admin" : ROLE[u?.role] || u?.role || "";
 const baseName = () => roleName({role: S.me.base, title: S.me.title});
-const FLAG = {red: "Red", yellow: "Yellow", blue: "Blue", ok: "On track"};
+// What each colour means, in words (the colour alone was hard to read): red and amber are the people to call.
+const FLAG = {red: "Needs a call", yellow: "Check in", blue: "Missed this one", ok: "On track"};
 const root = document.getElementById("root");
 const S = {cfg: null, session: null, me: null, churches: [], church: "", members: [], ticks: [], names: {}, view: "dashboard",
            back: "", cal: today().slice(0, 7), filter: "need", date: today(), q: "", poll: null, numbers: null, users: null,
@@ -767,7 +768,7 @@ function tour() {
                           [nav("checkin"), "checkin", 2, "Check-in", "Tick your people in at a service. Ushers see the ticks straight away." + more("checkin")]]
       : [[nav("dashboard"), "dashboard", 1, "Dashboard", "How the last service went, at a glance. This is where the app opens."],
          [nav("checkin"), "checkin", 2, "Check-in", "Tick people in as they arrive, or tap a team to tick a group. Press Save & lock when the service is done." + more("checkin")],
-         [nav("followup"), "followup", 3, "Follow-up", "Yellow and red show who has missed Sundays in a row, so pastors know who to call." + more("followup")],
+         [nav("followup"), "followup", 3, "Follow-up", "Amber (Check in) and red (Needs a call) show who has missed services in a row, so pastors know who to call." + more("followup")],
          [nav("people"), "people", 5, "Congregation", "Everyone on the register. Tap a name for their history, or edit their details." + more("people")],
          [() => Q("#addw"), "plus", 4, "Your dashboard", "Add widgets, drag them by the handle, or resize them from ⋯. Your layout is only yours."]]),
     [nav("help"), "help", 6, "Help", "Answers for your role, and Contact the admin if you're stuck." + more("help")],
@@ -1190,7 +1191,9 @@ function greeting() {
   return `${part}${name ? `, ${esc(name)}` : ""}`;
 }
 const head = (title, sub, buttons = "") => `<div class="head">${ICON[S.view] ? `<span class="hico" style="--wc:var(--h${NAVHUE[S.view] || 1});--wb:var(--h${NAVHUE[S.view] || 1}b)">${svg(S.view)}</span>` : ""}<div><h1>${["dashboard", "mine"].includes(S.view) ? greeting() : title}</h1>${sub ? `<p>${sub}</p>` : ""}</div><span class="gap" style="flex:1"></span>${buttons}</div>`;
-const badge = f => `<span class="badge ${f}">${FLAG[f]}</span>`;
+const FLAG_WHY = {red: `Red: missed ${RED_AT} or more services in a row. Give them a call.`, yellow: `Amber: missed ${YELLOW_AT}–${RED_AT - 1} services in a row. A quick check-in.`,
+  blue: "Missed this service, but not enough in a row to worry yet.", ok: "Coming regularly."};
+const badge = f => `<span class="badge ${f}" title="${esc(FLAG_WHY[f] || "")}">${FLAG[f]}</span>`;
 
 // ---------------------------------------------------------------- dashboard
 // The church's standard attendance message. No emojis. Online numbers, preacher and sermon are typed in the popup;
@@ -2318,7 +2321,7 @@ function followup(el) {
   const p0 = picture(), day = S.fuDay && S.fuDay !== p0.last ? S.fuDay : p0.last, had = !!day && p0.dates.includes(day);
   const p = had && day !== p0.last ? picture(day) : p0;
   const started = x => ([x.date_joined, x.first_visit].filter(Boolean).sort()[0] || (x.created_at || "").slice(0, 10) || "0000") <= day;
-  const tabs = {need: "Needs follow-up", red: "Red only", yellow: "Yellow only", blue: "Missed this service", all: "Everyone"};
+  const tabs = {need: "Needs follow-up", red: `Needs a call (${RED_AT}+ missed)`, yellow: `Check in (${YELLOW_AT}–${RED_AT - 1} missed)`, blue: "Missed this service", all: "Everyone"};
   const pick = {need: x => x.level !== "ok", red: x => x.flag === "red", yellow: x => x.flag === "yellow", blue: x => !p.here[x.id] && started(x), all: () => true};
   const list = had ? p.people.filter(pick[S.filter]) : [];
   el.innerHTML = head("Follow-up", esc(S.church),
@@ -2326,6 +2329,7 @@ function followup(el) {
     <div class="row sortbar"><div style="flex:0 0 200px"><label class="f" for="fu-day">Service date</label><input class="in" id="fu-day" type="date" value="${day || today()}" max="${today()}"></div>
       ${had ? `<p class="note" style="margin:0 0 4px;flex:1">${esc(S.names[day] || "Service")} · ${esc(nice(day, true))}${day !== p0.last ? ` · <button class="link" id="fu-latest" style="margin:0">Back to the latest service</button>` : ""}</p>` : ""}</div>
     <div class="chips">${Object.entries(tabs).map(([k, t]) => `<button class="chip ${S.filter === k ? "on" : ""}" data-f="${k}">${t}</button>`).join("")}</div>
+    <p class="flag-key">${badge("red")}<span>missed ${RED_AT}+ in a row: call them</span>${badge("yellow")}<span>missed ${YELLOW_AT}–${RED_AT - 1} in a row: check in</span></p>
     <div class="card"><div class="card-head"><h2>${tabs[S.filter]}</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${list.length} people</span></div>
       ${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th class="hide-sm">Pastor</th><th>Phone</th></tr></thead>
       <tbody>${rowsHtml(list, true)}</tbody></table></div>` : `<p class="empty">${had ? "Nobody in this list." : `No service was recorded on ${esc(nice(day || today(), true))}.`}</p>`}</div>`;
@@ -2874,7 +2878,7 @@ async function bishop(el, rows, text, newest) {
   if (S.bJump) { S.bJump = false; el.querySelector(".b-list")?.scrollIntoView({behavior: "smooth", block: "start"}); }  // church row and dashboard in view
   el.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { S.church = b.dataset.open; S.view = "dashboard"; render(); });  // admin: work in that church
   el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text, {day: latest || newest});
-  el.querySelector("#dl").onclick = () => download(`all_churches_${day || today()}.csv`, [["Church", "Service", "Present", "Adults", "Kids", "First-timers", "On the register", "Red", "Yellow", "Missed this service"],
+  el.querySelector("#dl").onclick = () => download(`all_churches_${day || today()}.csv`, [["Church", "Service", "Present", "Adults", "Kids", "First-timers", "On the register", "Needs a call (red)", "Check in (amber)", "Missed this service"],
     ...rows.map(r => served(r) ? [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this]
       : [r.church, `No service on ${day}`, "", "", "", "", r.register, "", "", ""])]);
 }
@@ -3620,7 +3624,7 @@ function helpTopics() {
       ["It says the service is locked", "Tap Unlock at the top of Check-in, make your change, then tap Save & lock again so the ticks stay safe."],
     ]]] : []),
     ["people", "People and follow-up", [
-      ["What do red and yellow mean?", `Yellow: missed ${YELLOW_AT}–${RED_AT - 1} services in a row. Red: missed ${RED_AT} or more. These are the people to call. Visitors are never flagged.`],
+      ["What do red and amber mean?", `Amber, "Check in": missed ${YELLOW_AT}–${RED_AT - 1} services in a row. Red, "Needs a call": missed ${RED_AT} or more. These are the people to call. Blue, "Missed this one": missed only this service. Visitors are never flagged. On a computer, rest the mouse on a label to see this again.`],
       ["A name, phone number or role is wrong", edits ? "Open Congregation, find the person and tap Edit." : "Ask your church admin to fix it, or send a message to the admin below."],
       ["How do I share the numbers on WhatsApp?", "On a phone, tap the WhatsApp button on your home page. It writes the message for you to send. On a computer you can copy the text instead."],
     ]],
