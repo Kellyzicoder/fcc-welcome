@@ -889,6 +889,7 @@ async function freshen() {
   if (pticks) S.pticks = S.pticks.filter(t => t.service_date < since).concat(pticks);
   S.pending = pending; freshAt = Date.now();
   S.teamPending = canTeam() ? await api("team_requests?select=id&status=eq.pending").then(r => r.length).catch(() => 0) : 0;
+  S.missedAll = await api("settings?select=value&key=eq.missed_counts").then(r => r?.[0]?.value === "every").catch(() => false);
 }
 // A day split into services (two or more): each one's name and how many of this church's people came to it.
 // The day's own ticks still decide who was there, so someone at both services counts once in the day's total.
@@ -911,8 +912,9 @@ function picture(upTo = today()) {  // everything the pages show, as things stoo
     if (AWAY.has(norm(m.status))) continue;
     const start = [m.date_joined, m.first_visit].filter(Boolean).sort()[0] || "0000";
     let missed = 0, seen = null;
-    // only Sunday services count as missed; coming to any service (midweek too) counts as being seen
-    for (let i = dates.length - 1; i >= 0 && dates[i] >= start; i--) { if (byDate[dates[i]][m.id]) { seen = dates[i]; break; } if (isSunday(dates[i])) missed++; }
+    // Sundays count as missed (and midweek services too when an admin has switched that on in Admin → Follow-up rules);
+    // coming to any service counts as being seen. Only days this church ticked people in count, so no check-in, no miss.
+    for (let i = dates.length - 1; i >= 0 && dates[i] >= start; i--) { if (byDate[dates[i]][m.id]) { seen = dates[i]; break; } if (S.missedAll || isSunday(dates[i])) missed++; }
     if (!seen) seen = [...dates].reverse().find(d => byDate[d][m.id]) || S.seen?.[m.id] || null;
     const sign = seen || (start !== "0000" ? start : (m.created_at || "").slice(0, 10));
     if (sign && sign < cutoff) { archived.push({...m, seen, kid: isKid(m)}); continue; }  // not seen for two years
@@ -1730,7 +1732,7 @@ const WIDGETS = {
       };
       svgEl.onpointerleave = () => { tip.style.opacity = 0; cur.setAttribute("opacity", 0); dot.setAttribute("opacity", 0); };
     }},
-  followup: {name: "Needs a follow-up call", sub: `Missed ${YELLOW_AT} or more Sundays in a row`, size: "full", icon: "followup", hue: 3,
+  followup: {name: "Needs a follow-up call", sub: () => `Missed ${YELLOW_AT} or more ${S.missedAll ? "services" : "Sundays"} in a row`, size: "full", icon: "followup", hue: 3,
     draw(el, p) {
       const need = p.people.filter(x => x.level !== "ok");
       el.closest(".w").querySelector(".w-tools").innerHTML = `<button class="pill-btn sm" data-go="followup">See all ${need.length}</button>`;
@@ -2966,12 +2968,15 @@ async function admin(el) {
           <button class="pill-btn sm" data-done="${m.id}" data-v="${!m.done}">${m.done ? "Mark as new" : "Mark done"}</button>
           <button class="x" data-mdel="${m.id}">Delete</button></div></div>`).join("")}</div>`;
   // Tabs: one area at a time. Opens on Messages when there are new ones, otherwise on Sign-ins; then remembers the choice.
-  const TABS = [["messages", "Messages", fresh.length], ["names", "Sign-ins", users.length], ["space", "Space", 0]];  // churches are managed on the Churches page
+  const TABS = [["messages", "Messages", fresh.length], ["names", "Sign-ins", users.length], ["rules", "Follow-up rules", 0], ["space", "Space", 0]];  // churches are managed on the Churches page
   if (!TABS.some(t => t[0] === S.adminTab)) S.adminTab = fresh.length ? "messages" : "names";
   const tab = k => `data-at="${k}" ${S.adminTab === k ? "" : "hidden"}`;
   el.innerHTML = head("Admin", "Who can sign in, messages from Help, and database space") + `<div class="atabs" role="tablist" aria-label="Admin">${TABS.map(([k, name, n]) =>
-      `<button role="tab" data-atab="${k}" aria-selected="${S.adminTab === k}">${name}${k === "messages" && n ? ` <span class="anum new">${n}</span>` : k !== "space" && k !== "messages" ? ` <span class="anum">${n}</span>` : ""}</button>`).join("")}</div>
+      `<button role="tab" data-atab="${k}" aria-selected="${S.adminTab === k}">${name}${k === "messages" && n ? ` <span class="anum new">${n}</span>` : k !== "space" && k !== "messages" && k !== "rules" ? ` <span class="anum">${n}</span>` : ""}</button>`).join("")}</div>
     <section ${tab("messages")}>${inboxCard}</section><section ${tab("space")}>${spaceCard}</section>
+    <section ${tab("rules")}><div class="card"><div class="card-head"><h2>What counts as a missed service</h2></div>
+      <label class="switch flat"><span><b>Count midweek services too</b><small>Off: only Sundays count, as now. On: every service a church ticks people in at counts, such as Wednesday. Coming to any service always counts as being there.</small></span><input type="checkbox" id="ad-mid" ${S.missedAll ? "checked" : ""}><i></i></label>
+      <p class="note" style="margin:10px 2px 0">For every church and everyone's Follow-up, Pastoral care and reports. A church with no midweek check-in is not affected. With it on, people reach Check in (${YELLOW_AT}) and Needs a call (${RED_AT}) sooner, as there are more services to miss.</p></div></section>
     <section ${tab("names")}>
     <div class="tiles">${[["Total sign-ins", users.length, "Across all churches"], ["Church admins", users.filter(u => u.role === "lead").length, "Run a church"],
         ["Team", users.filter(u => u.role === "team").length, "Ushers ticking people in"], ["Pastors", users.filter(u => u.role === "pastor" || u.pastor).length, "Including admins who pastor"]]
@@ -2987,6 +2992,15 @@ async function admin(el) {
     S.adminTab = b.dataset.atab;
     el.querySelectorAll("[data-atab]").forEach(x => x.setAttribute("aria-selected", x === b));
     el.querySelectorAll("section[data-at]").forEach(x => x.hidden = x.dataset.at !== S.adminTab);
+  });
+  el.querySelector("#ad-mid")?.addEventListener("change", async e => {
+    const on = e.target.checked; e.target.disabled = true;
+    try {
+      await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key: "missed_counts", value: on ? "every" : "sundays"}});
+      S.missedAll = on; log("role_change", "", "done", `Follow-up rules: ${on ? "Sundays and midweek services" : "Sundays only"}`);
+      toast(on ? "Midweek services now count as missed too." : "Only Sundays count as missed again.");
+    } catch (err) { e.target.checked = !on; toast(/permission|policy|row-level/i.test(err.message) ? "Run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
+    e.target.disabled = false;
   });
   const again = async fn => { try { await fn(); } catch (err) { toast("Not saved: " + err.message); } S.churches = (await api("churches?select=name&order=name")).map(c => c.name); render(); };
   el.querySelectorAll("[data-rename]").forEach(b => b.onclick = () => formDialog(`Rename ${b.dataset.rename}`, [
@@ -3631,7 +3645,7 @@ function helpTopics() {
       ["It says the service is locked", "Tap Unlock at the top of Check-in, make your change, then tap Save & lock again so the ticks stay safe."],
     ]]] : []),
     ["people", "People and follow-up", [
-      ["What do red and amber mean?", `Amber, "Check in": missed ${YELLOW_AT}–${RED_AT - 1} services in a row. Red, "Needs a call": missed ${RED_AT} or more. These are the people to call. Blue, "Missed this one": missed only this service. Visitors are never flagged. On a computer, rest the mouse on a label to see this again.`],
+      ["What do red and amber mean?", `${S.missedAll ? "Sunday and midweek services both count." : "Only Sunday services count (an admin can add midweek ones in Admin → Follow-up rules)."} Amber, "Check in": missed ${YELLOW_AT}–${RED_AT - 1} services in a row. Red, "Needs a call": missed ${RED_AT} or more. These are the people to call. Blue, "Missed this one": missed only this service. Visitors are never flagged. On a computer, rest the mouse on a label to see this again.`],
       ["A name, phone number or role is wrong", edits ? "Open Congregation, find the person and tap Edit." : "Ask your church admin to fix it, or send a message to the admin below."],
       ["How do I share the numbers on WhatsApp?", "On a phone, tap the WhatsApp button on your home page. It writes the message for you to send. On a computer you can copy the text instead."],
     ]],
