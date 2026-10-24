@@ -1267,18 +1267,18 @@ function summary(p, o = {}) {
     ["🟡", `Missed ${YELLOW_AT}–${RED_AT - 1} in a row: *${p.count("yellow")}*`], ...who(flagged("yellow")),
     ...(o.link ? ["", ["📺", `Livestream: ${o.link}`]] : [])]);
 }
-function chart(el, rows, pick) {  // stacked bars: adults + kids per service; tapping a bar opens that day's Check-in, or calls pick(day)
+function chart(el, rows, pick) {  // one bar per service: everyone who came (adults and kids together, one colour so nothing reads as
+  // an extra piece on top); tapping a bar opens that day's Check-in, or calls pick(day)
   const narrow = innerWidth < 640; rows = rows.slice(narrow ? -7 : -12);
   if (!rows.length) { el.innerHTML = `<p class="empty">No services recorded yet.</p>`; return; }
   const W = narrow ? 340 : 640, H = 230, L = 28, B = 26, T = 18, max = Math.max(20, Math.ceil(Math.max(...rows.map(r => r[1] + r[2])) / 20) * 20);
   const step = (W - L) / rows.length, bw = Math.min(26, step * .5), y = v => T + (H - T - B) * (1 - v / max);
-  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="People present at recent services, adults and kids">`;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="People present at recent services">`;
   for (const t of [0, .25, .5, .75, 1].map(f => Math.round(max * f))) s += `<line class="gridline" x1="${L}" x2="${W}" y1="${y(t)}" y2="${y(t)}"/><text x="${L - 8}" y="${y(t) + 4}" text-anchor="end">${t}</text>`;
   rows.forEach(([d, a, k], i) => {
-    const cx = L + step * i + step / 2, x = cx - bw / 2, ya = y(a), yk = y(a + k), h = Math.max(ya - 2 - yk, 0);
+    const cx = L + step * i + step / 2, x = cx - bw / 2, yk = y(a + k), h = y(0) - yk, r = Math.min(4, h / 2);
     s += `<g class="col" tabindex="0" data-i="${i}"><rect class="hit" x="${cx - step / 2}" y="${T - 8}" width="${step}" height="${H - T - B + 8}" rx="8"/>
-      <rect x="${x}" y="${ya}" width="${bw}" height="${y(0) - ya}" fill="var(--adults)"/>
-      ${k ? `<path d="M${x},${ya - 2} v${-Math.max(h - 4, 0)} a4,4 0 0 1 4,-4 h${bw - 8} a4,4 0 0 1 4,4 v${Math.max(h - 4, 0)} z" fill="var(--kids)"/>` : ""}
+      ${h > 0 ? `<path d="M${x},${y(0)} v${-(h - r)} a${r},${r} 0 0 1 ${r},${-r} h${bw - 2 * r} a${r},${r} 0 0 1 ${r},${r} v${h - r} z" fill="var(--adults)"/>` : ""}
       <text class="total" x="${cx}" y="${yk - 6}" text-anchor="middle">${a + k}</text><text x="${cx}" y="${H - 8}" text-anchor="middle">${esc(nice(d))}</text></g>`;
   });
   el.innerHTML = `<div class="tip"></div>${s}</svg>`;
@@ -1286,7 +1286,7 @@ function chart(el, rows, pick) {  // stacked bars: adults + kids per service; ta
   el.querySelectorAll("g.col").forEach(g => {
     const show = () => {
       const [d, a, k] = rows[g.dataset.i], r = g.querySelector(".hit").getBoundingClientRect(), c = el.getBoundingClientRect();
-      tip.innerHTML = `<b>${esc(nice(d))}</b><br><i style="background:var(--adults)"></i>${a} adults<br><i style="background:var(--kids)"></i>${k} kids<br>${a + k} present`;
+      tip.innerHTML = `<b>${esc(nice(d))}</b><br>${a + k} present`;
       tip.style.left = Math.max(70, Math.min(c.width - 70, r.left - c.left + r.width / 2)) + "px";
       tip.style.top = (g.querySelector(".total").getBoundingClientRect().top - c.top) + "px"; tip.style.opacity = 1;
     };
@@ -1371,11 +1371,10 @@ const WIDGETS = {
       el.innerHTML = `<div class="ov">${[["Present", "present", 5], ["Adults", "adults", 1], ["Kids", "kids", 2], ["First-timers", "first", 3]].map(([t, k, h]) =>
         `<div class="ov-cell"><b>${a[k]}</b><span>${t}</span><small><i style="background:var(--h${h})"></i>${b[k]} on ${esc(nice(prev))} ${delta(a[k], b[k], a[k] > b[k] ? " more" : a[k] < b[k] ? " fewer" : "")}</small></div>`).join("")}</div>`;
     }},
-  people: {name: "People present", sub: "Adults and kids at each service · tap a bar to open it", size: "wide", icon: "dashboard", hue: 1,
+  people: {name: "People present", sub: "How many came to each service · tap a bar to open it", size: "wide", icon: "dashboard", hue: 1,
     draw(el, p) {
       const kidIds = new Set(p.mine.filter(isKid).map(m => m.id));
       const series = p.dates.map(d => { const ids = Object.keys(p.byDate[d]), k = ids.filter(i => kidIds.has(i)).length; return [d, ids.length - k, k]; });
-      el.closest(".w").querySelector(".w-tools").innerHTML = `<div class="legend"><span><i style="background:var(--adults)"></i>Adults</span><span><i style="background:var(--kids)"></i>Kids</span></div>`;
       el.innerHTML = `<div class="chart"></div>`;
       chart(el.querySelector(".chart"), series);
     }},
@@ -2736,9 +2735,8 @@ const CWIDGETS = {
         ["Adults · Kids", `${c.sum(c.pick, "adults")}<small> · ${c.sum(c.pick, "kids")}</small>`, 1, "adults and kids"], ["First-timers", c.sum(c.pick, "first_timers"), 3, "at the latest service"],
         ["Came", c.rate + "%", 2, `of ${c.reg} on the register`]].map(([t, n, h, sub]) => `<div class="ov-cell"><b>${n}</b><span>${t}</span><small><i style="background:var(--h${h})"></i>${esc(sub)}</small></div>`).join("")}</div>`;
     }},
-  chart: {name: "People present", sub: "Adults and kids at each service · tap a bar to see that day", size: "full", icon: "dashboard", hue: 1,
+  chart: {name: "People present", sub: "How many came to each service · tap a bar to see that day", size: "full", icon: "dashboard", hue: 1,
     draw(el, c) {
-      el.closest(".w").querySelector(".w-tools").innerHTML = `<div class="legend"><span><i style="background:var(--adults)"></i>Adults</span><span><i style="background:var(--kids)"></i>Kids</span></div>`;
       if (!c.trend) { el.innerHTML = `<p class="empty">Run the latest setup SQL in Supabase once to see this chart.</p>`; return; }
       el.innerHTML = `<div class="chart"></div>`; chart(el.querySelector(".chart"), c.series.map(x => [x[0], x[1], x[2]]), c.pickDay);
     }},
