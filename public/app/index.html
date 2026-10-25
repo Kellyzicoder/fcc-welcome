@@ -361,6 +361,9 @@ button.chip {cursor: pointer; font: inherit; font-weight: 500;} button.chip:not(
   .modal-grid {grid-template-columns: 1fr;} .preview {max-height: 34vh;} }
 @media (prefers-reduced-motion: reduce) { .switch i, .switch i::after {transition: none;} }
 
+/* laptops: the menu sits straight on the page (no box around it); it scrolls on its own when it's taller than the screen,
+   without carrying the page along with it */
+@media (min-width: 1081px) { .side {background: none; box-shadow: none; border-radius: 0; padding: 6px 8px; overscroll-behavior: contain; scrollbar-width: thin;} }
 /* phone and tablet: a menu button sits by the thumb at the bottom right; the sidebar slides in from that side */
 .dock, .scrim {display: none;}
 @media (max-width: 1080px) {
