@@ -64,6 +64,9 @@ const bare = n => { let x = norm(n).replace(/\s+/g, " "); for (let i = 0; i < 3 
 const TYPE = {member: "Member", first_timer: "First-timer", visitor: "Visitor"};  // attendance type; visitors are never chased on Follow-up
 const typeKey = m => TYPE[m.type] ? m.type : "member", typeName = m => TYPE[typeKey(m)], typeOpts = Object.entries(TYPE);
 // Titles shown short (names are saved in full, so matching people to their pastor is unchanged): Rev., Pst., LP
+// Titles are saved in full words, one way (Reverend, Pastor, Lady Pastor, Bishop), so lists, reports and downloads match up
+const fullTitle = n => String(n || "").replace(/\s+/g, " ").trim().replace(/^(lady\s+(pastor|pst\.?|ps\.?)|lp\.?)\s+/i, "Lady Pastor ")
+  .replace(/^(reverend|revd\.?|rev\.?)\s+/i, "Reverend ").replace(/^(pastor|pst\.?|ps\.?)\s+/i, "Pastor ").replace(/^(bishop|bp\.?)\s+/i, "Bishop ");
 const shortTitle = n => String(n || "").replace(/^\s*lady\s+(pastor|pst\.?|ps\.?)\s+/i, "LP ").replace(/^\s*(reverend|rev\.?)\s+/i, "Rev. ").replace(/^\s*(pastor|pst\.?|ps\.?)\s+/i, "Pst. ");
 const pastorBtn = n => S.me?.role === "pastor" ? esc(shortTitle(n)) : `<button class="plink" data-to-pastor="${esc(n)}">${esc(shortTitle(n))}</button>`;  // a pastor's name: tap to see their people
 const isSelf = (pastor, m) => !!bare(pastor) && bare(pastor) === bare(m.full_name);
@@ -3167,7 +3170,7 @@ async function admin(el) {
       const more = {...(title || u?.title ? {title} : {}), ...(r3 || u?.role3 ? {role3: r3} : {})};  // only sent when used, so it works before the new setup SQL
       const email = $("ud-email").value.trim().toLowerCase(), name = $("ud-name").value.trim().replace(/\s+/g, " ").slice(0, 80);
       const keep = pick === "shepherd" && u?.title === "Shepherd" && u.pastor;  // an existing shepherd keeps the name their people are given under
-      const pastor = !needP ? "" : (pick === "shepherd" ? (keep || name) : $("ud-p").value.trim()).replace(/\s+/g, " ").replace(/,/g, " ").trim(), church = noChurch(r) ? null : $("ud-c").value;
+      const pastor = !needP ? "" : (pick === "shepherd" ? (keep || name) : fullTitle($("ud-p").value)).replace(/\s+/g, " ").replace(/,/g, " ").trim(), church = noChurch(r) ? null : $("ud-c").value;
       const fail = t => { err.textContent = t; err.hidden = false; go.disabled = false; };
       if (!u) { const wrong = emailProblem(email); if (wrong) return fail(wrong); if (users.some(x => x.email === email)) return fail("That email can already sign in. Use Change on their row instead."); }
       if (needP && !pastor) return fail(pick === "shepherd" ? "Type their name." : "Type their name as it is on the Pastors list.");
@@ -3239,6 +3242,8 @@ function careGroups(el, K) {  // the Pastors and Shepherds pages: each one's peo
   const NONE = "Not assigned yet", p = picture(), p0 = p, groups = {};
   for (const x of p.people) for (const n of K.of(x).length ? K.of(x) : [NONE]) (groups[n] ??= []).push(x);
   const plist = K.list()[S.church] || [], canEdit = S.me.role !== "team";
+  // pastor names written another way (Rev., Pst., LP...) in any church: an admin can tidy them all at once
+  const untidy = K.key === "pastors:" && S.me.role === "admin" && !S.preview ? new Set([...Object.values(S.pastorList || {}).flat(), ...S.members.flatMap(pastorsOf)].filter(n => fullTitle(n) !== n)).size : 0;
   for (const n of plist) groups[n] ??= [];  // names on the list show even before anyone is assigned to them
   const names = Object.keys(groups).sort((a, b) => (a === NONE) - (b === NONE) || a.localeCompare(b));
   if (!names.includes(S[K.sel])) S[K.sel] = names[0] || "";
@@ -3268,10 +3273,18 @@ function careGroups(el, K) {  // the Pastors and Shepherds pages: each one's peo
       : `<p class="empty">Nobody on this register yet.</p>`}
     ${canEdit ? `<div class="card plist" id="plist"><div class="pl-head"><span class="pl-ico">${svg(K.view)}</span><div><h2>${K.word} list</h2><p>${esc(S.church)} · ${plist.length} ${plist.length === 1 ? "name" : "names"}</p></div><span class="gap"></span>
         <button type="button" class="pill-btn sm primary" id="pl-add">${svg("plus")}Add ${K.word.toLowerCase()}</button></div>
+      ${untidy ? `<div class="msg np-fix"><span><b>${untidy} pastor ${untidy === 1 ? "name is" : "names are"} written a different way</b> (Rev. or Pst. instead of Reverend or Pastor). Tidy them in every church: lists, people and sign-ins stay matched.</span>
+        <button type="button" class="pill-btn primary sm" id="pl-tidy">Tidy titles</button></div>` : ""}
       <label class="find-bar pl-find">${svg("search")}<input id="pl-q" type="search" placeholder="Search ${K.words.toLowerCase()} by name" value="${esc(S[K.sel + "Q"] || "")}" autocomplete="off" aria-label="Search ${K.words.toLowerCase()}"></label>
       <div class="pl-chips" id="pl-chips"></div><div id="pl-rows"></div></div>` : ""}`;
   // The list of names: search, title chips (Bishop, Reverend, Lady Pastor...), and a row for each name with how many people they have.
   const listBox = el.querySelector("#plist");
+  el.querySelector("#pl-tidy")?.addEventListener("click", async e => {
+    e.target.disabled = true;
+    try { const r = await api("rpc/app_tidy_titles", {method: "POST", body: {}}); await load();
+      toast(`Tidied: ${r.lists} ${r.lists === 1 ? "list" : "lists"}, ${r.people} ${r.people === 1 ? "person" : "people"}, ${r.signins} ${r.signins === 1 ? "sign-in" : "sign-ins"}.`); render(); }
+    catch (err) { e.target.disabled = false; toast(/app_tidy_titles|function/i.test(err.message) ? "Run the latest setup SQL in Supabase once, then try again." : "Not tidied: " + err.message); }
+  });
   if (listBox) {
     const TITLES_ = ["Lady Pastor", "Bishop", "Reverend", "Apostle", "Prophet", "Evangelist", "Elder", "Deacon", "Pastor"];
     const titleOf = n => TITLES_.find(t => norm(n).startsWith(norm(t) + " ")) || "Other";
@@ -3282,7 +3295,7 @@ function careGroups(el, K) {  // the Pastors and Shepherds pages: each one's peo
       catch (err) { throw new Error(/settings|policy|permission/i.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
       K.list()[S.church] = out; render();
     };
-    const clean = x => x.replace(/,/g, " ").trim().replace(/\s+/g, " ").slice(0, 80);
+    const clean = x => fullTitle(x.replace(/,/g, " ")).slice(0, 80);  // "Rev. Ama Mensah" is saved as "Reverend Ama Mensah"
     const drawList = () => {
       const q = norm(S[K.sel + "Q"] || ""), rows = plist.filter(n => (!S[K.sel + "T"] || titleOf(n) === S[K.sel + "T"]) && (!q || norm(n).includes(q)));
       el.querySelector("#pl-chips").innerHTML = titles.length > 1 ? [["", "All"], ...titles.map(t => [t, t === "Other" ? "Other" : t])].map(([v, t]) =>
