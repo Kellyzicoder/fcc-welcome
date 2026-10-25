@@ -1184,6 +1184,10 @@ function greetName() {
   // for example while an admin looks at the app as a pastor.
   const raw = String(S.me?.name || "").trim().replace(/\s+/g, " "); if (!raw) return "";
   const w = raw.split(" "), lead = [];
+  if (S.me.title === "Shepherd") {  // shepherds: just their first name, never "Shepherd Frank" or "Pastor Frank"
+    while (w.length > 1 && (GREET_TITLES.test(w[0]) || /^shepherd$/i.test(w[0]))) w.shift();
+    return w[0];
+  }
   while (w.length > 1 && GREET_TITLES.test(w[0])) lead.push(w.shift());
   const first = w[0];
   if (GREET_TITLES.test(first)) return raw;  // the name is only a title, e.g. "Bishop"
@@ -3091,9 +3095,12 @@ async function admin(el) {
     document.addEventListener("keydown", onKey);
     const sync = () => {
       const r = $("ud-role").value, needP = r === "pastor" || r === "shepherd" || r === "lead_pastor" || (two(r) && $("ud-2").value === "pastor");
-      $("ud-2-wrap").hidden = !two(r); $("ud-p-wrap").hidden = !needP; $("ud-p").required = needP; $("ud-c-wrap").hidden = noChurch(r);
-      const list = r === "shepherd" ? "Shepherds" : "Pastors";  // a shepherd is picked from the Shepherds list, everyone else from the Pastors list
-      $("ud-p-lab").textContent = `Their name on the ${list} list`; $("ud-p-note").textContent = `Must match the ${list} list exactly: it decides whose people they see.`;
+      const shep = r === "shepherd";  // a shepherd doesn't need to be on the Shepherds list first: saving adds them to it
+      $("ud-2-wrap").hidden = !two(r); $("ud-p-wrap").hidden = !needP; $("ud-p").required = needP && !shep; $("ud-c-wrap").hidden = noChurch(r);
+      const list = shep ? "Shepherds" : "Pastors";
+      $("ud-p-lab").textContent = shep ? "Their name as a shepherd" : "Their name on the Pastors list";
+      $("ud-p-note").textContent = shep ? "Leave blank to use their name above. They're added to the church's Shepherds list for you, so people can be given to them."
+        : "Must match the Pastors list exactly: it decides whose people they see.";
       $("ud-p-list").innerHTML = (r === "shepherd" ? snames : pnames).map(n => `<option value="${esc(n)}">`).join("");
     };
     $("ud-role").onchange = $("ud-2").onchange = sync; sync();
@@ -3104,10 +3111,10 @@ async function admin(el) {
       const title = pick === "lead_pastor" ? "Lead pastor" : pick === "tech_admin" ? "Tech admin" : pick === "shepherd" ? "Shepherd" : null;
       const more = title || u?.title ? {title} : {};  // only sent when used, so it works before the new setup SQL
       const email = $("ud-email").value.trim().toLowerCase(), name = $("ud-name").value.trim().replace(/\s+/g, " ").slice(0, 80);
-      const pastor = needP ? $("ud-p").value.trim().replace(/\s+/g, " ") : "", church = noChurch(r) ? null : $("ud-c").value;
+      const pastor = needP ? ($("ud-p").value.trim() || (pick === "shepherd" ? name : "")).replace(/\s+/g, " ").replace(/,/g, " ").trim() : "", church = noChurch(r) ? null : $("ud-c").value;
       const fail = t => { err.textContent = t; err.hidden = false; go.disabled = false; };
       if (!u) { const wrong = emailProblem(email); if (wrong) return fail(wrong); if (users.some(x => x.email === email)) return fail("That email can already sign in. Use Change on their row instead."); }
-      if (needP && !pastor) return fail("Type their name as it is on the Pastors list.");
+      if (needP && !pastor) return fail(pick === "shepherd" ? "Type their name." : "Type their name as it is on the Pastors list.");
       go.disabled = true; err.hidden = true;
       try {
         if (u) {
@@ -3118,6 +3125,14 @@ async function admin(el) {
         } else {
           await api("app_users", {method: "POST", prefer: "return=minimal", body: {email, name: name || null, role: r, church, ...(pastor ? {pastor} : {}), ...more}});
           toast(`Added. ${name || email} can now sign in with ${email}.`);
+        }
+        if (pick === "shepherd" && church) {  // put them on that church's Shepherds list if they aren't on it yet
+          const have = (S.shepherdList ??= {})[church] || [];
+          if (!have.some(n => norm(n) === norm(pastor))) {
+            const next = [...have, pastor];
+            await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key: "shepherds:" + church, value: next.join("\n")}})
+              .then(() => { S.shepherdList[church] = next; }).catch(() => toast(`Saved, but ${pastor} couldn't be added to the Shepherds list. Add them on the Shepherds page.`));
+          }
         }
         close(); render();
       } catch (ex) { fail(/duplicate|already exists|23505/i.test(ex.message) ? "That email can already sign in." : /title|column/i.test(ex.message) ? `${title || "This role"} needs the latest setup SQL: run it in Supabase once, then try again.` : ex.message); }
