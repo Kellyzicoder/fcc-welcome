@@ -638,10 +638,12 @@ alter table backup_keys enable row level security;  -- no policies: only the fun
 revoke all on backup_keys from anon, authenticated;
 
 create or replace function app_backup_data() returns json language sql stable security definer set search_path = public as $$
-  select json_build_object('made_at', now(),
+  select json_build_object('made_at', now(), 'home', app_home_church(),
     'churches', (select coalesce(json_agg(t order by t.name), '[]') from churches t),
     'members', (select coalesce(json_agg(t order by t.full_name), '[]') from members t),
-    'attendance', (select coalesce(json_agg(t order by t.service_date), '[]') from attendance t),
+    'attendance', (select coalesce(json_agg(t order by t.service_date, t.full_name), '[]') from (  -- each check-in with the person's name and church
+      select a.*, m.full_name, coalesce(nullif(trim(m.church), ''), app_home_church()) as church
+      from attendance a left join members m on m.id = a.member_id) t),
     'services', (select coalesce(json_agg(t order by t.service_date), '[]') from services t),
     'service_parts', (select coalesce(json_agg(t order by t.service_date), '[]') from service_parts t),
     'service_ticks', (select coalesce(json_agg(t order by t.service_date), '[]') from service_ticks t),
