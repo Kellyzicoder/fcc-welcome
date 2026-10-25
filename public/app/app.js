@@ -3095,12 +3095,9 @@ async function admin(el) {
     document.addEventListener("keydown", onKey);
     const sync = () => {
       const r = $("ud-role").value, needP = r === "pastor" || r === "shepherd" || r === "lead_pastor" || (two(r) && $("ud-2").value === "pastor");
-      const shep = r === "shepherd";  // a shepherd doesn't need to be on the Shepherds list first: saving adds them to it
-      $("ud-2-wrap").hidden = !two(r); $("ud-p-wrap").hidden = !needP; $("ud-p").required = needP && !shep; $("ud-c-wrap").hidden = noChurch(r);
-      const list = shep ? "Shepherds" : "Pastors";
-      $("ud-p-lab").textContent = shep ? "Their name as a shepherd" : "Their name on the Pastors list";
-      $("ud-p-note").textContent = shep ? "Leave blank to use their name above. They're added to the church's Shepherds list for you, so people can be given to them."
-        : "Must match the Pastors list exactly: it decides whose people they see.";
+      const shep = r === "shepherd";  // a shepherd goes by the Name above (no separate box) and is added to the Shepherds list on saving
+      $("ud-2-wrap").hidden = !two(r); $("ud-p-wrap").hidden = !needP || shep; $("ud-p").required = needP && !shep; $("ud-c-wrap").hidden = noChurch(r);
+      $("ud-name").required = shep;
       $("ud-p-list").innerHTML = (r === "shepherd" ? snames : pnames).map(n => `<option value="${esc(n)}">`).join("");
     };
     $("ud-role").onchange = $("ud-2").onchange = sync; sync();
@@ -3111,7 +3108,8 @@ async function admin(el) {
       const title = pick === "lead_pastor" ? "Lead pastor" : pick === "tech_admin" ? "Tech admin" : pick === "shepherd" ? "Shepherd" : null;
       const more = title || u?.title ? {title} : {};  // only sent when used, so it works before the new setup SQL
       const email = $("ud-email").value.trim().toLowerCase(), name = $("ud-name").value.trim().replace(/\s+/g, " ").slice(0, 80);
-      const pastor = needP ? ($("ud-p").value.trim() || (pick === "shepherd" ? name : "")).replace(/\s+/g, " ").replace(/,/g, " ").trim() : "", church = noChurch(r) ? null : $("ud-c").value;
+      const keep = pick === "shepherd" && u?.title === "Shepherd" && u.pastor;  // an existing shepherd keeps the name their people are given under
+      const pastor = !needP ? "" : (pick === "shepherd" ? (keep || name) : $("ud-p").value.trim()).replace(/\s+/g, " ").replace(/,/g, " ").trim(), church = noChurch(r) ? null : $("ud-c").value;
       const fail = t => { err.textContent = t; err.hidden = false; go.disabled = false; };
       if (!u) { const wrong = emailProblem(email); if (wrong) return fail(wrong); if (users.some(x => x.email === email)) return fail("That email can already sign in. Use Change on their row instead."); }
       if (needP && !pastor) return fail(pick === "shepherd" ? "Type their name." : "Type their name as it is on the Pastors list.");
