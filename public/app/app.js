@@ -1184,6 +1184,10 @@ function greetName() {
   // for example while an admin looks at the app as a pastor.
   const raw = String(S.me?.name || "").trim().replace(/\s+/g, " "); if (!raw) return "";
   const w = raw.split(" "), lead = [];
+  if (S.me.title === "Shepherd") {  // shepherds: just their first name, never "Shepherd Frank" or "Pastor Frank"
+    while (w.length > 1 && (GREET_TITLES.test(w[0]) || /^shepherd$/i.test(w[0]))) w.shift();
+    return w[0];
+  }
   while (w.length > 1 && GREET_TITLES.test(w[0])) lead.push(w.shift());
   const first = w[0];
   if (GREET_TITLES.test(first)) return raw;  // the name is only a title, e.g. "Bishop"
