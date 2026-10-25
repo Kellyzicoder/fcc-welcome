@@ -197,6 +197,8 @@ body.going::after {content: ""; position: fixed; top: 0; left: 0; right: 0; heig
 .chart .total {fill: var(--ink-2); font-weight: 600;}
 .chart .gridline {stroke: var(--line); stroke-width: 1;}
 .chart .hit {fill: transparent; cursor: pointer;} .chart g.col:hover .hit, .chart g.col:focus .hit {fill: var(--soft);}
+.chart g.col.dim path {fill: color-mix(in srgb, var(--adults) 32%, var(--line));} .chart g.col.dim .total {fill: var(--ink-3); font-weight: 500;}
+.chart g.col.dim:hover path, .chart g.col.dim:focus path {fill: color-mix(in srgb, var(--adults) 60%, var(--line));} .chart .tip small {opacity: .8;}
 .tip {position: absolute; pointer-events: none; background: var(--ink); color: var(--panel); border-radius: 12px;
       padding: 9px 12px; font-size: 12.5px; line-height: 1.5; white-space: nowrap; transform: translate(-50%, -110%);
       opacity: 0; transition: opacity .12s; z-index: 2;}
