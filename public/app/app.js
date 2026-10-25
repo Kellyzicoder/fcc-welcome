@@ -5,7 +5,7 @@
 const RED_AT = 5, YELLOW_AT = 3, ARCHIVE_DAYS = 730;
 const AWAY = new Set(["inactive", "moved", "left", "deceased", "transferred", "away"]);
 const ROLE = {admin: "Admin", bishop: "Bishop", lead: "Church admin", team: "Team", pastor: "Pastor"};
-const ROLE_OPTS = [["team", "Team (ushers)"], ["pastor", "Pastor (only their own people)"], ["shepherd", "Shepherd (like a Pastor: only the people assigned to them)"],
+const ROLE_OPTS = [["team", "Team (ushers)"], ["pastor", "Pastor (only their own people)"], ["reverend", "Reverend (like a Pastor: only their own people)"], ["shepherd", "Shepherd (like a Pastor: only the people assigned to them)"],
   ["lead", "Church admin (whole church, follow-up)"],
   ["lead_pastor", "Lead pastor (whole church, plus their own people)"],
   ["bishop", "Bishop (numbers only, all churches)"], ["admin", "Admin (everything, all churches)"],
@@ -15,9 +15,10 @@ const ROLE_OPTS = [["team", "Team (ushers)"], ["pastor", "Pastor (only their own
 // (in the Activity log, Sign-ins and the top bar).
 // A shepherd is a pastor sign-in with the title "Shepherd": people are assigned to them the same way, and they see and tick only those.
 // Sign-ins sorted by the role people see (Tech admin apart from Admin, Lead pastor apart from Church admin, Shepherd apart from Pastor)
-const UKINDS = [["admin", "Admin"], ["lead", "Church admin"], ["pastor", "Pastor"], ["team", "Team (ushers)"], ["tech_admin", "Tech admin"], ["lead_pastor", "Lead pastor"], ["shepherd", "Shepherd"], ["bishop", "Bishop"]];
-const ukind = u => ({"Tech admin": "tech_admin", "Lead pastor": "lead_pastor", "Shepherd": "shepherd"})[roleName(u)] || u.role;
-const roleName = u => u?.role === "pastor" && u?.title === "Shepherd" ? "Shepherd" : u?.role === "lead" && u?.title === "Lead pastor" ? "Lead pastor" : u?.role === "admin" && u?.title === "Tech admin" ? "Tech admin" : ROLE[u?.role] || u?.role || "";
+const UKINDS = [["admin", "Admin"], ["lead", "Church admin"], ["pastor", "Pastor"], ["team", "Team (ushers)"], ["tech_admin", "Tech admin"], ["lead_pastor", "Lead pastor"], ["shepherd", "Shepherd"], ["reverend", "Reverend"], ["bishop", "Bishop"]];
+const ukind = u => ({"Tech admin": "tech_admin", "Lead pastor": "lead_pastor", "Shepherd": "shepherd", "Reverend": "reverend"})[roleName(u)] || u.role;
+// A Reverend is a pastor sign-in titled Reverend: the same rights as a Pastor, just named as a Reverend.
+const roleName = u => u?.role === "pastor" && u?.title === "Shepherd" ? "Shepherd" : u?.role === "pastor" && u?.title === "Reverend" ? "Reverend" : u?.role === "lead" && u?.title === "Lead pastor" ? "Lead pastor" : u?.role === "admin" && u?.title === "Tech admin" ? "Tech admin" : ROLE[u?.role] || u?.role || "";
 const baseName = () => roleName({role: S.me.base, title: S.me.title});
 // What each colour means, in words (the colour alone was hard to read): red and amber are the people to call.
 const FLAG = {red: "Needs a call", yellow: "Check in", blue: "Missed this one", ok: "On track"};
@@ -1212,7 +1213,7 @@ function greetName() {
   if (lead.length) return `${lead.join(" ")} ${first}`;
   const role = S.me.role, title = S.me.title, pastors = role === "pastor" || title === "Lead pastor" || (!S.preview && S.me.pastor);
   if (title === "Shepherd") return first;  // a shepherd is not called Pastor
-  return role === "bishop" ? `Bishop ${first}` : pastors ? `Pastor ${first}` : first;
+  return role === "bishop" ? `Bishop ${first}` : title === "Reverend" ? `Reverend ${first}` : pastors ? `Pastor ${first}` : first;
 }
 function greeting() {
   const name = greetName(), h = new Date().getHours(), key = "fcc-seen:" + (S.me?.email || "");
@@ -3095,7 +3096,7 @@ async function admin(el) {
   function userDialog(u) {
     document.querySelectorAll(".modal").forEach(m => m.remove());
     const two = r => ["admin", "lead", "tech_admin"].includes(r), noChurch = r => ["admin", "bishop", "tech_admin"].includes(r);
-    const role0 = roleName(u) === "Lead pastor" ? "lead_pastor" : roleName(u) === "Tech admin" ? "tech_admin" : roleName(u) === "Shepherd" ? "shepherd" : u?.role || "team", second0 = u && two(u.role) && u.pastor && role0 !== "lead_pastor" ? "pastor" : "";
+    const role0 = roleName(u) === "Lead pastor" ? "lead_pastor" : roleName(u) === "Tech admin" ? "tech_admin" : roleName(u) === "Shepherd" ? "shepherd" : roleName(u) === "Reverend" ? "reverend" : u?.role || "team", second0 = u && two(u.role) && u.pastor && role0 !== "lead_pastor" ? "pastor" : "";
     const d = document.createElement("div"); d.className = "modal";
     d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="${u ? "Change sign-in" : "Add a person"}">
       <div class="card-head"><h2>${u ? `Change ${esc(u.name || u.email)}` : "Add a person"}</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
@@ -3116,7 +3117,7 @@ async function admin(el) {
     d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
     document.addEventListener("keydown", onKey);
     const sync = () => {
-      const r = $("ud-role").value, needP = r === "pastor" || r === "shepherd" || r === "lead_pastor" || (two(r) && $("ud-2").value === "pastor");
+      const r = $("ud-role").value, needP = r === "pastor" || r === "reverend" || r === "shepherd" || r === "lead_pastor" || (two(r) && $("ud-2").value === "pastor");
       const shep = r === "shepherd";  // a shepherd goes by the Name above (no separate box) and is added to the Shepherds list on saving
       $("ud-2-wrap").hidden = !two(r); $("ud-p-wrap").hidden = !needP || shep; $("ud-p").required = needP && !shep; $("ud-c-wrap").hidden = noChurch(r);
       $("ud-name").required = shep;
@@ -3126,8 +3127,8 @@ async function admin(el) {
     (u ? $("ud-name") : $("ud-email")).focus();
     d.querySelector("form").onsubmit = async e => {
       e.preventDefault();
-      const go = $("ud-go"), err = $("ud-err"), pick = $("ud-role").value, r = pick === "lead_pastor" ? "lead" : pick === "tech_admin" ? "admin" : pick === "shepherd" ? "pastor" : pick, needP = pick === "pastor" || pick === "shepherd" || pick === "lead_pastor" || (two(pick) && $("ud-2").value === "pastor");
-      const title = pick === "lead_pastor" ? "Lead pastor" : pick === "tech_admin" ? "Tech admin" : pick === "shepherd" ? "Shepherd" : null;
+      const go = $("ud-go"), err = $("ud-err"), pick = $("ud-role").value, r = pick === "lead_pastor" ? "lead" : pick === "tech_admin" ? "admin" : pick === "shepherd" || pick === "reverend" ? "pastor" : pick, needP = pick === "pastor" || pick === "reverend" || pick === "shepherd" || pick === "lead_pastor" || (two(pick) && $("ud-2").value === "pastor");
+      const title = pick === "lead_pastor" ? "Lead pastor" : pick === "tech_admin" ? "Tech admin" : pick === "shepherd" ? "Shepherd" : pick === "reverend" ? "Reverend" : null;
       const more = title || u?.title ? {title} : {};  // only sent when used, so it works before the new setup SQL
       const email = $("ud-email").value.trim().toLowerCase(), name = $("ud-name").value.trim().replace(/\s+/g, " ").slice(0, 80);
       const keep = pick === "shepherd" && u?.title === "Shepherd" && u.pastor;  // an existing shepherd keeps the name their people are given under
