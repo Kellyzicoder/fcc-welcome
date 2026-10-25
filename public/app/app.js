@@ -3289,8 +3289,9 @@ const pastors = el => careGroups(el, CARE.pastors), shepherds = el => careGroups
 async function person(el) {
   const p = picture(), mine = p.mine.slice().sort(byName), m = mine.find(x => x.id === S.person);
   // Opened by tapping a name on any list, so there's no search box here (finding people is on Congregation)
-  const top = head(m ? esc(m.full_name) : "Person", esc(S.church), m ? `<button class="pill-btn" id="dl">Download</button>` : "");
-  const bind = () => {};
+  const canEdit = ["admin", "lead"].includes(S.me.role) && !S.preview;  // the same people who can edit on Congregation
+  const top = head(m ? esc(m.full_name) : "Person", esc(S.church), m ? `${canEdit ? `<button class="pill-btn" id="pe-edit">${svg("edit")}Edit</button>` : ""}<button class="pill-btn" id="dl">Download</button>` : "");
+  const bind = () => { const b = el.querySelector("#pe-edit"); if (b) b.onclick = () => editPerson(m); };
   if (!m) { el.innerHTML = top + `<div class="card"><p class="empty" style="margin:0 0 12px">Tap a name on any list to see their attendance.</p><button class="pill-btn" data-go-people>Open Congregation</button></div>`;
     el.querySelector("[data-go-people]").onclick = () => { S.view = "people"; render(); }; return; }
   el.innerHTML = top + `<p class="empty">Loading…</p>`; bind();
