@@ -5,14 +5,16 @@
 const RED_AT = 5, YELLOW_AT = 3, ARCHIVE_DAYS = 730;
 const AWAY = new Set(["inactive", "moved", "left", "deceased", "transferred", "away"]);
 const ROLE = {admin: "Admin", bishop: "Bishop", lead: "Church admin", team: "Team", pastor: "Pastor"};
-const ROLE_OPTS = [["team", "Team (ushers)"], ["pastor", "Pastor (only their own people)"], ["lead", "Church admin (whole church, follow-up)"],
+const ROLE_OPTS = [["team", "Team (ushers)"], ["pastor", "Pastor (only their own people)"], ["shepherd", "Shepherd (like a Pastor: only the people assigned to them)"],
+  ["lead", "Church admin (whole church, follow-up)"],
   ["lead_pastor", "Lead pastor (whole church, plus their own people)"],
   ["bishop", "Bishop (numbers only, all churches)"], ["admin", "Admin (everything, all churches)"],
   ["tech_admin", "Tech admin (everything an admin can do; shown as Tech admin)"]];
 // A lead pastor is a church admin with the title "Lead pastor" (they also get the Pastor view for their own people).
 // A tech admin is an admin with the title "Tech admin": the same rights, but named apart from the church's own admins
 // (in the Activity log, Sign-ins and the top bar).
-const roleName = u => u?.role === "lead" && u?.title === "Lead pastor" ? "Lead pastor" : u?.role === "admin" && u?.title === "Tech admin" ? "Tech admin" : ROLE[u?.role] || u?.role || "";
+// A shepherd is a pastor sign-in with the title "Shepherd": people are assigned to them the same way, and they see and tick only those.
+const roleName = u => u?.role === "pastor" && u?.title === "Shepherd" ? "Shepherd" : u?.role === "lead" && u?.title === "Lead pastor" ? "Lead pastor" : u?.role === "admin" && u?.title === "Tech admin" ? "Tech admin" : ROLE[u?.role] || u?.role || "";
 const baseName = () => roleName({role: S.me.base, title: S.me.title});
 // What each colour means, in words (the colour alone was hard to read): red and amber are the people to call.
 const FLAG = {red: "Needs a call", yellow: "Check in", blue: "Missed this one", ok: "On track"};
@@ -45,6 +47,9 @@ function when(iso) {  // a saved timestamp as a short date and time
   return isNaN(d) ? String(iso || "") : d.toLocaleString("en-NZ", {day: "numeric", month: "short", hour: "2-digit", minute: "2-digit"});
 }
 const pastorsOf = m => String(m.pastor || "").split(",").map(x => x.trim()).filter(Boolean);  // someone can have more than one pastor
+const shepherdsOf = m => String(m.shepherd || "").split(",").map(x => x.trim()).filter(Boolean);  // and shepherds, kept apart from pastors
+// the people a pastor-type sign-in looks after: a Shepherd by the Shepherd field, a Pastor by the Pastor field
+const careOf = m => S.me?.title === "Shepherd" ? shepherdsOf(m) : pastorsOf(m);
 // Is this pastor the person themselves? Titles are ignored, so "Lady Pastor Rita Kpodonu" matches Rita Kpodonu.
 const TITLES = /^((lady|senior|assistant|associate)\s+)?(pastor|rev(erend)?\.?|bishop|apostle|prophet(ess)?|evangelist|elder|deacon(ess)?|minister|dr\.?|mr\.?|mrs\.?|ms\.?)\s+/;
 const bare = n => { let x = norm(n).replace(/\s+/g, " "); for (let i = 0; i < 3 && TITLES.test(x); i++) x = x.replace(TITLES, ""); return x; };
@@ -849,7 +854,7 @@ async function signOut() { try { await auth("logout", {}, S.session?.access_toke
 async function load() {
   const since = new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10);
   const [members, ticks, services, seen, lists, parts, pticks] = await Promise.all([
-    all("members?select=id,full_name,phone,email,address,type,status,age_group,gender,pastor,church,role,group_name,date_joined,first_visit,created_at,version&order=full_name")
+    all("members?select=id,full_name,phone,email,address,type,status,age_group,gender,pastor,shepherd,church,role,group_name,date_joined,first_visit,created_at,version&order=full_name")
       .catch(() => all("members?select=id,full_name,phone,type,status,age_group,gender,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name"))  // before the address column is added
       .catch(() => all("members?select=id,full_name,phone,type,status,age_group,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name")),
     all(`attendance?select=service_date,member_id,checked_at&service_date=gte.${since}&order=service_date`),
@@ -860,6 +865,8 @@ async function load() {
     all(`service_parts?select=service_date,part,name&church=eq.${encodeURIComponent(S.church)}&service_date=gte.${since}&order=service_date,part`).catch(() => null),
     all(`service_ticks?select=service_date,part,member_id&service_date=gte.${since}`).catch(() => [])]);
   S.pastorList = Object.fromEntries(lists.map(r => [r.key.slice(8), (r.value || "").split("\n").map(x => x.trim()).filter(Boolean)]));
+  S.shepherdList = await api("settings?select=key,value&key=like.shepherds:*")
+    .then(r => Object.fromEntries(r.map(x => [x.key.slice(10), (x.value || "").split("\n").map(y => y.trim()).filter(Boolean)]))).catch(() => ({}));
   S.seen = seen && Object.fromEntries(seen.map(r => [r.member_id, r.last_seen]));
   S.members = S.me.role === "pastor" && S.me.base !== "pastor"  // an admin in Pastor view: only the people assigned to them
     ? members.filter(m => pastorsOf(m).some(n => norm(n) === norm(S.me.pastor))) : members;
@@ -873,7 +880,7 @@ async function freshen() {
   if (Date.now() - freshAt < 5000) return;  // just done
   const since = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10);
   const [members, ticks, services, parts, pticks, pending] = await Promise.all([
-    all("members?select=id,full_name,phone,email,address,type,status,age_group,gender,pastor,church,role,group_name,date_joined,first_visit,created_at,version&order=full_name")
+    all("members?select=id,full_name,phone,email,address,type,status,age_group,gender,pastor,shepherd,church,role,group_name,date_joined,first_visit,created_at,version&order=full_name")
       .catch(() => all("members?select=id,full_name,phone,type,status,age_group,gender,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name"))
       .catch(() => all("members?select=id,full_name,phone,type,status,age_group,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name")),
     all(`attendance?select=service_date,member_id,checked_at&service_date=gte.${since}&order=service_date`),
@@ -968,6 +975,7 @@ const ICON = {
   pastors: '<circle cx="9" cy="8" r="3.5"/><path d="M2 21a7 7 0 0 1 14 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a7 7 0 0 1 4 6.5"/>',
   person: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   signups: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h5"/>',
+  shepherds: '<path d="M9 21V9a4 4 0 1 1 8 0v1"/><path d="M6 21h6"/><circle cx="17" cy="12.5" r=".6"/>',
   teamforms: '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 11l2 2 4-4"/>',
   archive: '<rect x="3" y="5" width="18" height="4" rx="1"/><path d="M5 9v10h14V9M10 13h4"/>',
   activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
@@ -989,7 +997,7 @@ function pages() {  // the menu, in groups; what each role can actually load is 
   if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people
   // Grouped by what people come to do: take attendance, look after people, share the numbers, run the churches, settings
   return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["followup", "Follow-up"]]],
-          ["PEOPLE", [["people", "Congregation"], ["pastors", "Pastors"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ...(canTeam() ? [["teamforms", "Team forms"]] : []), ["archive", "Archive"]]],
+          ["PEOPLE", [["people", "Congregation"], ["pastors", "Pastors"], ["shepherds", "Shepherds"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ...(canTeam() ? [["teamforms", "Team forms"]] : []), ["archive", "Archive"]]],
           ["SHARE", [["reports", "Reports"]]],
           ...(r === "admin" ? [["CHURCHES", [["overview", "Churches"]]]] : []),
           ...(r === "team" ? [] : [[r === "admin" ? "ADMIN" : "RECORDS", [...(r === "admin" ? [["admin", "Admin"]] : []), ["activity", "Activity log"]]]]),
@@ -1128,7 +1136,7 @@ function render() {
   };
   root.querySelectorAll("[data-back]").forEach(b => b.onclick = () => history.back());  // same as the phone's back gesture
   if (moved) pageIn(view);
-  ({mine, dashboard, checkin, summary: summaryPage, followup, pastors, people, person, signups, teamforms, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
+  ({mine, dashboard, checkin, summary: summaryPage, followup, pastors, shepherds, people, person, signups, teamforms, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
 }
 // Smooth movement. A new page eases in for a moment only, so ticking or editing later never makes things flicker.
 const stillMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.classList.contains("calm");
@@ -1163,9 +1171,9 @@ addEventListener("popstate", () => {
   if (!S.me || !S.hist?.length) return;
   S.view = S.hist.pop(); S.goingBack = true; document.querySelectorAll(".modal").forEach(m => m.remove()); render();
 });
-const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", pastors: "Pastors", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", teamforms: "Team forms", archive: "Archive",
+const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", pastors: "Pastors", shepherds: "Shepherds", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", teamforms: "Team forms", archive: "Archive",
                activity: "Activity", reports: "Reports", overview: "All churches", admin: "Admin"};
-const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, summary: 6, followup: 3, pastors: 4, people: 5, signups: 6, teamforms: 3, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
+const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, summary: 6, followup: 3, pastors: 4, shepherds: 2, people: 5, signups: 6, teamforms: 3, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
 // A greeting on the home pages: "Good morning, Kelvin", or "Welcome back, Pastor Grace" after a day or more away.
 // Pastors and bishops are greeted with their title; a title already in their name (Pastor, Rev, Elder...) is kept.
 const GREET_TITLES = /^(pastor|ps|bishop|reverend|rev|elder|deacon|deaconess|lady|prophet|prophetess|apostle|evangelist|dr|mrs?|ms|minister)\.?$/i;
@@ -1179,6 +1187,7 @@ function greetName() {
   if (GREET_TITLES.test(first)) return raw;  // the name is only a title, e.g. "Bishop"
   if (lead.length) return `${lead.join(" ")} ${first}`;
   const role = S.me.role, title = S.me.title, pastors = role === "pastor" || title === "Lead pastor" || (!S.preview && S.me.pastor);
+  if (title === "Shepherd") return first;  // a shepherd is not called Pastor
   return role === "bishop" ? `Bishop ${first}` : pastors ? `Pastor ${first}` : first;
 }
 function greeting() {
@@ -2683,7 +2692,8 @@ function editPerson(m) {
     const plist = S.pastorList[churchOf(m)] || [], admin = S.me.role === "admin", statuses = ["", "Away", "Inactive", "Moved", "Left", "Transferred", "Deceased"];
     const ageOf = m => isKid(m) ? "Child" : "Adult";
     const roleNames = [...new Map(S.members.filter(x => churchOf(x) === churchOf(m)).flatMap(rolesOf).map(r => [norm(r), r])).values()].sort();
-    const cur = pastorsOf(m);
+    const cur = pastorsOf(m), slist = (S.shepherdList || {})[churchOf(m)] || [], scur = shepherdsOf(m);
+    const sheps = [...slist, ...scur.filter(c => !slist.includes(c))].filter(n => !isSelf(n, m)).map(n => [n, n]);
     const pastors = [...plist, ...cur.filter(c => !plist.includes(c))].filter(n => !isSelf(n, m)).map(n => [n, n]);
     formDialog(`Edit ${m.full_name}`, [
       {k: "full_name", label: "Full name", value: m.full_name, required: true},
@@ -2698,18 +2708,20 @@ function editPerson(m) {
        options: [...statuses.map(x => [x, x || "Active"]), ...(m.status && !statuses.some(x => norm(x) === norm(m.status)) ? [[m.status, m.status]] : [])]},
       pastors.length ? {k: "pastor", label: "Pastors", value: cur, type: "multi", options: pastors, hint: "Tick one or more."}
                      : {k: "pastor", label: "Pastors", value: "", hint: "Add pastors on the Pastors page to choose from a list."},
+      ...("shepherd" in m ? [sheps.length ? {k: "shepherd", label: "Shepherds", value: scur, type: "multi", options: sheps, hint: "Tick one or more, or none."}
+                               : {k: "shepherd", label: "Shepherds", value: scur.join(", "), hint: "Add shepherds on the Shepherds page to choose from a list."}] : []),
       ...(admin ? [{k: "church", label: "Church", value: churchOf(m), type: "select", options: S.churches.map(c => [c, c])}] : []),
     ], async v => {
       if (!v.full_name) throw new Error("Type their name.");
       const badPhone = phoneProblem(v.phone, false); if (badPhone) throw new Error(badPhone);
       if (v.pastor.split(",").some(n => isSelf(n.trim(), m))) throw new Error("Someone can't be their own pastor. Choose a different pastor.");
       v.role = v.role.split(",").map(x => x.trim()).filter(Boolean).join(", ");
-      const changed = Object.fromEntries(Object.entries(v).filter(([k, val]) => val !== String(k === "church" ? churchOf(m) : k === "age_group" ? ageOf(m) : k === "type" ? typeKey(m) : k === "gender" ? genderOf(m) : k === "pastor" ? pastorsOf(m).join(", ") : (m[k] ?? "")).trim()));
+      const changed = Object.fromEntries(Object.entries(v).filter(([k, val]) => val !== String(k === "church" ? churchOf(m) : k === "age_group" ? ageOf(m) : k === "type" ? typeKey(m) : k === "gender" ? genderOf(m) : k === "pastor" ? pastorsOf(m).join(", ") : k === "shepherd" ? shepherdsOf(m).join(", ") : (m[k] ?? "")).trim()));
       if (!Object.keys(changed).length) return;
       // only save over the version this screen loaded: if someone else edited the person meanwhile, nothing is overwritten
       const ver = Number(m.version) || 1;
       const rows = await api(`members?id=eq.${encodeURIComponent(m.id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {...changed, version: ver + 1}})
-        .catch(err => { throw new Error(/gender|address/.test(err.message) ? "Run the latest setup SQL in Supabase once to save this, then try again." : err.message); });
+        .catch(err => { throw new Error(/gender|address|shepherd/.test(err.message) ? "Run the latest setup SQL in Supabase once to save this, then try again." : err.message); });
       if (!rows?.length) { await load(); render(); throw new Error("Someone else changed this person a moment ago, so nothing was saved. The list now shows the latest details: please make your change again."); }
       Object.assign(m, changed, {version: ver + 1});
       log("edit", m.id, "done", Object.keys(changed).join(", "));
@@ -2937,6 +2949,7 @@ async function admin(el) {
   el.innerHTML = head("Admin", "Sign-ins, messages and space") + `<p class="empty">Loading…</p>`;
   const users = await api("app_users?select=email,role,church,name,pastor,title&order=email").catch(() => api("app_users?select=email,role,church,name,pastor&order=email")).catch(() => api("app_users?select=email,role,church,name&order=email")).catch(() => []);
   const pnames = [...new Set(Object.values(S.pastorList).flat())].sort();  // names on every church's pastor list
+  const snames = [...new Set(Object.values(S.shepherdList || {}).flat())].sort();  // and shepherd list
   const space = await api("rpc/app_db_size", {method: "POST", body: {}}).catch(() => null);  // null until the newer setup SQL has been run
   const inbox = await api("help_messages?select=*&order=created_at.desc&limit=50").catch(() => null);  // messages sent from Help
   if (S.view !== "admin") return;
@@ -3046,7 +3059,7 @@ async function admin(el) {
   function userDialog(u) {
     document.querySelectorAll(".modal").forEach(m => m.remove());
     const two = r => ["admin", "lead", "tech_admin"].includes(r), noChurch = r => ["admin", "bishop", "tech_admin"].includes(r);
-    const role0 = roleName(u) === "Lead pastor" ? "lead_pastor" : roleName(u) === "Tech admin" ? "tech_admin" : u?.role || "team", second0 = u && two(u.role) && u.pastor && role0 !== "lead_pastor" ? "pastor" : "";
+    const role0 = roleName(u) === "Lead pastor" ? "lead_pastor" : roleName(u) === "Tech admin" ? "tech_admin" : roleName(u) === "Shepherd" ? "shepherd" : u?.role || "team", second0 = u && two(u.role) && u.pastor && role0 !== "lead_pastor" ? "pastor" : "";
     const d = document.createElement("div"); d.className = "modal";
     d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="${u ? "Change sign-in" : "Add a person"}">
       <div class="card-head"><h2>${u ? `Change ${esc(u.name || u.email)}` : "Add a person"}</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
@@ -3055,9 +3068,9 @@ async function admin(el) {
         <div><label class="f" for="ud-name">Name</label><input class="in" id="ud-name" maxlength="80" value="${esc(u?.name || "")}" autocomplete="off" placeholder="e.g. Grace Mensah"></div>
         <div><label class="f" for="ud-role">Role 1 (main role)</label><select class="in" id="ud-role">${ROLE_OPTS.map(([v, t]) => `<option value="${v}" ${v === role0 ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></div>
         <div id="ud-2-wrap"><label class="f" for="ud-2">Role 2</label><select class="in" id="ud-2"><option value="">None</option><option value="pastor" ${second0 ? "selected" : ""}>Pastor (can switch to Pastor view)</option></select></div>
-        <div id="ud-p-wrap"><label class="f" for="ud-p">Their name on the Pastors list</label><input class="in" id="ud-p" list="ud-p-list" autocomplete="off" value="${esc(u?.pastor || "")}" placeholder="e.g. Pastor Grace Mensah">
+        <div id="ud-p-wrap"><label class="f" for="ud-p" id="ud-p-lab">Their name on the Pastors list</label><input class="in" id="ud-p" list="ud-p-list" autocomplete="off" value="${esc(u?.pastor || "")}" placeholder="e.g. Pastor Grace Mensah or Shepherd Kofi Asante">
           <datalist id="ud-p-list">${pnames.map(n => `<option value="${esc(n)}">`).join("")}</datalist>
-          <p class="note" style="margin:6px 2px 0">Must match the Pastors list exactly: it decides whose people they see.</p></div>
+          <p class="note" style="margin:6px 2px 0" id="ud-p-note">Must match the Pastors list exactly: it decides whose people they see.</p></div>
         <div id="ud-c-wrap"><label class="f" for="ud-c">Church</label><select class="in" id="ud-c">${S.churches.map(c => `<option ${c === (u?.church || S.church) ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></div>
       </div>
       <div class="msg bad" id="ud-err" hidden></div>
@@ -3067,15 +3080,18 @@ async function admin(el) {
     d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
     document.addEventListener("keydown", onKey);
     const sync = () => {
-      const r = $("ud-role").value, needP = r === "pastor" || r === "lead_pastor" || (two(r) && $("ud-2").value === "pastor");
+      const r = $("ud-role").value, needP = r === "pastor" || r === "shepherd" || r === "lead_pastor" || (two(r) && $("ud-2").value === "pastor");
       $("ud-2-wrap").hidden = !two(r); $("ud-p-wrap").hidden = !needP; $("ud-p").required = needP; $("ud-c-wrap").hidden = noChurch(r);
+      const list = r === "shepherd" ? "Shepherds" : "Pastors";  // a shepherd is picked from the Shepherds list, everyone else from the Pastors list
+      $("ud-p-lab").textContent = `Their name on the ${list} list`; $("ud-p-note").textContent = `Must match the ${list} list exactly: it decides whose people they see.`;
+      $("ud-p-list").innerHTML = (r === "shepherd" ? snames : pnames).map(n => `<option value="${esc(n)}">`).join("");
     };
     $("ud-role").onchange = $("ud-2").onchange = sync; sync();
     (u ? $("ud-name") : $("ud-email")).focus();
     d.querySelector("form").onsubmit = async e => {
       e.preventDefault();
-      const go = $("ud-go"), err = $("ud-err"), pick = $("ud-role").value, r = pick === "lead_pastor" ? "lead" : pick === "tech_admin" ? "admin" : pick, needP = pick === "pastor" || pick === "lead_pastor" || (two(pick) && $("ud-2").value === "pastor");
-      const title = pick === "lead_pastor" ? "Lead pastor" : pick === "tech_admin" ? "Tech admin" : null;
+      const go = $("ud-go"), err = $("ud-err"), pick = $("ud-role").value, r = pick === "lead_pastor" ? "lead" : pick === "tech_admin" ? "admin" : pick === "shepherd" ? "pastor" : pick, needP = pick === "pastor" || pick === "shepherd" || pick === "lead_pastor" || (two(pick) && $("ud-2").value === "pastor");
+      const title = pick === "lead_pastor" ? "Lead pastor" : pick === "tech_admin" ? "Tech admin" : pick === "shepherd" ? "Shepherd" : null;
       const more = title || u?.title ? {title} : {};  // only sent when used, so it works before the new setup SQL
       const email = $("ud-email").value.trim().toLowerCase(), name = $("ud-name").value.trim().replace(/\s+/g, " ").slice(0, 80);
       const pastor = needP ? $("ud-p").value.trim().replace(/\s+/g, " ") : "", church = noChurch(r) ? null : $("ud-c").value;
@@ -3110,7 +3126,7 @@ async function admin(el) {
 
 // ---------------------------------------------------------------- a pastor's home: only their own people
 function mine(el) {
-  const p = picture(), me = S.me.pastor || "", list = p.people.filter(x => !me || pastorsOf(x).some(n => norm(n) === norm(me))).sort(byName);
+  const p = picture(), me = S.me.pastor || "", list = p.people.filter(x => !me || careOf(x).some(n => norm(n) === norm(me))).sort(byName);
   const came = list.filter(x => p.here[x.id]), need = list.filter(x => x.level !== "ok");
   const message = (o = {}) => {
     if (o.day && !p.dates.includes(o.day)) return null;
@@ -3138,86 +3154,92 @@ function mine(el) {
 }
 
 // ---------------------------------------------------------------- pastors: each pastor's people
-function pastors(el) {
+function careGroups(el, K) {  // the Pastors and Shepherds pages: each one's people, who came, who needs a call, and the list of names
   const NONE = "Not assigned yet", p = picture(), p0 = p, groups = {};
-  for (const x of p.people) for (const n of pastorsOf(x).length ? pastorsOf(x) : [NONE]) (groups[n] ??= []).push(x);
-  const plist = S.pastorList[S.church] || [], canEdit = S.me.role !== "team";
-  for (const n of plist) groups[n] ??= [];  // pastors on the list show even before anyone is assigned to them
+  for (const x of p.people) for (const n of K.of(x).length ? K.of(x) : [NONE]) (groups[n] ??= []).push(x);
+  const plist = K.list()[S.church] || [], canEdit = S.me.role !== "team";
+  for (const n of plist) groups[n] ??= [];  // names on the list show even before anyone is assigned to them
   const names = Object.keys(groups).sort((a, b) => (a === NONE) - (b === NONE) || a.localeCompare(b));
-  if (!names.includes(S.pastor)) S.pastor = names[0] || "";
-  const list = (groups[S.pastor] || []).slice().sort(byName), came = list.filter(x => p.here[x.id]), need = list.filter(x => x.level !== "ok");
+  if (!names.includes(S[K.sel])) S[K.sel] = names[0] || "";
+  const list = (groups[S[K.sel]] || []).slice().sort(byName), came = list.filter(x => p.here[x.id]), need = list.filter(x => x.level !== "ok");
   const message = (o = {}) => {
     if (o.day && !p0.dates.includes(o.day)) return null;
     const p = o.day && o.day !== p0.last ? picture(o.day) : p0;
-    const list = p.people.filter(x => S.pastor === NONE ? !pastorsOf(x).length : pastorsOf(x).includes(S.pastor)).sort(byName), came = list.filter(x => p.here[x.id]), need = list.filter(x => x.level !== "ok");
-    const out = [`*${S.pastor} · your people*${S.emoji ? " ⛪" : ""}`, p.last ? nice(p.last, true) : "", "", ["✅", `Came: *${came.length} of ${list.length}*`]];
+    const list = p.people.filter(x => S[K.sel] === NONE ? !K.of(x).length : K.of(x).includes(S[K.sel])).sort(byName), came = list.filter(x => p.here[x.id]), need = list.filter(x => x.level !== "ok");
+    const out = [`*${S[K.sel]} · your people*${S.emoji ? " ⛪" : ""}`, p.last ? nice(p.last, true) : "", "", ["✅", `Came: *${came.length} of ${list.length}*`]];
     if (came.length) out.push(came.map(x => x.full_name).join(", "));
     const not = list.filter(x => !p.here[x.id]);
     if (not.length) out.push("", ["🙏", "Not there:"], not.map(x => x.full_name).join(", "));
     if (need.length) out.push("", ["📞", "Please call:"], ...need.map(x => `- ${x.full_name} (${x.missed} missed${x.phone ? ", " + x.phone : ""})`));
     return wa(out);
   };
-  el.innerHTML = head("Pastors", esc(S.church),
-    S.pastor && S.pastor !== NONE ? `<button class="pill-btn" id="wa">Message for WhatsApp</button>` : "") + `
-    ${names.length ? `<div class="card" style="margin-bottom:14px"><div class="scroll"><table><thead><tr><th>Pastor</th><th>People</th><th>Came${p.last ? " · " + esc(nice(p.last)) : ""}</th><th>Need a call</th></tr></thead><tbody>
-      ${names.map(n => { const g = groups[n]; return `<tr><td><button class="who ${n === S.pastor ? "sel" : ""}" data-pastor="${esc(n)}"><span>${esc(initials(n))}</span>${esc(n)}</button></td>
+  el.innerHTML = head(K.words, esc(S.church),
+    S[K.sel] && S[K.sel] !== NONE ? `<button class="pill-btn" id="wa">Message for WhatsApp</button>` : "") + `
+    ${names.length ? `<div class="card" style="margin-bottom:14px"><div class="scroll"><table><thead><tr><th>${K.word}</th><th>People</th><th>Came${p.last ? " · " + esc(nice(p.last)) : ""}</th><th>Need a call</th></tr></thead><tbody>
+      ${names.map(n => { const g = groups[n]; return `<tr><td><button class="who ${n === S[K.sel] ? "sel" : ""}" data-pastor="${esc(n)}"><span>${esc(initials(n))}</span>${esc(n)}</button></td>
         <td>${g.length}</td><td>${g.filter(x => p.here[x.id]).length}</td><td>${g.filter(x => x.level !== "ok").length}</td></tr>`; }).join("")}</tbody></table></div></div>
-    <div class="card" id="pastor-people" style="scroll-margin-top:12px"><div class="card-head"><h2>${esc(S.pastor)}</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${list.length} ${list.length === 1 ? "person" : "people"}</span></div>
+    <div class="card" id="pastor-people" style="scroll-margin-top:12px"><div class="card-head"><h2>${esc(S[K.sel])}</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${list.length} ${list.length === 1 ? "person" : "people"}</span></div>
       <div class="scroll"><table><thead><tr><th>Name</th>${canEdit ? "<th></th>" : ""}<th>Came</th><th>Status</th><th>Missed in a row</th><th>Phone</th></tr></thead><tbody>
       ${list.map(x => `<tr><td>${whoBtn(x)}</td>${canEdit ? `<td><button class="pill-btn sm" data-edit="${esc(x.id)}" aria-label="Edit ${esc(x.full_name)}">${svg("edit")}Edit</button></td>` : ""}<td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${badge(x.flag)}</td><td>${x.missed}</td><td class="muted">${esc(x.phone || "")}</td></tr>`).join("")}
       </tbody></table></div>
-      ${list.length ? "" : `<p class="empty">Nobody is assigned to ${esc(S.pastor)} yet.</p>`}
+      ${list.length ? "" : `<p class="empty">Nobody is assigned to ${esc(S[K.sel])} yet.</p>`}
       </div>`
       : `<p class="empty">Nobody on this register yet.</p>`}
-    ${canEdit ? `<div class="card plist" id="plist"><div class="pl-head"><span class="pl-ico">${svg("pastors")}</span><div><h2>Pastor list</h2><p>${esc(S.church)} · ${plist.length} ${plist.length === 1 ? "name" : "names"}</p></div><span class="gap"></span>
-        <button type="button" class="pill-btn sm primary" id="pl-add">${svg("plus")}Add pastor</button></div>
-      <label class="find-bar pl-find">${svg("search")}<input id="pl-q" type="search" placeholder="Search pastors by name" value="${esc(S.plQ || "")}" autocomplete="off" aria-label="Search pastors"></label>
+    ${canEdit ? `<div class="card plist" id="plist"><div class="pl-head"><span class="pl-ico">${svg(K.view)}</span><div><h2>${K.word} list</h2><p>${esc(S.church)} · ${plist.length} ${plist.length === 1 ? "name" : "names"}</p></div><span class="gap"></span>
+        <button type="button" class="pill-btn sm primary" id="pl-add">${svg("plus")}Add ${K.word.toLowerCase()}</button></div>
+      <label class="find-bar pl-find">${svg("search")}<input id="pl-q" type="search" placeholder="Search ${K.words.toLowerCase()} by name" value="${esc(S[K.sel + "Q"] || "")}" autocomplete="off" aria-label="Search ${K.words.toLowerCase()}"></label>
       <div class="pl-chips" id="pl-chips"></div><div id="pl-rows"></div></div>` : ""}`;
-  // The pastor list: search, title chips (Bishop, Reverend, Lady Pastor...), and a row for each name with how many people they have.
+  // The list of names: search, title chips (Bishop, Reverend, Lady Pastor...), and a row for each name with how many people they have.
   const listBox = el.querySelector("#plist");
   if (listBox) {
     const TITLES_ = ["Lady Pastor", "Bishop", "Reverend", "Apostle", "Prophet", "Evangelist", "Elder", "Deacon", "Pastor"];
     const titleOf = n => TITLES_.find(t => norm(n).startsWith(norm(t) + " ")) || "Other";
     const titles = [...new Set(plist.map(titleOf))].sort((a, b) => TITLES_.indexOf(a) - TITLES_.indexOf(b));
-    if (S.plT && !titles.includes(S.plT)) S.plT = "";
+    if (S[K.sel + "T"] && !titles.includes(S[K.sel + "T"])) S[K.sel + "T"] = "";
     const save = async out => {
-      try { await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key: "pastors:" + S.church, value: out.join("\n")}}); }
+      try { await api("settings?on_conflict=key", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {key: K.key + S.church, value: out.join("\n")}}); }
       catch (err) { throw new Error(/settings|policy|permission/i.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
-      S.pastorList[S.church] = out; render();
+      K.list()[S.church] = out; render();
     };
     const clean = x => x.replace(/,/g, " ").trim().replace(/\s+/g, " ").slice(0, 80);
     const drawList = () => {
-      const q = norm(S.plQ || ""), rows = plist.filter(n => (!S.plT || titleOf(n) === S.plT) && (!q || norm(n).includes(q)));
+      const q = norm(S[K.sel + "Q"] || ""), rows = plist.filter(n => (!S[K.sel + "T"] || titleOf(n) === S[K.sel + "T"]) && (!q || norm(n).includes(q)));
       el.querySelector("#pl-chips").innerHTML = titles.length > 1 ? [["", "All"], ...titles.map(t => [t, t === "Other" ? "Other" : t])].map(([v, t]) =>
-        `<button type="button" class="pl-chip ${(S.plT || "") === v ? "on" : ""}" data-plt="${esc(v)}">${esc(t)}${v ? ` <span>${plist.filter(n => titleOf(n) === v).length}</span>` : ""}</button>`).join("") : "";
+        `<button type="button" class="pl-chip ${(S[K.sel + "T"] || "") === v ? "on" : ""}" data-plt="${esc(v)}">${esc(t)}${v ? ` <span>${plist.filter(n => titleOf(n) === v).length}</span>` : ""}</button>`).join("") : "";
       el.querySelector("#pl-rows").innerHTML = rows.length ? rows.map(n => { const g = groups[n] || [], h = hueOf(n);
-        return `<div class="pl-row ${n === S.pastor ? "sel" : ""}"><button type="button" class="pl-main" data-pl="${esc(n)}" title="See ${esc(n)}'s people">
+        return `<div class="pl-row ${n === S[K.sel] ? "sel" : ""}"><button type="button" class="pl-main" data-pl="${esc(n)}" title="See ${esc(n)}'s people">
           <span class="pl-ava" style="background:var(--h${h}b);color:var(--h${h}t)">${esc(initials(n))}</span>
           <span class="pl-txt"><b>${esc(n)}</b><small><span>${svg("people")}${g.length} ${g.length === 1 ? "person" : "people"}</span><span>${svg("checkin")}${g.filter(x => p.here[x.id]).length} came</span>${g.filter(x => x.level !== "ok").length ? `<span class="warn">${svg("followup")}${g.filter(x => x.level !== "ok").length} need a call</span>` : ""}</small></span></button>
           <button type="button" class="icon-btn sm" data-pledit="${esc(n)}" aria-label="Rename or remove ${esc(n)}">${svg("edit")}</button>${svg("next")}</div>`; }).join("")
-        : `<p class="empty">${plist.length ? "No pastor matches that." : "No pastors on the list yet. Tap Add pastor."}</p>`;
+        : `<p class="empty">${plist.length ? `No ${K.word.toLowerCase()} matches that.` : `No ${K.words.toLowerCase()} on the list yet. Tap Add ${K.word.toLowerCase()}.`}</p>`;
     };
     listBox.onclick = e => {
-      const c = e.target.closest("[data-plt]"); if (c) { S.plT = c.dataset.plt; drawList(); return; }
+      const c = e.target.closest("[data-plt]"); if (c) { S[K.sel + "T"] = c.dataset.plt; drawList(); return; }
       const ed = e.target.closest("[data-pledit]");
-      if (ed) { const old = ed.dataset.pledit; return formDialog(`Change ${old}`, [{k: "name", label: "Name on the Pastors list", value: old, required: true, hint: "Renaming here changes the list only. People assigned under the old name keep it until you change them."}],
+      if (ed) { const old = ed.dataset.pledit; return formDialog(`Change ${old}`, [{k: "name", label: `Name on the ${K.words} list`, value: old, required: true, hint: "Renaming here changes the list only. People assigned under the old name keep it until you change them."}],
         async v => { const n = clean(v.name); if (!n || n === old) return; if (plist.some(x => x !== old && norm(x) === norm(n))) throw new Error(`${n} is already on the list.`);
           await save(plist.map(x => x === old ? n : x)); toast("Saved."); }, "Save",
         {label: "Remove from list", confirm: "Tap again to remove", run: async () => { await save(plist.filter(x => x !== old)); toast(`${old} removed from the list.`); }}); }
-      const r = e.target.closest("[data-pl]"); if (r) { S.pastor = r.dataset.pl; S.pastorJump = true; render(); }
+      const r = e.target.closest("[data-pl]"); if (r) { S[K.sel] = r.dataset.pl; S.pastorJump = true; render(); }
     };
-    el.querySelector("#pl-q").oninput = e => { S.plQ = e.target.value; drawList(); };
-    el.querySelector("#pl-add").onclick = () => formDialog("Add a pastor", [{k: "name", label: "Full name with title", value: "", required: true, hint: "e.g. Pastor Grace Mensah, Lady Pastor Rita Kpodonu or Reverend Theodore Kpodonu"}],
+    el.querySelector("#pl-q").oninput = e => { S[K.sel + "Q"] = e.target.value; drawList(); };
+    el.querySelector("#pl-add").onclick = () => formDialog(`Add a ${K.word.toLowerCase()}`, [{k: "name", label: "Full name with title", value: "", required: true, hint: K.eg}],
       async v => { const n = clean(v.name); if (!n) return; if (plist.some(x => norm(x) === norm(n))) throw new Error(`${n} is already on the list.`);
         await save([...plist, n]); toast(`${n} added.`); }, "Add");
     drawList();
   }
   el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => editPerson(S.members.find(m => m.id === b.dataset.edit)));
-  el.querySelectorAll("[data-pastor]").forEach(b => b.onclick = () => { S.pastor = b.dataset.pastor; S.pastorJump = true; render(); });
+  el.querySelectorAll("[data-pastor]").forEach(b => b.onclick = () => { S[K.sel] = b.dataset.pastor; S.pastorJump = true; render(); });
   if (S.pastorJump) { S.pastorJump = false; requestAnimationFrame(() => el.querySelector("#pastor-people")?.scrollIntoView({behavior: "smooth", block: "start"})); }  // straight to their people
-  const btn = el.querySelector("#wa"); if (btn) btn.onclick = () => waDialog(`Message for ${S.pastor}`, message, {day: p.last || today()});
+  const btn = el.querySelector("#wa"); if (btn) btn.onclick = () => waDialog(`Message for ${S[K.sel]}`, message, {day: p.last || today()});
 }
 
+const CARE = {
+  pastors: {view: "pastors", sel: "pastor", word: "Pastor", words: "Pastors", key: "pastors:", of: m => pastorsOf(m), list: () => S.pastorList,
+            eg: "e.g. Pastor Grace Mensah, Lady Pastor Rita Kpodonu or Reverend Theodore Kpodonu"},
+  shepherds: {view: "shepherds", sel: "shepherd", word: "Shepherd", words: "Shepherds", key: "shepherds:", of: m => shepherdsOf(m), list: () => (S.shepherdList ??= {}),
+              eg: "e.g. Shepherd Kofi Asante"}};
+const pastors = el => careGroups(el, CARE.pastors), shepherds = el => careGroups(el, CARE.shepherds);
 // ---------------------------------------------------------------- one person: every day they came
 async function person(el) {
   const p = picture(), mine = p.mine.slice().sort(byName), m = mine.find(x => x.id === S.person);
@@ -3240,7 +3262,7 @@ async function person(el) {
   const flock = asPastor ? p.people.filter(x => x.id !== m.id && pastorsOf(x).some(n => isSelf(n, m))).sort(byName) : [];  // if they are a pastor: who is under them
   el.innerHTML = top + `
     <div class="card" style="margin-bottom:14px"><div class="card-head"><div class="who big"><span>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</div><span class="gap"></span>${state}</div>
-      <p class="facts">${[typeName(m), isKid(m) ? "Child" : "Adult", m.phone || ""].filter(Boolean).map(esc).join(" · ")}${pastorsOf(m).length ? `<br>Pastor: ${pastorsOf(m).map(pastorBtn).join(", ")}` : ""}</p></div>
+      <p class="facts">${[typeName(m), isKid(m) ? "Child" : "Adult", m.phone || ""].filter(Boolean).map(esc).join(" · ")}${pastorsOf(m).length ? `<br>Pastor: ${pastorsOf(m).map(pastorBtn).join(", ")}` : ""}${shepherdsOf(m).length ? `<br>Shepherd: ${shepherdsOf(m).map(esc).join(", ")}` : ""}</p></div>
     ${flock.length || asPastor ? `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Their people</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${flock.length} ${flock.length === 1 ? "person" : "people"}</span>
         ${asPastor ? `<button class="pill-btn sm" data-to-pastor="${esc(asPastor)}">Open in Pastors</button>` : ""}</div>
       ${flock.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Came${p.last ? " · " + esc(nice(p.last)) : ""}</th><th>Status</th><th>Missed in a row</th><th>Phone</th></tr></thead><tbody>
@@ -3306,6 +3328,7 @@ async function signups(el) {
 // An admin or church admin makes a link for a church and sends it to the branch leader. The leader opens it without
 // signing in and lists their people with a role. Nobody can sign in until an admin or that church's admin approves.
 const TEAM_ROLES = [["team", "Team", "Ushers: tick people in at services"], ["pastor", "Pastor", "Sees and ticks only their own people"],
+                    ["shepherd", "Shepherd", "Like a Pastor: sees and ticks only the people assigned to them"],
                     ["lead", "Church admin", "The whole church: people, follow-up, reports"]];
 const teamLink = tok => `${location.origin}/app/index.html?${window.FCC_DEMO ? "demo&" : ""}team=${encodeURIComponent(tok)}`;
 // The form a branch leader fills in. With a church name instead of a link (preview), it opens in a popup for the admin
@@ -3393,7 +3416,7 @@ async function teamforms(el) {
   S.teamPending = reqs.length;
   const signed = S.me.role === "admin" ? new Set((await api("app_users?select=email").catch(() => [])).map(u => u.email)) : new Set();
   if (S.view !== "teamforms") return;
-  const pnames = [...new Set(Object.values(S.pastorList || {}).flat())].sort();
+  const pnames = [...new Set([...Object.values(S.pastorList || {}).flat(), ...Object.values(S.shepherdList || {}).flat()])].sort();
   const day = t => new Date(t).toLocaleDateString(undefined, {day: "numeric", month: "short"});
   const groups = {};
   for (const r of reqs) (groups[`${r.church}\n${r.sent_by}`] ??= []).push(r);
@@ -3413,7 +3436,7 @@ async function teamforms(el) {
         <div class="scroll"><table class="utable"><thead><tr><th><input type="checkbox" data-all checked aria-label="Tick all"></th><th>Name</th><th>Role</th><th>Pastor name (for a Pastor)</th></tr></thead><tbody>
         ${list.map(r => `<tr data-id="${esc(r.id)}"><td><input type="checkbox" data-pick checked aria-label="Include ${esc(r.name)}"></td>
           <td><b>${esc(r.name)}</b><small class="muted" style="display:block">${esc(r.email)}</small>${signed.has(r.email) ? `<span class="badge yellow">Can already sign in</span>` : ""}</td>
-          <td>${roleSel(r)}</td><td><input class="in sm" data-pastor ${r.role === "pastor" ? "" : "hidden"} list="tf-pn" value="${esc(r.pastor || "")}" placeholder="As on the Pastors list" aria-label="Pastor name for ${esc(r.name)}"></td></tr>`).join("")}
+          <td>${roleSel(r)}</td><td><input class="in sm" data-pastor ${["pastor", "shepherd"].includes(r.role) ? "" : "hidden"} list="tf-pn" value="${esc(r.pastor || "")}" placeholder="As on the Pastors or Shepherds list" aria-label="Pastor name for ${esc(r.name)}"></td></tr>`).join("")}
         </tbody></table></div>
         <p class="note" style="margin:8px 2px 0">Change a role before approving if needed. A Pastor needs their name exactly as it is on the Pastors list.</p>
         <div class="tf-acts"><button class="pill-btn" data-no>Turn down ticked</button><button class="pill-btn primary" data-ok>Approve ticked</button></div></div>`; }).join("")
@@ -3444,12 +3467,12 @@ async function teamforms(el) {
   el.querySelectorAll(".tf-group").forEach(card => {
     const picks = () => [...card.querySelectorAll("tbody tr")].filter(tr => tr.querySelector("[data-pick]").checked);
     const lock = on => card.querySelectorAll("button").forEach(b => b.disabled = on);
-    card.querySelectorAll("[data-role]").forEach(s => s.onchange = () => { const i = s.closest("tr").querySelector("[data-pastor]"); i.hidden = s.value !== "pastor"; if (!i.hidden && !i.value) i.focus(); });
+    card.querySelectorAll("[data-role]").forEach(s => s.onchange = () => { const i = s.closest("tr").querySelector("[data-pastor]"); i.hidden = !["pastor", "shepherd"].includes(s.value); if (!i.hidden && !i.value) i.focus(); });
     card.querySelector("[data-all]").onchange = e => card.querySelectorAll("[data-pick]").forEach(c => c.checked = e.target.checked);
     card.querySelector("[data-ok]").onclick = async () => {
       const rows = picks(); if (!rows.length) return toast("Tick at least one person.");
-      const items = rows.map(tr => { const role = tr.querySelector("[data-role]").value; return {id: tr.dataset.id, role, pastor: role === "pastor" ? tr.querySelector("[data-pastor]").value.trim() : ""}; });
-      const gap = rows.find(tr => tr.querySelector("[data-role]").value === "pastor" && !tr.querySelector("[data-pastor]").value.trim());
+      const items = rows.map(tr => { const role = tr.querySelector("[data-role]").value; return {id: tr.dataset.id, role, pastor: ["pastor", "shepherd"].includes(role) ? tr.querySelector("[data-pastor]").value.trim() : ""}; });
+      const gap = rows.find(tr => ["pastor", "shepherd"].includes(tr.querySelector("[data-role]").value) && !tr.querySelector("[data-pastor]").value.trim());
       if (gap) { gap.querySelector("[data-pastor]").focus(); return toast("A Pastor needs their name as it is on the Pastors list."); }
       lock(true);
       try {
