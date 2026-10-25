@@ -98,15 +98,23 @@ function backup() {
     headers: {apikey: PUBLIC_KEY, Authorization: "Bearer " + PUBLIC_KEY}, payload: JSON.stringify({backup_key: BACKUP_KEY})});
   const ss = SpreadsheetApp.getActive(), log = ss.getSheetByName("Backup log") || ss.insertSheet("Backup log", 0);
   if (r.getResponseCode() !== 200) { log.appendRow([new Date(), "Failed", r.getContentText().slice(0, 300)]); throw new Error("Backup failed: " + r.getContentText()); }
-  const d = JSON.parse(r.getContentText()), done = [];
-  for (const name of ["churches", "members", "attendance", "services", "service_parts", "service_ticks", "lists", "signins"]) {
-    const rows = d[name] || [], cols = [...new Set(rows.flatMap(x => Object.keys(x)))], sh = ss.getSheetByName(name) || ss.insertSheet(name);
-    sh.clear(); done.push(name + " " + rows.length);
-    if (!cols.length) continue;
+  const d = JSON.parse(r.getContentText()), home = d.home || "Home church", done = [], kept = new Set(["Backup log"]);
+  const put = (name, rows) => {  // one tab: a heading row, then a row each (as text, so phone numbers keep their 0)
+    const cols = [...new Set(rows.flatMap(x => Object.keys(x)))], sh = ss.getSheetByName(name) || ss.insertSheet(name);
+    sh.clear(); kept.add(name); done.push(name + " " + rows.length);
+    if (!cols.length) return;
     const vals = [cols, ...rows.map(x => cols.map(c => x[c] == null ? "" : typeof x[c] === "object" ? JSON.stringify(x[c]) : String(x[c])))];
-    sh.getRange(1, 1, vals.length, cols.length).setNumberFormat("@").setValues(vals);  // as text, so phone numbers keep their 0
-    sh.setFrozenRows(1);
+    sh.getRange(1, 1, vals.length, cols.length).setNumberFormat("@").setValues(vals); sh.setFrozenRows(1);
+  };
+  // each church: its people and its check-ins, on tabs of its own
+  const churchOf = x => String(x.church || "").trim() || home;
+  for (const c of [...new Set([home, ...(d.churches || []).map(x => x.name)])]) {
+    put(c + " – people", (d.members || []).filter(x => churchOf(x) === c).map(x => ({...x, church: c})));
+    put(c + " – attendance", (d.attendance || []).filter(x => churchOf(x) === c));
   }
+  for (const name of ["churches", "services", "service_parts", "service_ticks", "lists", "signins"]) put(name, d[name] || []);
+  // tabs from before (a church renamed or deleted, or the old all-in-one tabs) go
+  for (const sh of ss.getSheets()) if (!kept.has(sh.getName()) && /( – people| – attendance|^members$|^attendance$)/.test(sh.getName())) ss.deleteSheet(sh);
   log.appendRow([new Date(), "Done", done.join(" · ")]);
 }`;
 function download(name, rows) {
@@ -3059,7 +3067,7 @@ async function admin(el) {
   const backupCard = `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Google Sheet backup</h2><span class="gap"></span>
       ${bkStatus && bkStatus !== "sql" ? `<span class="badge ${bkStatus.last_used && Date.now() - new Date(bkStatus.last_used) < 2 * 864e5 ? "" : "warn"}">${bkStatus.last_used ? "Last copied " + esc(ago(bkStatus.last_used)) : "Not run yet"}</span>` : ""}</div>
     ${bkStatus === "sql" ? `<p class="note" style="margin:0">Run the latest setup SQL in Supabase once to set this up.</p>` : `
-    <p class="note" style="margin:0 2px 12px">Every night a Google Sheet in your Google Drive copies every church, person, service and check-in, the Pastors and Shepherds lists and the sign-ins: one tab each. It runs on Google, so no computer needs to be on. The free Supabase plan keeps no backups of its own.
+    <p class="note" style="margin:0 2px 12px">Every night a Google Sheet in your Google Drive copies everything: each church's people and check-ins on tabs of their own, then the services, the Pastors and Shepherds lists and the sign-ins. It runs on Google, so no computer needs to be on. The free Supabase plan keeps no backups of its own.
       Google keeps the sheet's earlier days too (File → Version history).</p>
     ${bkStatus ? `<p class="note" style="margin:0 2px 12px">Key made ${esc(ago(bkStatus.made_at))}${bkStatus.made_by ? " by " + esc(bkStatus.made_by) : ""}. Making a new one stops the old sheet copying.</p>` : ""}
     <button type="button" class="pill-btn primary" id="bk-make">${bkStatus ? "Set up again (new key)" : "Set up the Google Sheet"}</button>`}</div>`;
