@@ -1176,6 +1176,11 @@ begin
     pn := nullif(trim(regexp_replace(coalesce(it ->> 'pastor', r.pastor, ''), '\s+', ' ', 'g')), '');
     if rl in ('pastor', 'shepherd') and pn is null then raise exception '% needs their name as it is on the % list', r.name, case when rl = 'shepherd' then 'Shepherds' else 'Pastors' end; end if;
     if exists (select 1 from app_users where email = r.email) then had := had + 1; continue; end if;
+    if rl = 'shepherd' then  -- a shepherd goes on the church's Shepherds list too (if not there yet), so people can be given to them
+      insert into settings (key, value) values ('shepherds:' || r.church, pn)
+      on conflict (key) do update set value = settings.value || E'\n' || pn
+        where not exists (select 1 from unnest(string_to_array(settings.value, E'\n')) x where lower(trim(x)) = lower(pn));
+    end if;
     insert into app_users (email, role, church, name, pastor, title)  -- a shepherd signs in as a pastor, titled Shepherd
     values (r.email, case when rl = 'shepherd' then 'pastor' else rl end, r.church, r.name, case when rl in ('pastor', 'shepherd') then pn end,
             case when rl = 'shepherd' then 'Shepherd' end);
