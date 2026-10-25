@@ -14,6 +14,9 @@ const ROLE_OPTS = [["team", "Team (ushers)"], ["pastor", "Pastor (only their own
 // A tech admin is an admin with the title "Tech admin": the same rights, but named apart from the church's own admins
 // (in the Activity log, Sign-ins and the top bar).
 // A shepherd is a pastor sign-in with the title "Shepherd": people are assigned to them the same way, and they see and tick only those.
+// Sign-ins sorted by the role people see (Tech admin apart from Admin, Lead pastor apart from Church admin, Shepherd apart from Pastor)
+const UKINDS = [["admin", "Admin"], ["lead", "Church admin"], ["pastor", "Pastor"], ["team", "Team (ushers)"], ["tech_admin", "Tech admin"], ["lead_pastor", "Lead pastor"], ["shepherd", "Shepherd"], ["bishop", "Bishop"]];
+const ukind = u => ({"Tech admin": "tech_admin", "Lead pastor": "lead_pastor", "Shepherd": "shepherd"})[roleName(u)] || u.role;
 const roleName = u => u?.role === "pastor" && u?.title === "Shepherd" ? "Shepherd" : u?.role === "lead" && u?.title === "Lead pastor" ? "Lead pastor" : u?.role === "admin" && u?.title === "Tech admin" ? "Tech admin" : ROLE[u?.role] || u?.role || "";
 const baseName = () => roleName({role: S.me.base, title: S.me.title});
 // What each colour means, in words (the colour alone was hard to read): red and amber are the people to call.
@@ -3002,8 +3005,11 @@ async function admin(el) {
         ["Team", users.filter(u => u.role === "team").length, "Ushers ticking people in"], ["Pastors", users.filter(u => u.role === "pastor" || u.pastor).length, "Including admins who pastor"]]
         .map(([t, n, sub]) => `<div class="card tile"><div class="label">${t}</div><div class="num">${String(n).padStart(2, "0")}</div><div class="note" style="margin:4px 0 0">${sub}</div></div>`).join("")}</div>
     <div class="card"><div class="card-head"><h2>People who can sign in</h2><span class="gap"></span><button type="button" class="pill-btn primary sm" id="u-add-tg">+ Add person</button></div>
-      <div class="u-bar"><div class="rpills" role="tablist" aria-label="Filter by role">${[["", "All"], ["admin", "Admin"], ["bishop", "Bishop"], ["lead", "Church admin"], ["team", "Team"], ["pastor", "Pastor"]]
-          .map(([k, t]) => `<button type="button" class="rpill ${k ? "r-" + k : ""}" role="tab" data-ur="${k}" aria-selected="${(S.uRole || "") === k}">${k ? "<i></i>" : ""}${t} <span>${k ? users.filter(u => u.role === k).length : users.length}</span></button>`).join("")}</div>
+      <div class="u-bar"><div class="rpills" role="tablist" aria-label="Filter by role">${(() => {  // every role as it is shown, the first few, then + more
+          const all = [["", "All"], ...UKINDS], shown = S.uMore || all.findIndex(x => x[0] === (S.uRole || "")) >= 5 ? all.length : 5;
+          return all.map(([k, t], i) => `<button type="button" class="rpill ${k ? "r-" + k : ""}" role="tab" data-ur="${k}" aria-selected="${(S.uRole || "") === k}" ${i >= shown ? "hidden" : ""}>${k ? "<i></i>" : ""}${t} <span>${k ? users.filter(u => ukind(u) === k).length : users.length}</span></button>`).join("")
+            + (shown < all.length ? `<button type="button" class="rpill more" data-umore>+ ${all.length - shown} more</button>` : "");
+        })()}</div>
         <div class="u-tools"><select class="in" id="u-ch" aria-label="Church"><option value="">All churches</option>${S.churches.map(c => `<option ${S.uCh === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
           <input class="in" id="u-q" type="search" placeholder="Search by name or email" value="${esc(S.uQ || "")}"></div></div>
       <div id="u-list"></div>
@@ -3030,7 +3036,7 @@ async function admin(el) {
   // Sign-ins: role pills, church picker, search and 10 per page
   const PER = 10, roleCls = r => "r-" + r;
   const drawUsers = () => {
-    const q = norm(S.uQ || ""), list = users.filter(u => (!S.uRole || u.role === S.uRole) && (!S.uCh || u.church === S.uCh)
+    const q = norm(S.uQ || ""), list = users.filter(u => (!S.uRole || ukind(u) === S.uRole) && (!S.uCh || u.church === S.uCh)
       && (!q || norm(u.name).includes(q) || norm(u.email).includes(q) || norm(u.pastor).includes(q)))
       .sort((a, b) => norm(a.name || a.email).localeCompare(norm(b.name || b.email)));
     const pages = Math.max(1, Math.ceil(list.length / PER)); S.uPage = Math.min(Math.max(1, S.uPage || 1), pages);
@@ -3039,7 +3045,7 @@ async function admin(el) {
     el.querySelector("#u-list").innerHTML = !list.length ? `<p class="empty">Nobody matches. Try another role, church or name.</p>` : `
       <div class="scroll"><table class="utable"><thead><tr><th>Name</th><th>Role</th><th>Church</th><th class="hide-sm">Pastor name</th><th></th></tr></thead><tbody>
       ${shown.map(u => `<tr><td><div class="who-cell"><span class="ava" ${avaStyle(u.name || u.email)}>${esc(initials(u.name || u.email))}</span><span><b>${esc(u.name || u.email.split("@")[0])}</b><small>${esc(u.email)}</small></span></div></td>
-        <td><span class="rbadge ${roleCls(u.role)}">${esc(roleName(u))}</span>${u.pastor && u.role !== "pastor" && roleName(u) !== "Lead pastor" ? ` <span class="rbadge r-pastor">+ Pastor</span>` : ""}</td>
+        <td><span class="rbadge ${roleCls(ukind(u))}">${esc(roleName(u))}</span>${u.pastor && u.role !== "pastor" && roleName(u) !== "Lead pastor" ? ` <span class="rbadge r-pastor">+ Pastor</span>` : ""}</td>
         <td class="muted">${esc(u.church || "All churches")}</td><td class="muted hide-sm">${esc(u.pastor || (u.role === "pastor" ? "Not set yet" : ""))}</td>
         <td style="white-space:nowrap;text-align:right">${u.email === S.me.email ? (u.role === "admin" && !S.preview  // your own row: only switch between Admin and Tech admin (same rights), never lose admin by mistake
             ? `<span class="muted">You</span> <button class="pill-btn sm" data-me-title="${u.title === "Tech admin" ? "" : "Tech admin"}" title="Same rights either way: this only changes how you're named">${svg("edit")}Show me as ${u.title === "Tech admin" ? "Admin" : "Tech admin"}</button>`
@@ -3063,6 +3069,7 @@ async function admin(el) {
       if (!armed) { armed = true; b.textContent = "Tap again to remove"; setTimeout(() => { armed = false; b.textContent = "Remove"; }, 4000); return; }
       again(() => api(`app_users?email=eq.${encodeURIComponent(b.dataset.del)}`, {method: "DELETE", prefer: "return=minimal"})); }; });
   };
+  el.querySelector("[data-umore]")?.addEventListener("click", e => { S.uMore = true; el.querySelectorAll("[data-ur][hidden]").forEach(x => x.hidden = false); e.target.closest("button").remove(); });
   el.querySelectorAll("[data-ur]").forEach(b => b.onclick = () => { S.uRole = b.dataset.ur; S.uPage = 1;
     el.querySelectorAll("[data-ur]").forEach(x => x.setAttribute("aria-selected", x === b)); drawUsers(); });
   el.querySelector("#u-ch").onchange = e => { S.uCh = e.target.value; S.uPage = 1; drawUsers(); };
