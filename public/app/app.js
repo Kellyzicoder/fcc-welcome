@@ -942,8 +942,8 @@ function picture(upTo = today()) {  // everything the pages show, as things stoo
 
 // ---------------------------------------------------------------- page frame
 const ICON = {
-  expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
-  shrink: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
+  expand: '<path d="M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6"/>',
+  shrink: '<path d="M9 3v6H3M15 3v6h6M9 21v-6H3M15 21v-6h6"/>',
   calpick: '<rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   caret: '<path d="M7 10l5 5 5-5"/>',
   tick: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
@@ -1026,7 +1026,8 @@ function inkOn(hex) {  // white or near-black text, whichever reads better on th
 }
 // Full screen (hides the browser's bars) where the browser allows it: Android, iPad and computers. iPhones don't allow it for
 // web pages, and it isn't needed when the app already opens full screen from the home screen.
-const fsOk = () => !!(document.fullscreenEnabled && document.documentElement.requestFullscreen) && !matchMedia("(display-mode: standalone)").matches;
+const fsOk = () => !!(document.fullscreenEnabled && document.documentElement.requestFullscreen) && !matchMedia("(display-mode: standalone)").matches
+  && onPhone() && matchMedia("(max-width: 900px)").matches;  // phones only
 document.addEventListener("fullscreenchange", () => document.querySelectorAll("[data-fs]").forEach(b => {
   const on = !!document.fullscreenElement; b.innerHTML = svg(on ? "shrink" : "expand"); b.title = on ? "Show the browser again" : "Full screen: hide the browser";
   b.setAttribute("aria-label", on ? "Exit full screen" : "Full screen"); }));
