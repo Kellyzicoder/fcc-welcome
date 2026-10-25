@@ -893,9 +893,9 @@ async function load() {
 // Before a page opens: what may have changed lately (people, and the last two weeks' ticks and services). Quicker than load().
 let freshAt = 0;
 async function freshen() {
-  if (Date.now() - freshAt < 5000) return;  // just done
+  if (Date.now() - freshAt < 15000) return false;  // just done
   const since = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10);
-  const [members, ticks, services, parts, pticks, pending] = await Promise.all([
+  const [members, ticks, services, parts, pticks, pending, teamPending] = await Promise.all([
     all("members?select=id,full_name,phone,email,address,type,status,age_group,gender,pastor,shepherd,church,role,group_name,date_joined,first_visit,created_at,version&order=full_name")
       .catch(() => all("members?select=id,full_name,phone,type,status,age_group,gender,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name"))
       .catch(() => all("members?select=id,full_name,phone,type,status,age_group,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name")),
@@ -903,15 +903,17 @@ async function freshen() {
     all(`services?select=service_date,name&service_date=gte.${since}`),
     all(`service_parts?select=service_date,part,name&church=eq.${encodeURIComponent(S.church)}&service_date=gte.${since}&order=service_date,part`).catch(() => null),
     all(`service_ticks?select=service_date,part,member_id&service_date=gte.${since}`).catch(() => null),
-    canApprove() ? api("registrations?select=id&status=eq.pending").then(r => r.length).catch(() => S.pending) : 0]);
+    canApprove() ? api("registrations?select=id&status=eq.pending").then(r => r.length).catch(() => S.pending) : 0,
+    canTeam() ? api("team_requests?select=id&status=eq.pending").then(r => r.length).catch(() => 0) : 0]);  // all at once, not one after another
+  const sig = JSON.stringify([members, ticks, services, parts, pticks, pending, teamPending]), changed = sig !== S.freshSig; S.freshSig = sig;
   S.members = S.me.role === "pastor" && S.me.base !== "pastor" ? members.filter(m => careOf(m).some(n => norm(n) === norm(S.me.pastor))) : members;
   S.ticks = S.ticks.filter(t => t.service_date < since).concat(ticks);
   for (const k of Object.keys(S.names)) if (k >= since) delete S.names[k];
   for (const s of services) S.names[s.service_date] = s.name;
   if (parts) { for (const k of Object.keys(S.parts)) if (k >= since) delete S.parts[k]; for (const r of parts) (S.parts[r.service_date] ??= []).push({part: r.part, name: r.name}); }
   if (pticks) S.pticks = S.pticks.filter(t => t.service_date < since).concat(pticks);
-  S.pending = pending; freshAt = Date.now();
-  S.teamPending = canTeam() ? await api("team_requests?select=id&status=eq.pending").then(r => r.length).catch(() => 0) : 0;
+  S.pending = pending; S.teamPending = teamPending; freshAt = Date.now();
+  return changed;  // true when anything is different from last time (the first time too)
 }
 // A day split into services (two or more): each one's name and how many of this church's people came to it.
 // The day's own ticks still decide who was there, so someone at both services counts once in the day's total.
@@ -1075,11 +1077,13 @@ function render() {
   if (!allowed.includes(S.view)) S.view = allowed[0];
   const short = {dashboard: "Home", overview: "Churches", people: "People", followup: "Follow-up"};  // the bottom bar on phones: the four most-used pages, then More
   const dock = groups.flatMap(g => g[1]).filter(x => ["mine", "dashboard", "checkin", "followup", "people", "overview"].includes(x[0])).slice(0, 4).map(([k, t]) => [k, short[k] || t]);
-  const go = async to => {  // opening a page first loads what changed (ticks, people), so it opens up to date and stays still
-    const me = S.goTok = (S.goTok || 0) + 1; document.body.classList.add("going");
-    try { await Promise.race([freshen(), new Promise(r => setTimeout(r, 4000))]); } catch {}
-    if (me !== S.goTok) return;  // another page was tapped meanwhile
-    document.body.classList.remove("going"); S.view = to; render();
+  const go = to => {  // a page opens straight away from what's already loaded; the latest is fetched behind it, and only if
+    // something changed is the page redrawn, in place (same scroll, and not while a box is open or someone is typing)
+    const me = S.goTok = (S.goTok || 0) + 1; S.view = to; render();
+    freshen().then(changed => {
+      if (!changed || me !== S.goTok || S.view !== to || document.querySelector(".modal") || document.activeElement?.matches?.("input, textarea, select")) return;
+      const y = scrollY; render(); scrollTo(0, y);
+    }).catch(() => {});
   };
   const where = S.me.role === "bishop" ? "All churches" : S.church;
   if (S.mini === undefined) { try { S.mini = localStorage.getItem("fcc-mini") === "1"; } catch { S.mini = false; } }
