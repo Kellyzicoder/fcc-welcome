@@ -146,11 +146,11 @@
       (T.team_links ??= []).push({token: tok, church: body?.ch || HOME, made_by: "demo@example.com", made_by_name: "Demo Admin", created_at: new Date().toISOString(), expires_at: new Date(Date.now() + 14 * 864e5).toISOString()}); return tok; }
     if (name === "app_team_form") { const m = /^demo-(.+)-\d+$/.exec(body?.tok || ""); return m ? {church: m[1].replace(/_/g, " "), by: "Demo Admin", until: new Date(Date.now() + 14 * 864e5).toISOString(), sent: 0} : null; }
     if (name === "app_team_submit") { const m = /^demo-(.+)-\d+$/.exec(body?.tok || ""); if (!m) throw new Error("This form link has expired. Ask for a new one.");
-      const all = sent.get(); for (const p of body.people || []) all.push({id: crypto.randomUUID(), church: m[1].replace(/_/g, " "), sent_by: body.from_name, name: p.name, email: p.email, role: p.role, pastor: p.role === "pastor" ? p.name : null, status: "pending", created_at: new Date().toISOString()});
+      const all = sent.get(); for (const p of body.people || []) all.push({id: crypto.randomUUID(), church: m[1].replace(/_/g, " "), sent_by: body.from_name, name: p.name, email: p.email, role: p.role, pastor: ["pastor", "shepherd"].includes(p.role) ? p.name : null, status: "pending", created_at: new Date().toISOString()});
       sent.set(all); return (body.people || []).length; }
     if (name === "app_team_approve") { const all = sent.get(); let added = 0, had = 0;
       for (const it of body?.items || []) { const r = all.find(x => x.id === it.id && x.status === "pending"); if (!r) continue; r.status = "approved";
-        if (T.app_users.some(u => u.email === r.email)) had++; else { T.app_users.push({email: r.email, role: it.role || r.role, church: r.church, name: r.name, pastor: (it.role || r.role) === "pastor" ? it.pastor || r.pastor : null, title: null}); added++; } }
+        if (T.app_users.some(u => u.email === r.email)) had++; else { const rl = it.role || r.role; T.app_users.push({email: r.email, role: rl === "shepherd" ? "pastor" : rl, church: r.church, name: r.name, pastor: ["pastor", "shepherd"].includes(rl) ? it.pastor || r.pastor : null, title: rl === "shepherd" ? "Shepherd" : null}); added++; } }
       sent.set(all); return {added, had}; }
     if (name === "app_team_reject") { const all = sent.get(); let k = 0; for (const r of all) if ((body?.ids || []).includes(r.id) && r.status === "pending") { r.status = "rejected"; k++; } sent.set(all); return k; }
     return undefined;
