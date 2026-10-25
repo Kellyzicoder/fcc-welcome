@@ -974,6 +974,7 @@ const ICON = {
   mine: '<path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
   inbox: '<path d="M4 13l2.5-7h11L20 13v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z"/><path d="M4 13h4.5l1 2h5l1-2H20"/>',
   back: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
@@ -2617,7 +2618,7 @@ function people(el) {
           return vis.map(([k, [t, f]]) =>
           `<button type="button" class="rpill ${DOT[k] || ""}" role="tab" data-show="${k}" aria-selected="${S.showF === k}">${k === "all" || !DOT[k] ? "" : "<i></i>"}${t} <span>${inRole.filter(f).length}</span></button>`).join("")
             + (more ? `<button type="button" class="rpill more" data-pmore>+ ${more} more</button>` : S.pMore && all.length > 6 ? `<button type="button" class="rpill more" data-pmore>Show less</button>` : ""); })()}</div>
-      ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><button class="pill-btn sm" id="bulk-see">${S.selOnly ? "Show all" : "View"}</button><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-set">Set details</button><button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
+      ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><button class="pill-btn sm" id="bulk-see">${S.selOnly ? "Show all" : "View"}</button><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-set">Set details</button>${["admin", "lead"].includes(S.me.role) && !S.preview ? `<button class="pill-btn sm bulk-del" id="bulk-del">${svg("trash")}Delete</button>` : ""}<button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
       <div class="scroll"><table class="utable"><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select all ${mine.length} shown" title="Select all ${mine.length} shown" ${mine.length && shownPicked === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Type</th><th>Pastor assigned</th><th>Age group</th><th>Gender</th><th>Status</th><th>Roles</th></tr></thead><tbody>
       ${shown.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}
         <td><div class="who-cell">${whoBtn(m)}</div>${m.phone ? `<small class="muted" style="display:block;margin:2px 0 0 40px">${esc(m.phone)}</small>` : ""}</td>
@@ -2674,12 +2675,14 @@ function people(el) {
       {k: "age_group", label: "Age group", type: "select", value: "", options: [...keep, ["Adult", "Adult"], ["Child", "Child"]]},
       {k: "type", label: "Attendance Type", type: "select", value: "", options: [...keep, ...typeOpts]},
       {k: "status", label: "Status", type: "select", value: "", options: [...keep, ["-", "Active"], ...statuses.filter(Boolean).map(x => [x, x])]},
+      ...(admin ? [{k: "church", label: "Move to church", type: "select", value: "", options: [...keep, ...S.churches.filter(c => c !== S.church).map(c => [c, c])],
+        hint: "They go on that church's register, with their attendance."}] : []),
     ], async v => {
       const want = Object.fromEntries(Object.entries(v).filter(([, val]) => val).map(([k, val]) => [k, val === "-" ? "" : val]));
       if (!Object.keys(want).length) throw new Error("Choose at least one thing to change.");
       let done = 0, clash = 0;
       for (const m of picked) {
-        const body = Object.fromEntries(Object.entries(want).filter(([k, val]) => (k === "gender" ? genderOf(m) : k === "age_group" ? ageOf(m) : k === "type" ? typeKey(m) : m.status || "") !== val));
+        const body = Object.fromEntries(Object.entries(want).filter(([k, val]) => (k === "gender" ? genderOf(m) : k === "age_group" ? ageOf(m) : k === "type" ? typeKey(m) : k === "church" ? churchOf(m) : m.status || "") !== val));
         if (!Object.keys(body).length) continue;
         const ver = Number(m.version) || 1;
         const rows = await api(`members?id=eq.${encodeURIComponent(m.id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {...body, version: ver + 1}});
@@ -2694,6 +2697,25 @@ function people(el) {
     }, "Save");
   };
   const bx = el.querySelector("#bulk-x"); if (bx) bx.onclick = () => { S.sel = new Set(); S.selOnly = false; render(); };
+  // Delete the people selected (admin or church admin): typing how many is the check, as it can't be undone
+  const bd = el.querySelector("#bulk-del");
+  if (bd) bd.onclick = () => {
+    const n = picked.length;
+    formDialog(`Delete ${n} ${n === 1 ? "person" : "people"} from the register`, [
+      {k: "ok", label: `Type ${n} to delete them`, value: "", hint: "They and their attendance are removed for good. This can't be undone: press Download first if you want a copy."}],
+    async v => {
+      if (String(v.ok).trim() !== String(n)) throw new Error(`Type ${n} to delete them, or close this to keep them.`);
+      let done = 0;
+      for (let i = 0; i < n; i += 100) {  // 100 at a time
+        const ids = picked.slice(i, i + 100).map(m => m.id), gone = await api(`members?id=in.(${ids.map(encodeURIComponent).join(",")})`, {method: "DELETE", prefer: "return=representation"});
+        const out = new Set((gone || []).map(x => x.id)); done += out.size;
+        S.members = S.members.filter(x => !out.has(x.id)); S.ticks = S.ticks.filter(t => !out.has(t.member_id)); for (const id of out) S.sel.delete(id);
+      }
+      if (done) log("delete", "", "done", `${done} ${done === 1 ? "person" : "people"} at once · ${S.church}`);
+      S.selOnly = false;
+      toast(done === n ? `Deleted ${done} ${done === 1 ? "person" : "people"}.` : `Deleted ${done} of ${n}. The rest couldn't be deleted: try again.`); render();
+    }, "Delete");
+  };
   const bg = el.querySelector("#bulk-go");
   if (bg) bg.onclick = () => {
     const theirs = [...new Map(picked.flatMap(rolesOf).map(r => [norm(r), r])).values()].sort();
