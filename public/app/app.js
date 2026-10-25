@@ -942,6 +942,8 @@ function picture(upTo = today()) {  // everything the pages show, as things stoo
 
 // ---------------------------------------------------------------- page frame
 const ICON = {
+  expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  shrink: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
   calpick: '<rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   caret: '<path d="M7 10l5 5 5-5"/>',
   tick: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
@@ -1010,7 +1012,7 @@ function pages() {  // the menu, in groups; what each role can actually load is 
 }
 // Settings each person picks for themselves: colour, theme, text size and so on. Kept on this phone or laptop, per person.
 const ACCENTS = [["#1f6fe5", "Blue"], ["#0e8a7c", "Teal"], ["#6250d6", "Violet"], ["#c8417a", "Pink"], ["#dc5f26", "Orange"], ["#2b9348", "Green"], ["#b8860b", "Gold"]];
-const LOOK0 = {accent: "", theme: "", text: "normal", motion: false, contrast: false, muted: false, start: "", share: [], liveFill: false};
+const LOOK0 = {accent: "", theme: "", text: "normal", motion: false, contrast: false, muted: false, start: "", share: [], liveFill: false, home: ""};  // home: "" opens the home-screen icon in the browser, "app" full screen
 const sysDark = matchMedia("(prefers-color-scheme: dark)");
 function look() { let v = {}; try { v = JSON.parse(localStorage.getItem("fcc-look:" + (S.me?.email || "")) || "{}"); } catch {} return {...LOOK0, ...v}; }
 function saveLook(ch) {
@@ -1022,6 +1024,12 @@ function inkOn(hex) {  // white or near-black text, whichever reads better on th
   const n = parseInt(hex.slice(1), 16), [r, g, b] = [n >> 16, n >> 8 & 255, n & 255].map(c => { c /= 255; return c <= .03928 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4; });
   return .2126 * r + .7152 * g + .0722 * b > .4 ? "#10151c" : "#ffffff";
 }
+// Full screen (hides the browser's bars) where the browser allows it: Android, iPad and computers. iPhones don't allow it for
+// web pages, and it isn't needed when the app already opens full screen from the home screen.
+const fsOk = () => !!(document.fullscreenEnabled && document.documentElement.requestFullscreen) && !matchMedia("(display-mode: standalone)").matches;
+document.addEventListener("fullscreenchange", () => document.querySelectorAll("[data-fs]").forEach(b => {
+  const on = !!document.fullscreenElement; b.innerHTML = svg(on ? "shrink" : "expand"); b.title = on ? "Show the browser again" : "Full screen: hide the browser";
+  b.setAttribute("aria-label", on ? "Exit full screen" : "Full screen"); }));
 function applyLook(v = look()) {
   const d = document.documentElement;
   setMode(v.theme === "system" ? (sysDark.matches ? "dark" : "light") : v.theme || d.dataset.theme);
@@ -1029,6 +1037,11 @@ function applyLook(v = look()) {
     d.style.setProperty("--accent-soft", `color-mix(in srgb, ${v.accent} 14%, var(--panel))`); }
   else ["--accent", "--accent-ink", "--accent-soft"].forEach(k => d.style.removeProperty(k));
   d.dataset.text = v.text; d.classList.toggle("calm", !!v.motion); d.classList.toggle("strong", !!v.contrast); d.classList.toggle("muted", !!v.muted);
+  // the home-screen icon: the phone reads this when the app is added to the home screen (full screen, or in the browser)
+  const man = document.querySelector('link[rel="manifest"]'); if (man) man.href = v.home === "app" ? "/app/manifest-app.webmanifest" : "/app/manifest.webmanifest";
+  let cap = document.querySelector('meta[name="apple-mobile-web-app-capable"]');
+  if (v.home === "app" && !cap) { cap = Object.assign(document.createElement("meta"), {name: "apple-mobile-web-app-capable", content: "yes"}); document.head.append(cap); }
+  else if (v.home !== "app") cap?.remove();
 }
 sysDark.addEventListener?.("change", () => { if (S.me && look().theme === "system") applyLook(); });
 function setMode(mode, remember) {
@@ -1071,6 +1084,7 @@ function render() {
           : `<button class="nav" data-viewas title="View as another role">${svg("eye")}<span class="nl">View as another role</span></button>`) : ""}${S.canSwitch ? `<button class="nav" data-switch title="${switchLabel()}">${svg("pastors")}<span class="nl">${switchLabel()}</span></button>` : ""}<button class="nav out" data-out title="Log out">${svg("out")}<span class="nl">Log out</span></button></div></aside>
     <main class="main">${S.preview ? `<div class="preview-bar">${svg("eye")}<span>Viewing as <b>${esc(previewName())}</b>. View only: nothing you do here is saved.</span>
         <button class="pill-btn sm" data-unpreview>Back to Admin</button></div>` : ""}<div class="top">${S.hist?.length && S.view !== allowed[0] ? `<button class="back" data-back>${svg("back")}Back</button>` : ""}<span class="gap"></span>
+        ${fsOk() ? `<button class="refresh-btn fs-btn" data-fs title="${document.fullscreenElement ? "Show the browser again" : "Full screen: hide the browser"}" aria-label="${document.fullscreenElement ? "Exit full screen" : "Full screen"}">${svg(document.fullscreenElement ? "shrink" : "expand")}</button>` : ""}
         ${S.me.role === "bishop" ? "" : `<button class="refresh-btn" data-refresh title="Load the latest check-ins and changes" aria-label="Refresh">${svg("refresh")}<span>Refresh</span></button>`}
         <div class="mode" role="group" aria-label="Colour mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button></div>
         <button class="acct" data-view="account" title="Your account and settings" aria-label="Your account and settings"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${roleName(S.me)} · ${esc(where)}</small></span></button>
@@ -1120,6 +1134,7 @@ function render() {
   root.querySelectorAll("[data-out]").forEach(b => b.onclick = signOut);
   // Refresh: loads the latest check-ins and changes made by others, only when tapped (nothing runs in the background,
   // so no battery use and the page never moves while someone is working on it). The page stays where it was scrolled to.
+  root.querySelectorAll("[data-fs]").forEach(b => b.onclick = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen({navigationUI: "hide"})).catch(() => toast("This browser won't go full screen.")));
   root.querySelectorAll("[data-refresh]").forEach(b => { if (S.newVersion) { b.classList.add("new"); b.title = "A newer version of the app is ready: tap to load it"; } });
   root.querySelectorAll("[data-refresh]").forEach(b => b.onclick = async () => {
     if (S.newVersion || await freshCheck(true)) return reloadApp();  // a newer version is out: load it, on this same page
@@ -3954,6 +3969,9 @@ function settings(box) {
       ${flip("set-muted", "Fewer colours", "Grey icons, cards and name badges for a calmer page. Your accent colour stays.", v.muted)}
       ${flip("set-contrast", "Stronger contrast", "Darker grey text and clearer lines.", v.contrast)}
       ${flip("set-motion", "Reduce motion", "Turns off sliding and fading.", v.motion)}</div>
+    <div class="card set-card"><div class="card-head"><h2>Home-screen icon</h2></div>
+      ${row("Opens", "Full screen hides the browser, like an app. It takes effect when you add the app to your home screen: already added? Remove the icon and add it again (Share → Add to Home Screen).",
+        `<div class="seg" role="group" aria-label="Home-screen icon opens">${[["", "In the browser"], ["app", "Full screen"]].map(([k, t]) => `<button type="button" data-home-pick="${k}" aria-pressed="${(v.home || "") === k}">${t}</button>`).join("")}</div>`)}</div>
     <div class="card set-card"><div class="card-head"><h2>Menu and start page</h2></div>
       ${row("Start page", "The page you land on when you open the app.", `<select class="in" id="set-start" aria-label="Start page"><option value="">Default</option>${starts.map(([k, t]) =>
         `<option value="${k}" ${v.start === k ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`)}
@@ -3974,6 +3992,8 @@ function settings(box) {
   $("#set-muted").onchange = e => saveLook({muted: e.target.checked});
   $("#set-contrast").onchange = e => saveLook({contrast: e.target.checked});
   $("#set-motion").onchange = e => saveLook({motion: e.target.checked});
+  box.querySelectorAll("[data-home-pick]").forEach(b => b.onclick = () => { saveLook({home: b.dataset.homePick}); redo();
+    toast(b.dataset.homePick ? "Saved. Add the app to your home screen again to open it full screen." : "Saved. Add the app to your home screen again to open it in the browser."); });
   box.querySelectorAll("[data-share-pick]").forEach(b => b.onclick = () => { const k = b.dataset.sharePick, now = shareTo();
     saveLook({share: now.includes(k) ? now.filter(x => x !== k) : [...now, k]}); redo(); });
   $("#set-livefill")?.addEventListener("change", e => saveLook({liveFill: e.target.checked}));
