@@ -401,7 +401,7 @@ $$ select coalesce(app_role() = 'admin' or (app_role() = 'lead' and app_church()
 
 create or replace function app_who() returns text language sql stable security definer set search_path = public as
 $$ select left(coalesce(nullif(trim(u.name), ''), u.email) || ' (' ||
-          case u.role when 'admin' then case when u.title = 'Tech admin' then 'Tech admin' else 'Admin' end when 'lead' then case when u.title = 'Lead pastor' then 'Lead pastor' else 'Church admin' end when 'bishop' then 'Bishop' when 'pastor' then 'Pastor' else 'Team' end || ')', 80)
+          case u.role when 'admin' then case when u.title = 'Tech admin' then 'Tech admin' else 'Admin' end when 'lead' then case when u.title = 'Lead pastor' then 'Lead pastor' else 'Church admin' end when 'bishop' then 'Bishop' when 'pastor' then case when u.title = 'Shepherd' then 'Shepherd' else 'Pastor' end else 'Team' end || ')', 80)
    from app_users u where u.email = lower(auth.jwt() ->> 'email') $$;
 
 drop policy if exists "app: see sign-ups" on registrations;
@@ -1059,13 +1059,16 @@ create table if not exists team_requests (
   sent_by text not null,
   name text not null check (length(name) between 2 and 80),
   email text not null check (email = lower(email) and length(email) <= 120),
-  role text not null check (role in ('team', 'pastor', 'lead')),
+  role text not null check (role in ('team', 'pastor', 'shepherd', 'lead')),
   pastor text,
   status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
   created_at timestamptz not null default now(),
   handled_by text, handled_at timestamptz
 );
 create index if not exists team_requests_pending on team_requests (church) where status = 'pending';
+-- a form can also ask for a Shepherd (a pastor sign-in titled Shepherd)
+alter table team_requests drop constraint if exists team_requests_role_check;
+alter table team_requests add constraint team_requests_role_check check (role in ('team', 'pastor', 'shepherd', 'lead'));
 alter table team_links enable row level security;
 alter table team_requests enable row level security;
 
@@ -1128,11 +1131,11 @@ begin
     if em !~ '^[a-z0-9._%+''-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$' or length(em) > 120 then
       raise exception '% needs a proper email address.', nm;
     end if;
-    if rl not in ('team', 'pastor', 'lead') then raise exception 'Pick a role for %.', nm; end if;
+    if rl not in ('team', 'pastor', 'shepherd', 'lead') then raise exception 'Pick a role for %.', nm; end if;
     -- the same email sent again on this link and still waiting: keep the newest details
     delete from team_requests where link = tok and email = em and status = 'pending';
     insert into team_requests (link, church, sent_by, name, email, role, pastor)
-    values (tok, l.church, who, nm, em, rl, case when rl = 'pastor' then coalesce(pn, nm) else pn end);
+    values (tok, l.church, who, nm, em, rl, case when rl in ('pastor', 'shepherd') then coalesce(pn, nm) else pn end);
     n := n + 1;
   end loop;
   return n;
@@ -1152,14 +1155,16 @@ begin
      where id = (it ->> 'id')::uuid and status = 'pending' and app_can_team(church) returning * into r;
     if not found then raise exception 'already handled'; end if;
     rl := coalesce(nullif(it ->> 'role', ''), r.role);
-    if rl not in ('team', 'pastor', 'lead') then raise exception 'that role cannot be given here'; end if;
+    if rl not in ('team', 'pastor', 'shepherd', 'lead') then raise exception 'that role cannot be given here'; end if;
     pn := nullif(trim(regexp_replace(coalesce(it ->> 'pastor', r.pastor, ''), '\s+', ' ', 'g')), '');
-    if rl = 'pastor' and pn is null then raise exception '% needs their name as it is on the Pastors list', r.name; end if;
+    if rl in ('pastor', 'shepherd') and pn is null then raise exception '% needs their name as it is on the Pastors list', r.name; end if;
     if exists (select 1 from app_users where email = r.email) then had := had + 1; continue; end if;
-    insert into app_users (email, role, church, name, pastor) values (r.email, rl, r.church, r.name, case when rl = 'pastor' then pn end);
+    insert into app_users (email, role, church, name, pastor, title)  -- a shepherd signs in as a pastor, titled Shepherd
+    values (r.email, case when rl = 'shepherd' then 'pastor' else rl end, r.church, r.name, case when rl in ('pastor', 'shepherd') then pn end,
+            case when rl = 'shepherd' then 'Shepherd' end);
     insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
     values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), stamp, 'role_change', null, null,
-            left(r.email || ': ' || r.name || ' · ' || case rl when 'lead' then 'Church admin' when 'pastor' then 'Pastor' else 'Team' end
+            left(r.email || ': ' || r.name || ' · ' || case rl when 'lead' then 'Church admin' when 'pastor' then 'Pastor' when 'shepherd' then 'Shepherd' else 'Team' end
                  || ' · ' || r.church || ' (team form from ' || r.sent_by || ')', 300), who, 'done');
     added := added + 1;
   end loop;
