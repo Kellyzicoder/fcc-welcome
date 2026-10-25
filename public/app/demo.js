@@ -47,7 +47,7 @@
     if (members.some(m => m.full_name === name && m.church === (ch === HOME ? null : ch))) { i--; n--; continue; }
     members.push({id: "d" + n, full_name: name, phone: `021 555 ${pad(Math.floor(rnd() * 100))}${pad(Math.floor(rnd() * 100))}`, type: ft ? "first_timer" : vis ? "visitor" : "member",
       status: rnd() < .03 ? "Away" : "", age_group: kid ? "Child" : "Adult", gender: rnd() < .52 ? "Female" : "Male",
-      pastor: rnd() < .8 ? pastors[ch][Math.floor(rnd() * pastors[ch].length)] : "", church: ch === HOME ? null : ch,
+      pastor: rnd() < .8 ? pastors[ch][Math.floor(rnd() * pastors[ch].length)] : "", shepherd: ch === HOME ? ["Shepherd Kofi Asante", "Shepherd Abena Ofori", "", ""][n % 4] : "", church: ch === HOME ? null : ch,
       role: kid ? "" : roles[Math.floor(rnd() * roles.length)], date_joined: ft || vis ? null : "2023-0" + (1 + Math.floor(rnd() * 9)) + "-1" + Math.floor(rnd() * 9),
       first_visit: ft || vis ? sundays[sundays.length - 1 - Math.floor(rnd() * 6)] : null, created_at: "2024-01-07T10:00:00+13:00", version: 1});
   }
@@ -69,7 +69,7 @@
       {email: "usher@example.com", role: "team", church: HOME, name: "Kojo Appiah", pastor: null, title: null},
       {email: "pastor.john@example.com", role: "pastor", church: HOME, name: "John Asante", pastor: "Pastor John Asante", title: null},
       {email: "bishop@example.com", role: "bishop", church: null, name: "Bishop Kwame Osei", pastor: null, title: null}],
-    settings: [...CH.map(c => ({key: "pastors:" + (c === HOME ? HOME : c), value: pastors[c].join("\n")})), {key: "report_recipients", value: "leaders@example.com, pastor@example.com"}],
+    settings: [...CH.map(c => ({key: "pastors:" + (c === HOME ? HOME : c), value: pastors[c].join("\n")})), {key: "shepherds:" + HOME, value: "Shepherd Kofi Asante\nShepherd Abena Ofori"}, {key: "report_recipients", value: "leaders@example.com, pastor@example.com"}],
     app_prefs: [], email_log: [{kind: "daily", report_date: sundays.at(-1), sent_at: sundays.at(-1) + "T13:05:00+13:00", recipients: "leaders@example.com", ok: true, detail: ""}],
     registrations: [{id: "11111111-1111-4111-8111-111111111111", full_name: "Joy Tetteh", phone: "022 555 0188", email: "joy@example.com", invited_by: "A friend",
       first_visit: sundays.at(-1), notes: "Would love to join the choir", wants_contact: true, created_at: now.toISOString(), status: "pending"}],
