@@ -1026,7 +1026,7 @@ function pages() {  // the menu, in groups; what each role can actually load is 
 }
 // Settings each person picks for themselves: colour, theme, text size and so on. Kept on this phone or laptop, per person.
 const ACCENTS = [["#1f6fe5", "Blue"], ["#0e8a7c", "Teal"], ["#6250d6", "Violet"], ["#c8417a", "Pink"], ["#dc5f26", "Orange"], ["#2b9348", "Green"], ["#b8860b", "Gold"]];
-const LOOK0 = {accent: "", theme: "", text: "normal", motion: false, contrast: false, muted: false, start: "", share: [], liveFill: false, home: ""};  // home: "" opens the home-screen icon in the browser, "app" full screen
+const LOOK0 = {accent: "", theme: "", text: "normal", motion: false, contrast: false, muted: false, start: "", share: [], liveFill: false, home: "", hide: []};  // hide: pages left out of this person's menu  // home: "" opens the home-screen icon in the browser, "app" full screen
 const sysDark = matchMedia("(prefers-color-scheme: dark)");
 function look() { let v = {}; try { v = JSON.parse(localStorage.getItem("fcc-look:" + (S.me?.email || "")) || "{}"); } catch {} return {...LOOK0, ...v}; }
 function saveLook(ch) {
@@ -1077,7 +1077,9 @@ function render() {
   if (S.view === "summary") { S.view = "reports"; S.repTab = "summary"; }  // the WhatsApp summary is a tab on Reports now
   if (!allowed.includes(S.view)) S.view = allowed[0];
   const short = {dashboard: "Home", overview: "Churches", people: "People", followup: "Follow-up"};  // the bottom bar on phones: the four most-used pages, then More
-  const dock = groups.flatMap(g => g[1]).filter(x => ["mine", "dashboard", "checkin", "followup", "people", "overview"].includes(x[0])).slice(0, 4).map(([k, t]) => [k, short[k] || t]);
+  // pages someone turned off in Settings → Pages you see: left out of their menu and bottom bar (the first page always stays)
+  const hid = new Set(look().hide || []), menuGroups = groups.map(([h, items]) => [h, items.filter(([k]) => !hid.has(k) || k === allowed[0])]).filter(g => g[1].length);
+  const dock = menuGroups.flatMap(g => g[1]).filter(x => ["mine", "dashboard", "checkin", "followup", "people", "overview"].includes(x[0])).slice(0, 4).map(([k, t]) => [k, short[k] || t]);
   const go = to => {  // a page opens straight away from what's already loaded; the latest is fetched behind it, and only if
     // something changed is the page redrawn, in place (same scroll, and not while a box is open or someone is typing)
     const me = S.goTok = (S.goTok || 0) + 1; S.view = to; render();
@@ -1095,7 +1097,7 @@ function render() {
       ${S.me.role === "bishop" ? "" : `<div class="side-church">${S.me.role === "admin"  // the church being worked in, at the top; only an admin can change it
         ? `<button type="button" class="church on" data-chpick aria-haspopup="listbox" aria-expanded="false" title="Working in ${esc(S.church)}: tap to switch church"><i></i><b class="ch-ab" aria-hidden="true">${esc(churchAbbr(S.church))}</b><span>${esc(S.church)}</span><em>Change</em></button>`
         : `<div class="church on" title="Your church"><i></i><b class="ch-ab" aria-hidden="true">${esc(churchAbbr(S.church))}</b><span>${esc(S.church)}</span></div>`}</div>`}
-      ${groups.map(([h, items]) => (h ? `<h6>${h}</h6>` : "") + items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" title="${t}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}<span class="nl">${t}</span>${
+      ${menuGroups.map(([h, items]) => (h ? `<h6>${h}</h6>` : "") + items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" title="${t}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}<span class="nl">${t}</span>${
         k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : k === "teamforms" && S.teamPending ? `<span class="count">${S.teamPending}</span>` : ""}</button>`).join("")).join("")}
       <div class="side-foot">${S.me.base === "admin" ? (S.preview ? `<button class="nav" data-unpreview title="Back to Admin">${svg("back")}<span class="nl">Back to Admin</span></button>`
           : `<button class="nav" data-viewas title="View as another role">${svg("eye")}<span class="nl">View as another role</span></button>`) : ""}${S.canSwitch ? `<button class="nav" data-switch title="${switchLabel()}">${svg("pastors")}<span class="nl">${switchLabel()}</span></button>` : ""}<button class="nav out" data-out title="Log out">${svg("out")}<span class="nl">Log out</span></button></div></aside>
@@ -4053,6 +4055,8 @@ function settings(box) {
         `<option value="${k}" ${v.start === k ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`)}
       <div class="set-wide">${flip("set-mini", "Icons-only menu", "On laptops, show the side menu as icons only.", S.mini)}</div>
       ${flip("set-emoji", "Emojis in shared messages", "Adds emojis to the WhatsApp summaries you copy.", S.emoji)}
+      <div class="set-wide pg-head"><b>Pages you see</b><small>Turn off pages you don't use: they leave your menu and bottom bar. Only on this phone or computer, and nothing else changes.</small></div>
+      ${pages().flatMap(g => g[1]).filter(([k], i) => i && k !== "help").map(([k, t]) => flip("set-pg-" + k, t, "", !(v.hide || []).includes(k))).join("")}
       <div class="set-row"><span class="gap" style="flex:1"></span><button type="button" class="pill-btn" data-look-reset>Reset to default</button></div></div>
     <div class="card set-card"><div class="card-head"><h2>Sharing summaries</h2></div>
       ${row("Send to", "Extra places to send a summary, next to WhatsApp and Copy.", `<div class="chips" role="group" aria-label="Send to">${SHARE.map(([k, t]) =>
@@ -4076,6 +4080,9 @@ function settings(box) {
   $("#set-start").onchange = e => { saveLook({start: e.target.value}); toast("Saved. You'll start there next time."); };
   $("#set-mini").onchange = e => { S.mini = e.target.checked; try { localStorage.setItem("fcc-mini", S.mini ? "1" : "0"); } catch {}
     document.querySelector(".shell")?.classList.toggle("mini", S.mini); };
+  box.querySelectorAll('[id^="set-pg-"]').forEach(c => c.onchange = () => {  // a page on or off in the menu
+    const k = c.id.slice(7), now = new Set(look().hide || []); c.checked ? now.delete(k) : now.add(k);
+    saveLook({hide: [...now]}); const y = scrollY; render(); scrollTo(0, y); });
   $("#set-emoji").onchange = e => { S.emoji = e.target.checked; try { localStorage.setItem("fcc-emoji", S.emoji ? "on" : "off"); } catch {} };
   $("[data-look-reset]").onclick = () => { saveLook(null); S.mini = false; S.emoji = true;
     try { localStorage.removeItem("fcc-mini"); localStorage.removeItem("fcc-emoji"); } catch {} render(); toast("Back to the default settings."); };
