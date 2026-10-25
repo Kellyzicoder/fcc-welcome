@@ -2390,6 +2390,9 @@ function followup(el) {
 // Files don't have to follow a set layout: each column is matched to Name, First name, Last name, Phone, Type, Age group or
 // Gender (guessed from its heading and what's in it, and changeable), and the names and numbers are tidied before importing.
 // Names already on this church's list are skipped, so the same list can be imported twice safely.
+// A phone number typed into the name, e.g. "Ama Mensah 0211234567" or "Ama Mensah – 021 123 4567": gives [name, phone]
+const NAME_PHONE = /^(.*?\p{L}.*?)[\s,;:–—-]+(\+?\d[\d\s().-]{6,}\d)\s*$/u;
+const splitNamePhone = s => { const m = String(s || "").match(NAME_PHONE); return m && m[2].replace(/\D/g, "").length >= 8 ? [m[1].replace(/[\s,;:–—-]+$/, "").trim(), m[2].replace(/[^\d+]/g, "")] : null; };
 function bulkAdd() {
   document.querySelectorAll(".modal").forEach(m => m.remove());
   const d = document.createElement("div"); d.className = "modal";
@@ -2492,10 +2495,11 @@ function bulkAdd() {
     const have = new Set(S.members.filter(m => churchOf(m) === S.church).map(m => norm(m.full_name))), seen = new Set();
     let fixedNames = 0, fixedPhones = 0;
     rows = body.map(c => {
-      const rawName = col("name") >= 0 ? get(c, "name") : [get(c, "first"), get(c, "last")].filter(Boolean).join(" ");
+      const rawName0 = col("name") >= 0 ? get(c, "name") : [get(c, "first"), get(c, "last")].filter(Boolean).join(" ");
+      const sp = splitNamePhone(rawName0), rawName = sp ? sp[0] : rawName0;  // "Ama Mensah 0211234567" on one line: the number goes to Phone
       const name = tidyName(rawName); if (name && name !== rawName.replace(/\s+/g, " ").trim()) fixedNames++;
       // the phone: its own column, or (a plain list) anything after the name that looks like one
-      const rawPhone = col("phone") >= 0 ? get(c, "phone") : n > 1 && !hasHead ? c.slice(1).find(isPhone) || "" : "";
+      const rawPhone = (col("phone") >= 0 ? get(c, "phone") : n > 1 && !hasHead ? c.slice(1).find(isPhone) || "" : "") || sp?.[1] || "";
       const phone = rawPhone ? tidyPhone(rawPhone) : ""; if (rawPhone && phone.replace(/\s/g, "") !== rawPhone.replace(/[\s()\-.]/g, "")) fixedPhones++;
       const words = hasHead ? [] : c.slice(1).map(norm);  // a plain list: "Ama Mensah, child" or "Kofi, 021 555 0101, first-timer"
       const ageTxt = norm(get(c, "age") || words.find(x => /^(child|kid|kids|adult)$/.test(x)) || "");
@@ -2582,11 +2586,14 @@ function people(el) {
   const nums = [...new Set([1, S.pPage - 1, S.pPage, S.pPage + 1, pages])].filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
   const TYPECLS = {member: "r-team", first_timer: "r-pastor", visitor: "r-bishop"};
   const DOT = {member: "r-team", first: "r-pastor", visitor: "r-bishop", nopastor: "r-admin", female: "r-lead", male: "r-lead", adult: "", child: ""};
+  const mixed = ["admin", "lead"].includes(S.me.role) ? everyone.filter(m => splitNamePhone(m.full_name)) : [];  // phone numbers that went into the name
   el.innerHTML = head("Congregation", esc(S.church), `${["admin", "lead", "team"].includes(S.me.role) ? `<button class="pill-btn primary" id="bulk-add">${svg("upload")}Import people</button>` : ""}<button class="pill-btn" id="dl">Download</button>`) + `
     <div class="tiles">${[["Total people", everyone.length, "In " + S.church], ["Members", everyone.filter(SHOW.member[1]).length, "Regular members"],
         ["First-timers & visitors", everyone.filter(m => m.type === "first_timer" || m.type === "visitor").length, "Still getting to know us"],
         ["No pastor yet", everyone.filter(SHOW.nopastor[1]).length, "Need a pastor assigned"]]
       .map(([t, n, sub]) => `<div class="card tile"><div class="label">${t}</div><div class="num">${String(n).padStart(2, "0")}</div><div class="note" style="margin:4px 0 0">${esc(sub)}</div></div>`).join("")}</div>
+    ${mixed.length ? `<div class="msg np-fix"><span><b>${mixed.length} ${mixed.length === 1 ? "name has" : "names have"} a phone number in ${mixed.length === 1 ? "it" : "them"}.</b> Move each number to Phone and keep just the name.</span>
+      <button type="button" class="pill-btn primary sm" id="np-fix">Fix ${mixed.length === 1 ? "it" : "all " + mixed.length}</button></div>` : ""}
     <div class="card">
       <div class="find-row"><label class="find-bar">${svg("search")}<input id="find" type="search" placeholder="Search by name, phone or pastor" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off"></label>
         <div class="u-tools">${roleKeys.length ? `<select class="in" id="teamF" aria-label="Team"><option value="">All teams</option>${roleKeys.map(k => `<option value="${esc(k)}" ${S.roleF === k ? "selected" : ""}>${esc(counts[k].label)} · ${counts[k].n}</option>`).join("")}</select>` : ""}
@@ -2712,6 +2719,21 @@ function people(el) {
   const moreB = el.querySelector(".chips [data-more]"); if (moreB) moreB.onclick = () => { S.roleMore = !S.roleMore; render(); };
   el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => editPerson(S.members.find(x => x.id === b.dataset.edit)));
   el.querySelector("#bulk-add")?.addEventListener("click", bulkAdd);
+  el.querySelector("#np-fix")?.addEventListener("click", async e => {  // "Ama Mensah 0211234567" → name Ama Mensah, phone 0211234567
+    e.target.disabled = true; let done = 0, kept = 0, clash = 0;
+    for (const m of mixed) {
+      const [name, ph] = splitNamePhone(m.full_name), had = String(m.phone || "").replace(/[^\d+]/g, "");
+      if (had && had !== ph) { kept++; continue; }  // a different number is already in Phone: left for a person to check
+      const ver = Number(m.version) || 1, body = {full_name: name, ...(had ? {} : {phone: ph}), version: ver + 1};
+      const rows = await api(`members?id=eq.${encodeURIComponent(m.id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body}).catch(() => null);
+      if (!rows?.length) { clash++; continue; }
+      Object.assign(m, body); done++;
+    }
+    if (done) log("edit", "", "done", `moved ${done} phone ${done === 1 ? "number" : "numbers"} out of names`);
+    if (clash) await load();
+    toast(`Fixed ${done}.` + (kept ? ` ${kept} already had a different phone number: check ${kept === 1 ? "it" : "them"} with Edit.` : "") + (clash ? ` ${clash} couldn't be saved just now: try again.` : ""));
+    render();
+  });
   el.querySelector("#dl").onclick = () => download(`people_${S.church}_${today()}.csv`, [["Church", "Name", "Pastor assigned", "Type", "Age group", "Gender", "Status", "Phone", "Roles"],
     ...mine.map(m => [S.church, m.full_name, pastorsOf(m).join(", "), typeOf(m), ageOf(m), genderOf(m), m.status || "Active", m.phone || "", rolesOf(m).join(", ")])]);
 }
