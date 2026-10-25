@@ -31,6 +31,17 @@ alter table app_users add column if not exists pastor text;
 alter table app_users add column if not exists title text;
 alter table app_users add column if not exists role3 text;
 
+-- Titles saved one way, in full words: "Rev. Ama Mensah" → "Reverend Ama Mensah", "Pst."/"Ps." → "Pastor",
+-- "LP"/"Lady Pst." → "Lady Pastor", "Bp." → "Bishop". The app shows them short (Rev., Pst., LP); reports get the full words.
+create or replace function app_full_title(n text) returns text language sql immutable set search_path = public as $$
+  select regexp_replace(regexp_replace(regexp_replace(regexp_replace(
+           trim(regexp_replace(coalesce(n, ''), '\s+', ' ', 'g')),
+           '^(lady\s+(pastor|pst\.?|ps\.?)|lp\.?)\s+', 'Lady Pastor ', 'i'),
+           '^(reverend|revd\.?|rev\.?)\s+', 'Reverend ', 'i'),
+           '^(pastor|pst\.?|ps\.?)\s+', 'Pastor ', 'i'),
+           '^(bishop|bp\.?)\s+', 'Bishop ', 'i')
+$$;
+
 alter table members add column if not exists church text;
 alter table members add column if not exists age_group text;
 alter table members add column if not exists pastor text;
@@ -612,6 +623,35 @@ grant execute on function app_db_size() to authenticated;
 revoke all on function app_rename_church(text, text) from public, anon;
 grant execute on function app_rename_church(text, text) to authenticated;
 
+-- Pastors page → Tidy titles (admin): every pastor name written the same way, everywhere it is used at once
+-- (each church's Pastors list, the pastor on each person, and pastor sign-ins), so nobody loses their people.
+create or replace function app_tidy_titles() returns json language plpgsql security definer set search_path = public as $$
+declare l int := 0; m int := 0; u int := 0;
+begin
+  if app_role() is distinct from 'admin' then raise exception 'not allowed'; end if;
+  with t as (
+    select s.key, (select string_agg(x.v, E'\n' order by x.i) from (
+             select distinct on (lower(app_full_title(e))) app_full_title(e) v, i
+             from unnest(string_to_array(s.value, E'\n')) with ordinality as a(e, i) where trim(e) <> ''
+             order by lower(app_full_title(e)), i) x) v
+    from settings s where s.key like 'pastors:%')
+  update settings s set value = t.v from t where s.key = t.key and s.value is distinct from t.v;
+  get diagnostics l = row_count;
+  with t as (
+    select id, (select string_agg(app_full_title(e), ', ' order by i) from unnest(string_to_array(pastor, ',')) with ordinality as a(e, i) where trim(e) <> '') v
+    from members where coalesce(pastor, '') <> '')
+  update members x set pastor = t.v, version = x.version + 1 from t where x.id = t.id and x.pastor is distinct from t.v;
+  get diagnostics m = row_count;
+  update app_users set pastor = app_full_title(pastor) where coalesce(pastor, '') <> '' and pastor is distinct from app_full_title(pastor);
+  get diagnostics u = row_count;
+  insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+  values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF'), 'edit',
+          null, null, 'tidied pastor titles: ' || l || ' lists, ' || m || ' people, ' || u || ' sign-ins', app_who(), 'done');
+  return json_build_object('lists', l, 'people', m, 'signins', u);
+end $$;
+revoke all on function app_tidy_titles() from public, anon;
+grant execute on function app_tidy_titles() to authenticated;
+
 -- Livestream widget: a church's own YouTube channel, kept in churches.livestream as {"yt": channel id, "name": channel name}.
 -- The app's server route (app/app-live) looks the channel up first, then saves it through this function.
 -- The admin can set any church's; a church admin only their own church's. An empty link removes it.
@@ -1182,7 +1222,7 @@ begin
         where not exists (select 1 from unnest(string_to_array(settings.value, E'\n')) x where lower(trim(x)) = lower(pn));
     end if;
     insert into app_users (email, role, church, name, pastor, title)  -- a shepherd signs in as a pastor, titled Shepherd
-    values (r.email, case when rl = 'shepherd' then 'pastor' else rl end, r.church, r.name, case when rl in ('pastor', 'shepherd') then pn end,
+    values (r.email, case when rl = 'shepherd' then 'pastor' else rl end, r.church, r.name, case when rl in ('pastor', 'shepherd') then app_full_title(pn) end,
             case when rl = 'shepherd' then 'Shepherd' end);
     insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
     values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), stamp, 'role_change', null, null,
