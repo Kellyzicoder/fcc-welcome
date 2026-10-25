@@ -1306,9 +1306,11 @@ function summary(p, o = {}) {
     ["🟡", `Missed ${YELLOW_AT}–${RED_AT - 1} in a row: *${p.count("yellow")}*`], ...who(flagged("yellow")),
     ...(o.link ? ["", ["📺", `Livestream: ${o.link}`]] : [])]);
 }
-function chart(el, rows, pick) {  // one bar per service: everyone who came (adults and kids together, one colour so nothing reads as
-  // an extra piece on top); tapping a bar opens that day's Check-in, or calls pick(day)
+function chart(el, rows, pick, active) {  // one bar per service: everyone who came (adults and kids together, one colour so nothing reads as
+  // an extra piece on top); tapping a bar opens that day's Check-in, or calls pick(day). The day the page is showing (active,
+  // or else the latest) is in colour with its adults and kids shown; the others are greyed back.
   const narrow = innerWidth < 640; rows = rows.slice(narrow ? -7 : -12);
+  const on = rows.some(r => r[0] === active) ? active : rows[rows.length - 1]?.[0];
   if (!rows.length) { el.innerHTML = `<p class="empty">No services recorded yet.</p>`; return; }
   const W = narrow ? 340 : 640, H = 230, L = 28, B = 26, T = 18, max = Math.max(20, Math.ceil(Math.max(...rows.map(r => r[1] + r[2])) / 20) * 20);
   const step = (W - L) / rows.length, bw = Math.min(26, step * .5), y = v => T + (H - T - B) * (1 - v / max);
@@ -1316,7 +1318,7 @@ function chart(el, rows, pick) {  // one bar per service: everyone who came (adu
   for (const t of [0, .25, .5, .75, 1].map(f => Math.round(max * f))) s += `<line class="gridline" x1="${L}" x2="${W}" y1="${y(t)}" y2="${y(t)}"/><text x="${L - 8}" y="${y(t) + 4}" text-anchor="end">${t}</text>`;
   rows.forEach(([d, a, k], i) => {
     const cx = L + step * i + step / 2, x = cx - bw / 2, yk = y(a + k), h = y(0) - yk, r = Math.min(4, h / 2);
-    s += `<g class="col" tabindex="0" data-i="${i}"><rect class="hit" x="${cx - step / 2}" y="${T - 8}" width="${step}" height="${H - T - B + 8}" rx="8"/>
+    s += `<g class="col ${d === on ? "on" : "dim"}" tabindex="0" data-i="${i}"><rect class="hit" x="${cx - step / 2}" y="${T - 8}" width="${step}" height="${H - T - B + 8}" rx="8"/>
       ${h > 0 ? `<path d="M${x},${y(0)} v${-(h - r)} a${r},${r} 0 0 1 ${r},${-r} h${bw - 2 * r} a${r},${r} 0 0 1 ${r},${r} v${h - r} z" fill="var(--adults)"/>` : ""}
       <text class="total" x="${cx}" y="${yk - 6}" text-anchor="middle">${a + k}</text><text x="${cx}" y="${H - 8}" text-anchor="middle">${esc(nice(d))}</text></g>`;
   });
@@ -1325,13 +1327,15 @@ function chart(el, rows, pick) {  // one bar per service: everyone who came (adu
   el.querySelectorAll("g.col").forEach(g => {
     const show = () => {
       const [d, a, k] = rows[g.dataset.i], r = g.querySelector(".hit").getBoundingClientRect(), c = el.getBoundingClientRect();
-      tip.innerHTML = `<b>${esc(nice(d))}</b><br>${a + k} present`;
+      tip.innerHTML = `<b>${esc(nice(d))}</b><br>${a + k} present<br><small>${a} ${a === 1 ? "adult" : "adults"} · ${k} ${k === 1 ? "kid" : "kids"}</small>`;
       tip.style.left = Math.max(70, Math.min(c.width - 70, r.left - c.left + r.width / 2)) + "px";
       tip.style.top = (g.querySelector(".total").getBoundingClientRect().top - c.top) + "px"; tip.style.opacity = 1;
     };
-    g.onpointerenter = g.onfocus = show; g.onpointerleave = g.onblur = () => tip.style.opacity = 0;
+    g.onpointerenter = g.onfocus = show; g.onpointerleave = g.onblur = () => { const a = el.querySelector("g.col.on"); a && a !== g ? a.show() : tip.style.opacity = 0; };
+    g.show = show;
     g.onclick = g.onkeydown = e => { if (e.type === "keydown" && e.key !== "Enter") return; if (pick) return pick(rows[g.dataset.i][0]); S.date = rows[g.dataset.i][0]; S.view = "checkin"; render(); };
   });
+  requestAnimationFrame(() => el.querySelector("g.col.on")?.show?.());  // the day shown: its numbers sit above its bar
 }
 // Each name gets one of six colours from its letters, so the same person always has the same colour circle.
 const hueOf = s => 1 + [...norm(s)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 6;
@@ -1415,7 +1419,7 @@ const WIDGETS = {
       const kidIds = new Set(p.mine.filter(isKid).map(m => m.id));
       const series = p.dates.map(d => { const ids = Object.keys(p.byDate[d]), k = ids.filter(i => kidIds.has(i)).length; return [d, ids.length - k, k]; });
       el.innerHTML = `<div class="chart"></div>`;
-      chart(el.querySelector(".chart"), series);
+      chart(el.querySelector(".chart"), series, null, p.last);
     }},
   calendar: {name: "Calendar", sub: "Services this month and how many came", size: "narrow", icon: "followup", hue: 2, draw(el, p) { calendar(el, p); }},
   trend: {name: "Attendance trend", sub: () => TREND[trendView()][1], desc: "Attendance over time. Switch between Sundays, every service, midweek or monthly.", size: "full", icon: "trend", hue: 1,
@@ -2780,7 +2784,7 @@ const CWIDGETS = {
   chart: {name: "People present", sub: "How many came to each service · tap a bar to see that day", size: "full", icon: "dashboard", hue: 1,
     draw(el, c) {
       if (!c.trend) { el.innerHTML = `<p class="empty">Run the latest setup SQL in Supabase once to see this chart.</p>`; return; }
-      el.innerHTML = `<div class="chart"></div>`; chart(el.querySelector(".chart"), c.series.map(x => [x[0], x[1], x[2]]), c.pickDay);
+      el.innerHTML = `<div class="chart"></div>`; chart(el.querySelector(".chart"), c.series.map(x => [x[0], x[1], x[2]]), c.pickDay, c.day || null);
     }},
   follow: {name: "Follow-up", sub: "Missing services · no names", size: "full", icon: "followup", hue: 3,
     draw(el, c) {
