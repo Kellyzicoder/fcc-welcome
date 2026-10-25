@@ -1055,7 +1055,7 @@ function render() {
   if (S.mini === undefined) { try { S.mini = localStorage.getItem("fcc-mini") === "1"; } catch { S.mini = false; } }
   root.innerHTML = `<div class="shell ${S.mini ? "mini" : ""}">
     <div class="scrim" data-close></div>
-    <aside class="side" id="menu"><div class="brand"><span class="brand-mark">✝</span><span class="brand-txt">Favourite Child Church</span>
+    <aside class="side" id="menu"><div class="brand"><button type="button" class="brand-home" data-view="${allowed[0]}" title="Go to the home page" aria-label="Favourite Child Church: go to the home page"><span class="brand-mark">✝</span><span class="brand-txt">Favourite Child Church</span></button>
         <button type="button" class="side-tg" data-mini aria-label="${S.mini ? "Show menu names" : "Icons only"}" title="${S.mini ? "Show menu names" : "Icons only"}" aria-pressed="${!!S.mini}">${svg("panel")}</button></div>
       ${S.me.role === "bishop" ? "" : `<div class="side-church">${S.me.role === "admin"  // the church being worked in, at the top; only an admin can change it
         ? `<button type="button" class="church on" data-chpick aria-haspopup="listbox" aria-expanded="false" title="Working in ${esc(S.church)}: tap to switch church"><i></i><b class="ch-ab" aria-hidden="true">${esc(churchAbbr(S.church))}</b><span>${esc(S.church)}</span><em>Change</em></button>`
@@ -2850,6 +2850,7 @@ async function bishop(el, rows, text, newest) {
   el.innerHTML = head(admin ? "Churches" : "All churches", admin ? "Every church's numbers; open one to work in it, or manage the list at the bottom" : "Numbers only", `${admin ? `<button class="pill-btn" id="go-manage">${svg("edit")}Manage churches</button>` : ""}<button class="pill-btn" id="addcw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
     <div class="bish">
       <div class="card b-cal" id="b-cal"></div>
+      <div class="b-swipe"><span><b>${rows.length} ${rows.length === 1 ? "church" : "churches"}</b> · swipe or tap the arrows</span><button type="button" class="icon-btn sm" data-bs="-1" aria-label="Previous churches">${svg("prev")}</button><button type="button" class="icon-btn sm" data-bs="1" aria-label="More churches">${svg("next")}</button></div>
       <nav class="card b-list" aria-label="Churches">${list}</nav>
       <section class="b-detail">
         <div class="b-title"><h2>${esc(S.bChurch || "All churches")}</h2><span class="muted">${esc(when)}</span>
@@ -2890,8 +2891,15 @@ async function bishop(el, rows, text, newest) {
   el.querySelectorAll("[data-b]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.b; S.bJump = narrow(); render(); });
   if (narrow()) { const on = el.querySelector(".b-item.on"), row = el.querySelector(".b-list"); if (on && row) row.scrollLeft = on.offsetLeft - (row.clientWidth - on.offsetWidth) / 2; }  // keep the chosen church in view in the row
   { const row = el.querySelector(".b-list");  // phones: soft fades at the row's edges while there's more to swipe to
-    const f = () => { row.style.setProperty("--fl", row.scrollLeft > 4 ? "44px" : "0px"); row.style.setProperty("--fr", row.scrollLeft + row.clientWidth < row.scrollWidth - 4 ? "44px" : "0px"); };
-    if (row) { row.onscroll = f; f(); } }
+    const f = () => { const l = row.scrollLeft > 4, r = row.scrollLeft + row.clientWidth < row.scrollWidth - 4;
+      row.style.setProperty("--fl", l ? "44px" : "0px"); row.style.setProperty("--fr", r ? "44px" : "0px");
+      const [pb, nb] = el.querySelectorAll("[data-bs]"); if (pb) { pb.disabled = !l; nb.disabled = !r; el.querySelector(".b-swipe").hidden = !l && !r; } };
+    if (row) { row.onscroll = f; f();
+      // the arrows: a row of churches at a time; and once on each phone, a little nudge so it's clear the row moves
+      el.querySelectorAll("[data-bs]").forEach(b => b.onclick = () => row.scrollBy({left: b.dataset.bs * row.clientWidth * .7, behavior: stillMotion() ? "auto" : "smooth"}));
+      let shown = true; try { shown = !!localStorage.getItem("fcc-bswipe"); localStorage.setItem("fcc-bswipe", "1"); } catch {}
+      if (!shown && narrow() && !stillMotion() && row.scrollWidth > row.clientWidth + 4) {
+        setTimeout(() => row.scrollBy({left: 90, behavior: "smooth"}), 700); setTimeout(() => row.scrollBy({left: -90, behavior: "smooth"}), 1500); } } }
   if (S.bJump) { S.bJump = false; el.querySelector(".b-list")?.scrollIntoView({behavior: "smooth", block: "start"}); }  // church row and dashboard in view
   el.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { S.church = b.dataset.open; S.view = "dashboard"; render(); });  // admin: work in that church
   el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text, {day: latest || newest});

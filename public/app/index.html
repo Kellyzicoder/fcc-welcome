@@ -486,7 +486,9 @@ input.in:focus, select.in:focus {border-color: var(--accent); box-shadow: 0 0 0 
 .b-track {height: 10px; border-radius: 99px; background: var(--line); overflow: hidden;} .b-track i {display: block; height: 100%; border-radius: inherit;}
 @media (max-width: 900px) {
   /* phones: the same page as on a computer, stacked - churches as a row to swipe, the dashboard, then the calendar */
-  .bish {grid-template-columns: minmax(0, 1fr); grid-template-areas: "list" "detail" "cal"; gap: 12px;}
+  .bish {grid-template-columns: minmax(0, 1fr); grid-template-areas: "hint" "list" "detail" "cal"; gap: 12px;}
+  .bish > .b-swipe {grid-area: hint; display: flex; align-items: center; gap: 6px; margin: 0 2px -6px; font-size: 13px; color: var(--ink-3);} .bish > .b-swipe[hidden] {display: none;}
+  .b-swipe span {flex: 1; min-width: 0;} .b-swipe b {color: var(--ink-2); font-weight: 600;} .b-swipe .icon-btn:disabled {opacity: .35;}
   .b-list {display: flex; gap: 8px; overflow-x: auto; padding: 2px 0; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: none;
           background: none; border: 0; box-shadow: none; border-radius: 0; --fl: 0px; --fr: 0px;
           -webkit-mask-image: linear-gradient(90deg, transparent, #000 var(--fl), #000 calc(100% - var(--fr)), transparent);
@@ -765,6 +767,9 @@ button.ov-cell {cursor: pointer;} button.ov-cell:hover {background: var(--soft);
 .side-tg {margin-left: auto; border: 0; background: none; color: var(--ink-3); width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; cursor: pointer; flex: none;}
 .side-tg svg {width: 18px; height: 18px;} .side-tg:hover {background: var(--soft); color: var(--ink);}
 .brand-txt {min-width: 0;}
+.brand-home {display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; border: 0; background: none; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 12px;}
+.brand-home:focus-visible {outline: 3px solid var(--accent-soft); outline-offset: 3px;}
+.b-swipe {display: none;}
 @media (min-width: 901px) {
   .shell {transition: grid-template-columns .2s ease;}
   .shell.mini {grid-template-columns: 78px minmax(0, 1fr);}
