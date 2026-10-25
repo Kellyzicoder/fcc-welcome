@@ -623,6 +623,69 @@ grant execute on function app_db_size() to authenticated;
 revoke all on function app_rename_church(text, text) from public, anon;
 grant execute on function app_rename_church(text, text) to authenticated;
 
+-- ---------------------------------------------------------------- Backups: a Google Sheet that copies everything each night
+-- Admin → Backups makes a backup key (only its fingerprint is kept here) and the script for a Google Sheet; the sheet's
+-- script sends the key each night and gets back every church, person, service and check-in, the pastor and shepherd lists
+-- and the sign-ins. The key only reads; making a new one stops the old one working. Safe to run again.
+create table if not exists backup_keys (
+  id int primary key default 1 check (id = 1),
+  hash bytea not null,
+  made_at timestamptz not null default now(),
+  made_by text,
+  last_used timestamptz
+);
+alter table backup_keys enable row level security;  -- no policies: only the functions below can read it
+revoke all on backup_keys from anon, authenticated;
+
+create or replace function app_backup_data() returns json language sql stable security definer set search_path = public as $$
+  select json_build_object('made_at', now(), 'home', app_home_church(),
+    'churches', (select coalesce(json_agg(t order by t.name), '[]') from churches t),
+    'members', (select coalesce(json_agg(t order by t.full_name), '[]') from members t),
+    'attendance', (select coalesce(json_agg(t order by t.service_date, t.full_name), '[]') from (  -- each check-in with the person's name and church
+      select a.*, m.full_name, coalesce(nullif(trim(m.church), ''), app_home_church()) as church
+      from attendance a left join members m on m.id = a.member_id) t),
+    'services', (select coalesce(json_agg(t order by t.service_date), '[]') from services t),
+    'service_parts', (select coalesce(json_agg(t order by t.service_date), '[]') from service_parts t),
+    'service_ticks', (select coalesce(json_agg(t order by t.service_date), '[]') from service_ticks t),
+    'lists', (select coalesce(json_agg(json_build_object('key', t.key, 'names', t.value) order by t.key), '[]') from settings t
+              where t.key like 'pastors:%' or t.key like 'shepherds:%'),
+    'signins', (select coalesce(json_agg(json_build_object('email', u.email, 'role', u.role, 'title', u.title, 'role3', u.role3, 'church', u.church,
+                  'name', u.name, 'pastor', u.pastor) order by u.email), '[]') from app_users u))
+$$;
+revoke all on function app_backup_data() from public, anon, authenticated;
+
+-- a new key (admin): shown once, to go in the Google Sheet's script
+create or replace function app_backup_key() returns text language plpgsql security definer set search_path = public as $$
+declare k text := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
+begin
+  if app_role() is distinct from 'admin' then raise exception 'not allowed'; end if;
+  insert into backup_keys (id, hash, made_by) values (1, sha256(convert_to(k, 'UTF8')), app_who())
+  on conflict (id) do update set hash = excluded.hash, made_at = now(), made_by = excluded.made_by, last_used = null;
+  return k;
+end $$;
+revoke all on function app_backup_key() from public, anon;
+grant execute on function app_backup_key() to authenticated;
+
+-- when the key was made and when the sheet last copied (admin)
+create or replace function app_backup_status() returns json language plpgsql stable security definer set search_path = public as $$
+begin
+  if app_role() is distinct from 'admin' then raise exception 'not allowed'; end if;
+  return (select json_build_object('made_at', made_at, 'made_by', made_by, 'last_used', last_used) from backup_keys where id = 1);
+end $$;
+revoke all on function app_backup_status() from public, anon;
+grant execute on function app_backup_status() to authenticated;
+
+-- what the Google Sheet calls each night, with its key
+create or replace function app_backup(backup_key text) returns json language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce(backup_key, '') = '' or not exists (select 1 from backup_keys where hash = sha256(convert_to(backup_key, 'UTF8'))) then
+    raise exception 'not allowed'; end if;
+  update backup_keys set last_used = now() where id = 1;
+  return app_backup_data();
+end $$;
+revoke all on function app_backup(text) from public;
+grant execute on function app_backup(text) to anon, authenticated;
+
 -- Pastors page → Tidy titles (admin): every pastor name written the same way, everywhere it is used at once
 -- (each church's Pastors list, the pastor on each person, and pastor sign-ins), so nobody loses their people.
 create or replace function app_tidy_titles() returns json language plpgsql security definer set search_path = public as $$
