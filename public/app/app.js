@@ -1315,7 +1315,7 @@ function summary(p, o = {}) {
 function chart(el, rows, pick, active) {  // one bar per service: everyone who came (adults and kids together, one colour so nothing reads as
   // an extra piece on top); tapping a bar opens that day's Check-in, or calls pick(day). The day the page is showing (active,
   // or else the latest) is in colour with its adults and kids shown; the others are greyed back.
-  const narrow = innerWidth < 640; rows = rows.slice(narrow ? -7 : -12);
+  const narrow = innerWidth < 640; rows = rows.slice(narrow ? -5 : -10);  // the latest 5 services on a phone, 10 on a bigger screen
   const on = rows.some(r => r[0] === active) ? active : rows[rows.length - 1]?.[0];
   if (!rows.length) { el.innerHTML = `<p class="empty">No services recorded yet.</p>`; return; }
   const W = narrow ? 340 : 640, H = 230, L = 28, B = 26, T = 18, max = Math.max(20, Math.ceil(Math.max(...rows.map(r => r[1] + r[2])) / 20) * 20);
@@ -2838,7 +2838,7 @@ const CWIDGETS = {
     }},
   firsts: {name: "First-timers per service", sub: "New faces at each recent service", size: "full", icon: "people", hue: 6,
     draw(el, c) {
-      const rows = c.series.slice(innerWidth < 640 ? -7 : -12), top = Math.max(1, ...rows.map(x => x[3])), topDay = [...rows].reverse().find(x => x[3] === top)?.[0];
+      const rows = c.series.slice(innerWidth < 640 ? -5 : -10), top = Math.max(1, ...rows.map(x => x[3])), topDay = [...rows].reverse().find(x => x[3] === top)?.[0];
       el.innerHTML = rows.length ? `<div class="vbars">${rows.map(x => `<button type="button" class="vbar ${x[0] === topDay ? "on" : ""}" data-fd="${x[0]}" title="${esc(nice(x[0], true))}: ${x[3]} first-timers, ${x[4]} visitors">
         <b>${x[0] === topDay ? x[3] : ""}</b><span style="height:${Math.max(4, x[3] / top * 100)}%"></span><small>${esc(nice(x[0]))}</small></button>`).join("")}</div>` : `<p class="empty">No services recorded yet.</p>`;
       el.querySelectorAll("[data-fd]").forEach(b => b.onclick = () => c.pickDay(b.dataset.fd));
