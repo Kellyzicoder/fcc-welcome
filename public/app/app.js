@@ -739,7 +739,8 @@ async function start() {
   // An admin can look at the app as another role (e.g. an usher at one church) without a second email: see viewAs()
   S.preview = null;
   if (S.me.base === "admin") { let as = null; try { as = JSON.parse(localStorage.getItem("fcc-preview:" + S.me.email) || "null"); } catch {}
-    if (as && PREVIEW[as.role]) { S.preview = as; S.canSwitch = false; Object.assign(S.me, {role: as.role, church: as.church || null, pastor: as.role === "pastor" ? as.pastor : S.me.pastor, title: null}); } }
+    if (as && PREVIEW[as.role]) { S.preview = as; S.canSwitch = false; Object.assign(S.me, {role: as.role === "shepherd" ? "pastor" : as.role, church: as.church || null,  // a Shepherd is a pastor sign-in titled Shepherd
+      pastor: ["pastor", "shepherd"].includes(as.role) ? as.pastor : S.me.pastor, title: as.role === "shepherd" ? "Shepherd" : null}); } }
   S.view = S.me.role === "bishop" ? "overview" : S.view;
   if (!S.landed) { S.landed = true; const st = look().start; if (st) S.view = st; }  // the start page this person picked in Settings
   let back = null; try { back = JSON.parse(sessionStorage.getItem("fcc-back") || "null"); sessionStorage.removeItem("fcc-back"); } catch {}
@@ -826,18 +827,19 @@ async function switchView(to) {
 // View as: the admin picks a role (and church, and pastor name for Pastor) and the whole app shows what that person would see.
 // Only the screens change, and it's view only: nothing is saved while viewing as someone else (see api()).
 const viewOnly = () => `You're viewing as ${previewName()}, which is view only. Tap Back to Admin to make changes.`;
-const PREVIEW = {team: "Team (usher)", lead: "Church admin", pastor: "Pastor", bishop: "Bishop"};
+const PREVIEW = {team: "Team (usher)", lead: "Church admin", pastor: "Pastor", shepherd: "Shepherd", bishop: "Bishop"};
 function viewAs() {
-  const allP = [...new Set(Object.values(S.pastorList || {}).flat())];
+  const allP = [...new Set(Object.values(S.pastorList || {}).flat())], allS = [...new Set(Object.values(S.shepherdList || {}).flat())];
   formDialog("View the app as another role", [
     {k: "role", label: "Role", type: "select", value: "team", options: Object.entries(PREVIEW)},
     {k: "church", label: "Church", type: "select", value: S.church, options: S.churches.map(c => [c, c]), hint: "Not used for Bishop, who sees every church."},
-    {k: "pastor", label: "Pastor name (only for Pastor)", value: "", suggest: allP, hint: "As it is on the Pastors list. It decides whose people show."}],
+    {k: "pastor", label: "Pastor or shepherd name (only for Pastor or Shepherd)", value: "", suggest: [...allP, ...allS], hint: "As it is on the Pastors or Shepherds list. It decides whose people show."}],
     async v => {
-      if (v.role === "pastor" && !v.pastor) throw new Error("Type a pastor's name as it is on the Pastors list.");
-      if (v.role === "pastor") { const hit = Object.entries(S.pastorList || {}).find(([, l]) => l.some(n => norm(n) === norm(v.pastor))); if (hit) v.church = hit[0]; }
+      const care = v.role === "pastor" || v.role === "shepherd", lists = v.role === "shepherd" ? S.shepherdList : S.pastorList, word = v.role === "shepherd" ? "Shepherds" : "Pastors";
+      if (care && !v.pastor) throw new Error(`Type a name as it is on the ${word} list.`);
+      if (care) { const hit = Object.entries(lists || {}).find(([, l]) => l.some(n => norm(n) === norm(v.pastor))); if (hit) v.church = hit[0]; }
       try { localStorage.setItem("fcc-preview:" + S.me.email, JSON.stringify({role: v.role, church: v.role === "bishop" ? null : v.church, pastor: v.pastor || ""})); } catch {}
-      S.view = v.role === "bishop" ? "overview" : v.role === "pastor" ? "mine" : "dashboard"; S.hist = []; S.shown = "";
+      S.view = v.role === "bishop" ? "overview" : care ? "mine" : "dashboard"; S.hist = []; S.shown = "";
       await start(); toast(`Now showing the app as ${PREVIEW[v.role]}. Tap Back to Admin at the top to return.`);
     }, "Show me");
 }
@@ -845,7 +847,7 @@ async function endPreview() {
   try { localStorage.removeItem("fcc-preview:" + S.me.email); } catch {}
   S.view = "dashboard"; S.hist = []; S.shown = ""; await start(); toast("Back to your Admin view.");
 }
-const previewName = () => S.preview ? `${PREVIEW[S.preview.role]}${S.preview.role === "pastor" ? " · " + S.preview.pastor : ""}${S.preview.church ? " · " + S.preview.church : ""}` : "";
+const previewName = () => S.preview ? `${PREVIEW[S.preview.role]}${["pastor", "shepherd"].includes(S.preview.role) ? " · " + S.preview.pastor : ""}${S.preview.church ? " · " + S.preview.church : ""}` : "";
 const switchLabel = () => S.me.role === "pastor" ? `Switch to ${baseName()} view` : "Switch to Pastor view";
 function fatal(text) { root.innerHTML = `<div class="center"><div class="login"><h1>Something went wrong</h1><p>${esc(text)}</p><button class="pill-btn block" onclick="location.reload()">Try again</button></div></div>`; }
 async function signOut() { try { await auth("logout", {}, S.session?.access_token); } catch {} store.set(null); S.me = null; loginView(); }
@@ -869,7 +871,7 @@ async function load() {
     .then(r => Object.fromEntries(r.map(x => [x.key.slice(10), (x.value || "").split("\n").map(y => y.trim()).filter(Boolean)]))).catch(() => ({}));
   S.seen = seen && Object.fromEntries(seen.map(r => [r.member_id, r.last_seen]));
   S.members = S.me.role === "pastor" && S.me.base !== "pastor"  // an admin in Pastor view: only the people assigned to them
-    ? members.filter(m => pastorsOf(m).some(n => norm(n) === norm(S.me.pastor))) : members;
+    ? members.filter(m => careOf(m).some(n => norm(n) === norm(S.me.pastor))) : members;
   S.ticks = ticks; S.names = Object.fromEntries(services.map(s => [s.service_date, s.name]));
   S.partsOk = parts !== null; S.parts = {}; for (const r of parts || []) (S.parts[r.service_date] ??= []).push({part: r.part, name: r.name});
   S.pticks = pticks;
@@ -888,7 +890,7 @@ async function freshen() {
     all(`service_parts?select=service_date,part,name&church=eq.${encodeURIComponent(S.church)}&service_date=gte.${since}&order=service_date,part`).catch(() => null),
     all(`service_ticks?select=service_date,part,member_id&service_date=gte.${since}`).catch(() => null),
     canApprove() ? api("registrations?select=id&status=eq.pending").then(r => r.length).catch(() => S.pending) : 0]);
-  S.members = S.me.role === "pastor" && S.me.base !== "pastor" ? members.filter(m => pastorsOf(m).some(n => norm(n) === norm(S.me.pastor))) : members;
+  S.members = S.me.role === "pastor" && S.me.base !== "pastor" ? members.filter(m => careOf(m).some(n => norm(n) === norm(S.me.pastor))) : members;
   S.ticks = S.ticks.filter(t => t.service_date < since).concat(ticks);
   for (const k of Object.keys(S.names)) if (k >= since) delete S.names[k];
   for (const s of services) S.names[s.service_date] = s.name;
