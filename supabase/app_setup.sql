@@ -34,6 +34,7 @@ alter table app_users add column if not exists role3 text;
 alter table members add column if not exists church text;
 alter table members add column if not exists age_group text;
 alter table members add column if not exists pastor text;
+alter table members add column if not exists shepherd text;  -- a person's shepherds (comma-separated), kept apart from pastors
 alter table members add column if not exists version integer not null default 1;
 
 -- ---------------------------------------------------------------- who is asking
@@ -63,6 +64,11 @@ create or replace function app_is_mine(ch text, pastors text) returns boolean la
 $$ select coalesce(app_role() = 'pastor' and coalesce(nullif(trim(ch), ''), app_home_church()) = app_church()
      and exists (select 1 from unnest(string_to_array(coalesce(pastors, ''), ',')) x
                  where lower(regexp_replace(trim(x), '\s+', ' ', 'g')) = app_pastor_name()), false) $$;
+
+-- The same, for the rules: a Shepherd sign-in looks after the people whose Shepherd field has their name; a Pastor, the Pastor field.
+create or replace function app_is_mine(ch text, pastors text, shepherds text) returns boolean language sql stable security definer set search_path = public as
+$$ select case when (select title from app_users where email = lower(auth.jwt() ->> 'email')) = 'Shepherd'
+     then app_is_mine(ch, shepherds) else app_is_mine(ch, pastors) end $$;
 
 create or replace function app_me() returns json language sql stable security definer set search_path = public as
 $$ select json_build_object('email', lower(auth.jwt() ->> 'email'), 'role', u.role, 'church', u.church, 'name', u.name,
@@ -119,16 +125,16 @@ create policy "app: admin reads the activity log" on activity_log for select to 
 
 -- Pastors: see and tick only their own people. They cannot add, edit or delete anyone (no rules for that).
 drop policy if exists "app: pastors see their own people" on members;
-create policy "app: pastors see their own people" on members for select to authenticated using (app_is_mine(church, pastor));
+create policy "app: pastors see their own people" on members for select to authenticated using (app_is_mine(church, pastor, shepherd));
 drop policy if exists "app: pastors see their people's ticks" on attendance;
 create policy "app: pastors see their people's ticks" on attendance for select to authenticated
-  using (exists (select 1 from members m where m.id = member_id and app_is_mine(m.church, m.pastor)));
+  using (exists (select 1 from members m where m.id = member_id and app_is_mine(m.church, m.pastor, m.shepherd)));
 drop policy if exists "app: pastors tick their people" on attendance;
 create policy "app: pastors tick their people" on attendance for insert to authenticated
-  with check (exists (select 1 from members m where m.id = member_id and app_is_mine(m.church, m.pastor)));
+  with check (exists (select 1 from members m where m.id = member_id and app_is_mine(m.church, m.pastor, m.shepherd)));
 drop policy if exists "app: pastors untick their people" on attendance;
 create policy "app: pastors untick their people" on attendance for delete to authenticated
-  using (exists (select 1 from members m where m.id = member_id and app_is_mine(m.church, m.pastor)));
+  using (exists (select 1 from members m where m.id = member_id and app_is_mine(m.church, m.pastor, m.shepherd)));
 
 grant select, insert, update, delete on churches, app_users to authenticated;
 -- Gender (Female / Male / blank) for the Congregation's Show and Sort. Someone's pastors are kept comma-separated in "pastor".
@@ -176,13 +182,13 @@ create policy "app: split a day into services" on service_parts for all to authe
   with check (app_role() in ('admin', 'lead', 'team') and app_can_see(church));
 drop policy if exists "app: see own church's service ticks" on service_ticks;
 create policy "app: see own church's service ticks" on service_ticks for select to authenticated
-  using (exists (select 1 from members m where m.id = member_id and (app_can_see(m.church) or app_is_mine(m.church, m.pastor))));
+  using (exists (select 1 from members m where m.id = member_id and (app_can_see(m.church) or app_is_mine(m.church, m.pastor, m.shepherd))));
 drop policy if exists "app: tick own church's people at a service" on service_ticks;
 create policy "app: tick own church's people at a service" on service_ticks for insert to authenticated
-  with check (exists (select 1 from members m where m.id = member_id and (app_can_see(m.church) or app_is_mine(m.church, m.pastor))));
+  with check (exists (select 1 from members m where m.id = member_id and (app_can_see(m.church) or app_is_mine(m.church, m.pastor, m.shepherd))));
 drop policy if exists "app: untick own church's people at a service" on service_ticks;
 create policy "app: untick own church's people at a service" on service_ticks for delete to authenticated
-  using (exists (select 1 from members m where m.id = member_id and (app_can_see(m.church) or app_is_mine(m.church, m.pastor))));
+  using (exists (select 1 from members m where m.id = member_id and (app_can_see(m.church) or app_is_mine(m.church, m.pastor, m.shepherd))));
 grant select, insert, update, delete on service_parts to authenticated;
 grant select, insert, delete on service_ticks to authenticated;
 
@@ -527,6 +533,17 @@ drop policy if exists "app: leads change their pastor list" on settings;
 create policy "app: leads change their pastor list" on settings for update to authenticated
   using (key like 'pastors:%' and app_role() in ('admin', 'lead') and app_can_see(substr(key, 9)))
   with check (key like 'pastors:%' and app_role() in ('admin', 'lead') and app_can_see(substr(key, 9)));
+-- Each church's list of shepherds (settings key 'shepherds:<church>'): the same rules as the pastor list.
+drop policy if exists "app: see own church's shepherd list" on settings;
+create policy "app: see own church's shepherd list" on settings for select to authenticated
+  using (key like 'shepherds:%' and app_can_see(substr(key, 11)));
+drop policy if exists "app: leads add their shepherd list" on settings;
+create policy "app: leads add their shepherd list" on settings for insert to authenticated
+  with check (key like 'shepherds:%' and app_role() in ('admin', 'lead') and app_can_see(substr(key, 11)));
+drop policy if exists "app: leads change their shepherd list" on settings;
+create policy "app: leads change their shepherd list" on settings for update to authenticated
+  using (key like 'shepherds:%' and app_role() in ('admin', 'lead') and app_can_see(substr(key, 11)))
+  with check (key like 'shepherds:%' and app_role() in ('admin', 'lead') and app_can_see(substr(key, 11)));
 grant select, insert, update on settings to authenticated;
 -- Save & lock on Check-in (settings key 'lock:<date>:<church>'): anyone who does check-in for that church can lock or unlock.
 drop policy if exists "app: see check-in locks" on settings;
@@ -612,7 +629,7 @@ revoke all on function app_set_livestream(text, text) from public, anon;
 grant execute on function app_set_livestream(text, text) to authenticated;
 
 revoke all on function app_approve_signup(uuid, text, boolean, text), app_reject_signup(uuid, text), app_set_my_name(text) from public, anon;
-grant execute on function app_pastor_name(), app_is_mine(text, text) to authenticated;
+grant execute on function app_pastor_name(), app_is_mine(text, text), app_is_mine(text, text, text) to authenticated;
 grant execute on function app_last_seen(), app_set_my_name(text), app_can_approve(), app_who(),
   app_approve_signup(uuid, text, boolean, text), app_reject_signup(uuid, text) to authenticated;
 
@@ -1157,7 +1174,7 @@ begin
     rl := coalesce(nullif(it ->> 'role', ''), r.role);
     if rl not in ('team', 'pastor', 'shepherd', 'lead') then raise exception 'that role cannot be given here'; end if;
     pn := nullif(trim(regexp_replace(coalesce(it ->> 'pastor', r.pastor, ''), '\s+', ' ', 'g')), '');
-    if rl in ('pastor', 'shepherd') and pn is null then raise exception '% needs their name as it is on the Pastors list', r.name; end if;
+    if rl in ('pastor', 'shepherd') and pn is null then raise exception '% needs their name as it is on the % list', r.name, case when rl = 'shepherd' then 'Shepherds' else 'Pastors' end; end if;
     if exists (select 1 from app_users where email = r.email) then had := had + 1; continue; end if;
     insert into app_users (email, role, church, name, pastor, title)  -- a shepherd signs in as a pastor, titled Shepherd
     values (r.email, case when rl = 'shepherd' then 'pastor' else rl end, r.church, r.name, case when rl in ('pastor', 'shepherd') then pn end,
