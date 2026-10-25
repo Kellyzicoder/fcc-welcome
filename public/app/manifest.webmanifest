@@ -4,7 +4,7 @@
   "description": "Check-in, follow-up and attendance for Favourite Child Church",
   "start_url": "/app/index.html",
   "scope": "/app/",
-  "display": "standalone",
+  "display": "browser",
   "background_color": "#eaf2fc",
   "theme_color": "#1f6fe5",
   "icons": [{"src": "/logo.png", "sizes": "any", "type": "image/png", "purpose": "any"}]
