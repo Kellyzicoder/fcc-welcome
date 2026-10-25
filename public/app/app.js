@@ -86,6 +86,29 @@ function toast(text) {
   const t = Object.assign(document.createElement("div"), {className: "toast", textContent: text});
   document.body.append(t); setTimeout(() => t.remove(), 3500);
 }
+const BACKUP_SCRIPT = String.raw`// FCC Attendance: copies everything into this Google Sheet every night. Run setup once (the Run button with setup picked).
+const URL_ = "__URL__", PUBLIC_KEY = "__PUBLIC__", BACKUP_KEY = "__KEY__";
+function setup() {
+  ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger("backup").timeBased().everyDays(1).atHour(2).create();  // every night between 2 and 3 am
+  backup();
+}
+function backup() {
+  const r = UrlFetchApp.fetch(URL_ + "/rest/v1/rpc/app_backup", {method: "post", contentType: "application/json", muteHttpExceptions: true,
+    headers: {apikey: PUBLIC_KEY, Authorization: "Bearer " + PUBLIC_KEY}, payload: JSON.stringify({backup_key: BACKUP_KEY})});
+  const ss = SpreadsheetApp.getActive(), log = ss.getSheetByName("Backup log") || ss.insertSheet("Backup log", 0);
+  if (r.getResponseCode() !== 200) { log.appendRow([new Date(), "Failed", r.getContentText().slice(0, 300)]); throw new Error("Backup failed: " + r.getContentText()); }
+  const d = JSON.parse(r.getContentText()), done = [];
+  for (const name of ["churches", "members", "attendance", "services", "service_parts", "service_ticks", "lists", "signins"]) {
+    const rows = d[name] || [], cols = [...new Set(rows.flatMap(x => Object.keys(x)))], sh = ss.getSheetByName(name) || ss.insertSheet(name);
+    sh.clear(); done.push(name + " " + rows.length);
+    if (!cols.length) continue;
+    const vals = [cols, ...rows.map(x => cols.map(c => x[c] == null ? "" : typeof x[c] === "object" ? JSON.stringify(x[c]) : String(x[c])))];
+    sh.getRange(1, 1, vals.length, cols.length).setNumberFormat("@").setValues(vals);  // as text, so phone numbers keep their 0
+    sh.setFrozenRows(1);
+  }
+  log.appendRow([new Date(), "Done", done.join(" · ")]);
+}`;
 function download(name, rows) {
   const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
   const a = Object.assign(document.createElement("a"), {href: URL.createObjectURL(new Blob(["﻿" + csv], {type: "text/csv"})), download: name});
@@ -3030,6 +3053,16 @@ async function admin(el) {
   const LIMIT = 500 * 1024 * 1024, mb = b => b >= 1024 * 1024 ? `${(b / 1048576).toFixed(b < 10 * 1048576 ? 1 : 0)} MB` : `${Math.max(1, Math.round(b / 1024))} kB`;
   const LABEL = {activity_log: "Activity log", attendance: "Ticks", members: "People", registrations: "Sign-ups", email_log: "Emails sent", services: "Services", settings: "Settings", app_users: "Sign-ins", churches: "Churches", help_messages: "Help messages"};
   const pct = space ? Math.min(100, space.total / LIMIT * 100) : 0;
+  // Backups: a Google Sheet copies everything each night (the free plan has no backups to restore from)
+  const bkStatus = await api("rpc/app_backup_status", {method: "POST", body: {}}).catch(e => /app_backup_status|function/i.test(e.message) ? "sql" : null);
+  const ago = t => t ? new Date(t).toLocaleString(undefined, {day: "numeric", month: "short", hour: "numeric", minute: "2-digit"}) : "";
+  const backupCard = `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Google Sheet backup</h2><span class="gap"></span>
+      ${bkStatus && bkStatus !== "sql" ? `<span class="badge ${bkStatus.last_used && Date.now() - new Date(bkStatus.last_used) < 2 * 864e5 ? "" : "warn"}">${bkStatus.last_used ? "Last copied " + esc(ago(bkStatus.last_used)) : "Not run yet"}</span>` : ""}</div>
+    ${bkStatus === "sql" ? `<p class="note" style="margin:0">Run the latest setup SQL in Supabase once to set this up.</p>` : `
+    <p class="note" style="margin:0 2px 12px">Every night a Google Sheet in your Google Drive copies every church, person, service and check-in, the Pastors and Shepherds lists and the sign-ins: one tab each. It runs on Google, so no computer needs to be on. The free Supabase plan keeps no backups of its own.
+      Google keeps the sheet's earlier days too (File → Version history).</p>
+    ${bkStatus ? `<p class="note" style="margin:0 2px 12px">Key made ${esc(ago(bkStatus.made_at))}${bkStatus.made_by ? " by " + esc(bkStatus.made_by) : ""}. Making a new one stops the old sheet copying.</p>` : ""}
+    <button type="button" class="pill-btn primary" id="bk-make">${bkStatus ? "Set up again (new key)" : "Set up the Google Sheet"}</button>`}</div>`;
   const spaceCard = `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Database space</h2><span class="gap"></span>
       ${space ? `<span style="color:var(--ink-3);font-size:13px">${mb(LIMIT - space.total)} left</span>` : ""}</div>
     ${space ? `<div class="meter ${pct >= 90 ? "bad" : pct >= 70 ? "warn" : ""}" role="meter" aria-valuemin="0" aria-valuemax="500" aria-valuenow="${(space.total / 1048576).toFixed(1)}" aria-label="Database space used"><i style="width:${Math.max(pct, 1).toFixed(1)}%"></i></div>
@@ -3051,12 +3084,12 @@ async function admin(el) {
           <button class="pill-btn sm" data-done="${m.id}" data-v="${!m.done}">${m.done ? "Mark as new" : "Mark done"}</button>
           <button class="x" data-mdel="${m.id}">Delete</button></div></div>`).join("")}</div>`;
   // Tabs: one area at a time. Opens on Messages when there are new ones, otherwise on Sign-ins; then remembers the choice.
-  const TABS = [["messages", "Messages", fresh.length], ["names", "Sign-ins", users.length], ["space", "Space", 0]];  // churches are managed on the Churches page
+  const TABS = [["messages", "Messages", fresh.length], ["names", "Sign-ins", users.length], ["backup", "Backups", 0], ["space", "Space", 0]];  // churches are managed on the Churches page
   if (!TABS.some(t => t[0] === S.adminTab)) S.adminTab = fresh.length ? "messages" : "names";
   const tab = k => `data-at="${k}" ${S.adminTab === k ? "" : "hidden"}`;
   el.innerHTML = head("Admin", "Who can sign in, messages from Help, and database space") + `<div class="atabs" role="tablist" aria-label="Admin">${TABS.map(([k, name, n]) =>
-      `<button role="tab" data-atab="${k}" aria-selected="${S.adminTab === k}">${name}${k === "messages" && n ? ` <span class="anum new">${n}</span>` : k !== "space" && k !== "messages" ? ` <span class="anum">${n}</span>` : ""}</button>`).join("")}</div>
-    <section ${tab("messages")}>${inboxCard}</section><section ${tab("space")}>${spaceCard}</section>
+      `<button role="tab" data-atab="${k}" aria-selected="${S.adminTab === k}">${name}${k === "messages" && n ? ` <span class="anum new">${n}</span>` : k !== "space" && k !== "backup" && k !== "messages" ? ` <span class="anum">${n}</span>` : ""}</button>`).join("")}</div>
+    <section ${tab("messages")}>${inboxCard}</section><section ${tab("backup")}>${backupCard}</section><section ${tab("space")}>${spaceCard}</section>
     <section ${tab("names")}>
     <div class="tiles">${[["Total sign-ins", users.length, "Across all churches"], ["Church admins", users.filter(u => u.role === "lead").length, "Run a church"],
         ["Team", users.filter(u => u.role === "team").length, "Ushers ticking people in"], ["Pastors", users.filter(u => u.role === "pastor" || u.pastor).length, "Including admins who pastor"]]
@@ -3071,6 +3104,27 @@ async function admin(el) {
           <input class="in" id="u-q" type="search" placeholder="Search by name or email" value="${esc(S.uQ || "")}"></div></div>
       <div id="u-list"></div>
       </div></section>`;
+  el.querySelector("#bk-make")?.addEventListener("click", async e => {
+    e.target.disabled = true; let key;
+    try { key = await api("rpc/app_backup_key", {method: "POST", body: {}}); } catch (err) { e.target.disabled = false; return toast("Not made: " + err.message); }
+    const code = BACKUP_SCRIPT.replace("__URL__", S.cfg.url).replace("__PUBLIC__", S.cfg.key).replace("__KEY__", key);
+    document.querySelectorAll(".modal").forEach(m => m.remove());
+    const d = document.createElement("div"); d.className = "modal";
+    d.innerHTML = `<div class="sheet narrow" role="dialog" aria-modal="true" aria-label="Set up the Google Sheet backup">
+      <div class="card-head"><h2>Set up the Google Sheet backup</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+      <ol class="bk-steps">
+        <li>Make a new Google Sheet (sheets.new) in the Google account that should keep the backup. Name it e.g. <b>FCC backup</b>.</li>
+        <li>In the sheet: <b>Extensions → Apps Script</b>. Delete what's there and paste the script below (Copy script).</li>
+        <li>Press <b>Save</b>, pick <b>setup</b> next to Run, and press <b>Run</b>. Allow it when Google asks (Advanced → Go to… if it warns).</li>
+        <li>Back in the sheet you'll see the tabs and a Backup log. From now on it copies every night by itself.</li></ol>
+      <p class="note" style="margin:0 2px 8px">The script holds the backup key: keep the sheet private and don't share the script. This key is only shown now.</p>
+      <textarea class="in bk-code" readonly rows="8" aria-label="The script">${esc(code)}</textarea>
+      <div class="modal-foot"><button type="button" class="pill-btn" data-x>Done</button><button type="button" class="pill-btn primary" id="bk-copy">Copy script</button></div></div>`;
+    document.body.append(d);
+    d.onclick = ev => { if (ev.target === d || ev.target.closest("[data-x]")) { d.remove(); render(); } };
+    d.querySelector("#bk-copy").onclick = ev => navigator.clipboard?.writeText(code).then(() => { ev.target.textContent = "Copied"; toast("Script copied."); })
+      .catch(() => { d.querySelector(".bk-code").select(); toast("Couldn't copy: select the script and copy it."); });
+  });
   el.querySelectorAll("[data-atab]").forEach(b => b.onclick = () => {
     S.adminTab = b.dataset.atab;
     el.querySelectorAll("[data-atab]").forEach(x => x.setAttribute("aria-selected", x === b));
