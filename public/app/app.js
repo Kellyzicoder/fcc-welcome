@@ -2115,10 +2115,10 @@ async function setPresent(id, on, seen, at = isoLocal(), part = 0) {
     await api("attendance?on_conflict=service_date,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, member_id: id, checked_at: at}});
     if (part) await api("service_ticks?on_conflict=service_date,part,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, part, member_id: id, checked_at: at}});
     log("tick", id, "done", part ? partName(S.date, part) : "");
-    const m = S.members.find(x => x.id === id);  // someone marked Away or Inactive who comes back is Active again
-    if (m && /^(away|inactive)$/i.test(String(m.status || "").trim()) && ["admin", "lead"].includes(S.me.role)) { const ver = Number(m.version) || 1;
-      api(`members?id=eq.${encodeURIComponent(id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {status: "", version: ver + 1}})
-        .then(r => { if (r?.length) { Object.assign(m, {status: "", version: ver + 1}); toast(`${m.full_name} is back, so they're Active again.`); } }).catch(() => {}); }
+    const m = S.members.find(x => x.id === id);  // someone marked Away or Inactive who comes back is Active again (whoever ticks them)
+    if (m && /^(away|inactive)$/i.test(String(m.status || "").trim()))
+      api("rpc/app_back_active", {method: "POST", body: {mid: id}})
+        .then(ok => { if (ok) { Object.assign(m, {status: "", version: (Number(m.version) || 1) + 1}); toast(`${m.full_name} is back, so they're Active again.`); } }).catch(() => {});
     return "done";
   }
   if (part) {  // off one of the day's services; off the day too once they're at none of them
