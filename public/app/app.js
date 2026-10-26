@@ -410,11 +410,11 @@ function waDialog(title, build, opts = {}) {
     <div class="modal-grid"><div class="opts">
         ${acc("Service", `${opts.day ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-day">Service date</label></b><small>The service this summary is for</small></div><input class="in wa-pill" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}`)}
         ${opts.fields ? acc("Service details", `<div class="wa-sec"><b>Service details</b></div>${opts.fields.some(f => f[0] === "yt") && ["admin", "lead"].includes(S.me.role)
-          ? `<div class="live-fill" role="note">${svg("live")}<span><b>Livestream figures will be populated automatically.</b> Set the service start and end times below, and adjust any values manually if needed.</span></div>` : ""}<div id="m-fields"></div>${opts.plat ? `<div class="plat-row" id="m-plat"></div>` : ""}`) : ""}
+          ? `<div class="live-fill" role="note">${svg("live")}<span><b>Livestream numbers fill in by themselves.</b> Set the start and end times below.</span></div>` : ""}<div id="m-fields"></div>${opts.plat ? `<div class="plat-row" id="m-plat"></div>` : ""}`) : ""}
         ${incl.length ? acc("Include in the message", `<div class="opt wa-inc"><div class="wa-txt"><b>Include in the message</b><small>Tap to add or leave out. ${esc(incl.map(c => c[3]).join(" "))}</small></div>
           <div class="wa-chips">${incl.map(([id, t, on]) => `<label class="wa-chip"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>${svg("tick")}${t}</span></label>`).join("")}</div></div>`) : ""}
         ${opts.link ? acc("Livestream link", `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-link">Livestream link</label></b><small>Optional. It goes at the end of the message</small></div><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>`, false) : ""}
-        ${opts.fields ? `<div class="draft-line"><span id="m-draft"></span><button type="button" class="link-btn" data-clear hidden>Start again</button></div>` : ""}
+        ${opts.fields ? `<div class="draft-line"><span id="m-draft"></span><button type="button" class="pill-btn sm" data-clear hidden>Start again</button></div>` : ""}
       </div>
       ${opts.into ? `<aside class="wa-side" aria-label="Preview">  <!-- the message as a document on the side, updating as the boxes are filled in -->
         <div class="wa-prev-head"><b>Preview</b><div class="pv-seg" role="group" aria-label="How the preview looks"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Formatted</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">Plain text</button></div></div>
@@ -465,7 +465,7 @@ function waDialog(title, build, opts = {}) {
     const on = liveList.find(x => at >= x.start - 30 * 6e4 && at <= (x.end || x.start)); if (on) return on;  // running then (or about to start)
     const x = [...liveList].sort((a, b) => Math.abs(a.start - at) - Math.abs(b.start - at))[0];
     return Math.abs(x.start - at) <= 2 * 3600e3 ? x : null; };
-  const liveUnder = j => { const x = liveAt(st[`time_${j + 1}`], st[`end_${j + 1}`]) || liveList[j]; return x ? `<small class="wide svc-live">${svg("live")}Livestream ${hm(x.start)}: YouTube ${x.youtube} · Facebook ${x.facebook} · Zoom ${x.zoom} (${Math.max(0, x.zoom - 2)} without the host and co-host)</small>` : ""; };
+  const liveUnder = j => { const x = liveAt(st[`time_${j + 1}`], st[`end_${j + 1}`]) || liveList[j]; return x ? `<small class="wide svc-live">${svg("live")}Livestream ${hm(x.start)}: YouTube ${x.youtube} · Facebook ${x.facebook} · Zoom ${x.zoom} (${Math.max(0, x.zoom - 2)} without hosts)</small>` : ""; };
   // When a service's start time is picked: offer that time's livestream peaks for its boxes
   // When a service's times are picked: offer the highest on each platform between those times (the livestream's own peaks
   // if the live dashboard can't give them for part of a stream), Zoom 2 less for the host and co-host
@@ -474,8 +474,8 @@ function waDialog(title, build, opts = {}) {
     const box = d.querySelector(`[data-ask="${n}"]`), t = st[`time_${n}`], e = st[`end_${n}`]; if (!box || !t || !liveOk()) return;
     const x = liveAt(t, e), sfx = st.multi ? "_" + n : "", when = e ? `${clock(t)} to ${clock(e)}` : clock(t), mine = ++askTurn;
     box.hidden = false;
-    if (!x) { box.innerHTML = liveList.length ? `<span>No livestream ${e ? "during" : "near"} ${when}. The day's livestreams started at ${liveList.map(y => hm(y.start)).join(", ")}.</span><button type="button" class="link-btn" data-no>OK</button>`
-        : `<span>No livestream numbers for this day.</span><button type="button" class="link-btn" data-no>OK</button>`;
+    if (!x) { box.innerHTML = liveList.length ? `<span>No livestream ${e ? "during" : "near"} ${when}. Livestreams started at ${liveList.map(y => hm(y.start)).join(", ")}.</span><button type="button" class="pill-btn sm" data-no>OK</button>`
+        : `<span>No livestream numbers for this day.</span><button type="button" class="pill-btn sm" data-no>OK</button>`;
       box.querySelector("[data-no]").onclick = () => { box.hidden = true; }; return; }
     const ms = v => { const [h, m] = v.split(":").map(Number); return new Date(st.day + "T00:00:00").setHours(h, m); };
     const from = ms(t), to = e && ms(e) > from ? ms(e) : (x.end || x.start + 36e5);
@@ -569,15 +569,15 @@ function waDialog(title, build, opts = {}) {
         else put(nums(list.length === 1 ? list[0] : [...list].sort((a, b) => (b.youtube + b.facebook + b.zoom) - (a.youtube + a.facebook + a.zoom))[0]), ""); keepDraft(); draw(); };
       if (opts.into) return;  // the Summary page offers each service's livestream under its times instead of this note
       const box = document.createElement("div"); box.className = "live-note";
-      const zoomNote = `<small>Zoom counts the host and co-host as viewers, so 2 are taken off what Zoom showed. Split adults and children yourself. Morning prayers (5 to 6 am) aren't counted. Pick a service's start time to fill in the livestream from that time.</small>`;
+      const zoomNote = `<small>Zoom: 2 taken off for hosts. Split adults and children yourself. 5–6 am prayers aren't counted.</small>`;
       if (!st.multi && list.length > 1) {  // the livestream saw more than one service, but the boxes are for one: ask
         box.innerHTML = `<b>${svg("live")}The livestream had ${list.length} services today</b>${list.map(x => `<span>${hm(x.start)}: ${line(x)}</span>`).join("")}
-          ${zoomNote}<button type="button" class="link-btn" data-multi-on>Yes, fill in each service</button>`;
+          ${zoomNote}<button type="button" class="pill-btn sm" data-multi-on>Yes, fill in each service</button>`;
         box.querySelector("[data-multi-on]").onclick = () => { st.multi = true; st.count = Math.min(3, Math.max(2, list.length)); const m = d.querySelector("#m-multi"); if (m) m.checked = true;
-          drawFields(); fill(); liveNote(); toast("Each service has its own boxes now, filled in from the livestream. Check them before sending."); };
+          drawFields(); fill(); liveNote(); toast("Each service now has its own boxes. Check them before sending."); };
       } else {
         box.innerHTML = `<b>${svg("live")}Livestream peaks</b>${st.multi ? `<span>Each service's peaks are under its own boxes.</span>` : list.slice(0, 1).map(x => `<span>${hm(x.start)} service: ${line(x)}</span>`).join("")}
-          ${zoomNote}<button type="button" class="link-btn" data-fill>Fill in the empty boxes</button>`;
+          ${zoomNote}<button type="button" class="pill-btn sm" data-fill>Fill in the empty boxes</button>`;
         box.querySelector("[data-fill]").onclick = () => { fill(); toast("Filled in from the livestream. Check them before sending."); };
         if (look().liveFill) { fill(); box.querySelector("[data-fill]").textContent = "Filled in for you"; }
       }
@@ -824,7 +824,7 @@ function offerPassword() {
   const d = document.createElement("div"); d.className = "modal";
   d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="Sign in faster next time">
     <div class="card-head"><h2>Sign in faster next time?</h2></div>
-    <p class="note" style="margin-top:0">Set a password and next time just type your email and password. No waiting for an email.</p>
+    <p class="note" style="margin-top:0">Set a password to sign in without waiting for an email.</p>
     <input type="email" autocomplete="username" value="${esc(S.me.email)}" readonly hidden>
     <div class="fields"><div><label class="f" for="op1">New password</label><input class="in" id="op1" type="password" autocomplete="new-password" maxlength="72" required></div>
       <div><label class="f" for="op2">Type it again</label><input class="in" id="op2" type="password" autocomplete="new-password" maxlength="72" required></div></div>
@@ -860,7 +860,7 @@ async function start() {
   try { S.me = await api("rpc/app_me", {method: "POST", body: {}}); } catch (e) { return S.session ? fatal(e.message) : null; }
   if (!S.me?.role) {
     root.innerHTML = `<div class="center"><div class="login"><h1>Not set up yet</h1>
-      <p>${esc(S.me?.email || "This email")} isn't on the list of people who can use the app. Ask your church admin to add it, then sign in again.</p>
+      <p>${esc(S.me?.email || "This email")} can't use the app yet. Ask your church admin to add it.</p>
       <button class="pill-btn block" id="out">Sign out</button></div></div>`;
     root.querySelector("#out").onclick = signOut; return;
   }
@@ -1572,7 +1572,7 @@ const WIDGETS = {
         ${p.last && partsOf(p.last).length ? `<p class="ov-parts">${partCounts(p, p.last).map(x => `${esc(x.name)}: <b>${x.n}</b>`).join(" · ")} · someone at both counts once in Present</p>` : ""}`;
       el.querySelectorAll(".ov-cell").forEach(t => t.onclick = () => { S.date = p.last || today(); S.view = "checkin"; render(); });
     }},
-  compare: {name: "Compared with last time", sub: p => { const prev = p.last && sameDayBefore(p, p.last); return prev ? `Against ${svcName(prev)} · ${nice(prev, true)}` : "The same day last week"; }, desc: "Each number against the previous service on the same day of the week, as more or fewer people.", size: "wide", icon: "compare", hue: 4,
+  compare: {name: "Compared with last time", sub: p => { const prev = p.last && sameDayBefore(p, p.last); return prev ? `Against ${svcName(prev)} · ${nice(prev, true)}` : "The same day last week"; }, desc: "Each number against the last service on the same day.", size: "wide", icon: "compare", hue: 4,
     draw(el, p) {
       const prev = p.last && sameDayBefore(p, p.last);
       if (!prev) { el.innerHTML = `<p class="empty">Needs two services on the same day of the week first.</p>`; return; }
@@ -1588,7 +1588,7 @@ const WIDGETS = {
       chart(el.querySelector(".chart"), series, null, p.last);
     }},
   calendar: {name: "Calendar", sub: "Services this month and how many came", size: "narrow", icon: "followup", hue: 2, draw(el, p) { calendar(el, p); }},
-  trend: {name: "Attendance trend", sub: () => TREND[trendView()][1], desc: "Attendance over time. Switch between Sundays, every service, midweek or monthly.", size: "full", icon: "trend", hue: 1,
+  trend: {name: "Attendance trend", sub: () => TREND[trendView()][1], desc: "Attendance over time: Sundays, all services, midweek or monthly.", size: "full", icon: "trend", hue: 1,
     draw(el, p) {
       const v = trendView(), w = el.closest(".w"), tools = w.querySelector(".w-tools");
       tools.innerHTML = `<select class="in sel" aria-label="What the trend shows">${Object.entries(TREND).map(([k, [t]]) => `<option value="${k}" ${k === v ? "selected" : ""}>${t}</option>`).join("")}</select>`;
@@ -1638,7 +1638,7 @@ const WIDGETS = {
       };
       svgEl.onpointerleave = () => { tip.style.opacity = 0; cur.setAttribute("opacity", 0); dot.setAttribute("opacity", 0); };
     }},
-  split: {name: "Who came", sub: p => p.last ? `${svcName(p.last)} · ${nice(p.last, true)}` : "The latest service", desc: "The latest service split into adults, kids, first-timers and visitors, against the same day last week.", size: "narrow", icon: "split", hue: 3,
+  split: {name: "Who came", sub: p => p.last ? `${svcName(p.last)} · ${nice(p.last, true)}` : "The latest service", desc: "Adults, kids, first-timers and visitors at the latest service.", size: "narrow", icon: "split", hue: 3,
     draw(el, p) {
       if (!p.last) { el.innerHTML = `<p class="empty">No service recorded yet.</p>`; return; }
       const c = countsOn(p, p.last), prev = sameDayBefore(p, p.last), b = prev ? countsOn(p, prev) : null;
@@ -1709,7 +1709,7 @@ const WIDGETS = {
         el.innerHTML = `<form class="live-set"><p>Show <b>${esc(church)}</b>'s YouTube livestream here: paste your church's YouTube channel link.</p>
           <div class="live-row"><input class="in" name="link" placeholder="youtube.com/@yourchurch" value="${esc(now)}" autocomplete="off" inputmode="url">
           <button class="pill-btn primary">Connect</button></div>
-          <p class="note">This shows your YouTube viewers. Facebook and Zoom can be added later with the admin's help.</p>${now ? `<button type="button" class="link-btn" data-unlink>Disconnect this channel</button>` : ""}</form>`;
+          <p class="note">Shows YouTube viewers. Ask the admin to add Facebook or Zoom.</p>${now ? `<button type="button" class="pill-btn sm" data-unlink>Disconnect this channel</button>` : ""}</form>`;
         const f = el.querySelector("form"), go = async link => {
           if (S.preview) return toast("Not saved: you're viewing as someone else, which is view only.");
           f.querySelector("button.primary").disabled = true;
@@ -1748,8 +1748,8 @@ const WIDGETS = {
             <div class="lv-prog"><div class="lv-prog-main"><div class="lv-prog-top"><b class="lv-side-t">Viewers <small class="lv-when"></small></b>
                   ${j.home ? `<select class="in sel lv-range" aria-label="Show"><option value="day">The day picked above</option><option value="week" ${S.lvRange === "week" ? "selected" : ""}>Last 7 days</option></select>` : ""}</div>
                 <div class="lv-prog-body"></div></div></div>
-            ${j.platforms.zoom.status === "live" ? `<p class="note" style="margin:10px 0 0">Zoom includes the host and co-host: take 2 off for the attendance count.</p>` : ""}
-            ${j.channel ? `<div class="live-ch"><small>YouTube channel: <b>${esc(j.channel)}</b></small><button type="button" class="link-btn" data-change>Change</button></div>` : ""}`;
+            ${j.platforms.zoom.status === "live" ? `<p class="note" style="margin:10px 0 0">Zoom counts hosts: take 2 off.</p>` : ""}
+            ${j.channel ? `<div class="live-ch"><small>YouTube channel: <b>${esc(j.channel)}</b></small><button type="button" class="pill-btn sm" data-change>Change</button></div>` : ""}`;
           el.querySelector("[data-change]")?.addEventListener("click", () => connect(j.channel));
           // the chart: this service from the recent history, or the week from the saved services (each day's highest)
           const hmm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
@@ -1928,7 +1928,7 @@ const WIDGETS = {
       el.innerHTML = `<div class="rr-top"><div><b>${pct === null ? "–" : pct + "%"}</b><span>came back within 4 weeks</span></div>
           <div class="legend"><span><i style="background:var(--h3)"></i>Came back ${tb}</span><span><i style="background:var(--ink-3)"></i>First-timers ${tf}</span></div></div>
         <div class="chart rr-chart"><div class="tip"></div>${s}</svg></div>
-        <p class="note" style="margin:8px 0 0">${pct === null ? "No first-timers in these " + (view === "month" ? "months" : "weeks") + " yet. " : ""}Target: half come back. The latest ${view === "month" ? "month is" : "few weeks are"} still counting, so ${view === "month" ? "it is" : "they are"} left out of the %.</p>`;
+        <p class="note" style="margin:8px 0 0">${pct === null ? "No first-timers in these " + (view === "month" ? "months" : "weeks") + " yet. " : ""}Target: half come back. The latest ${view === "month" ? "month isn't" : "few weeks aren't"} counted yet.</p>`;
       const box = el.querySelector(".rr-chart"), svgEl = box.querySelector("svg"), tip = box.querySelector(".tip"), cur = svgEl.querySelector(".cursor"), dot = svgEl.querySelector(".dot");
       svgEl.onpointermove = svgEl.onpointerdown = e => {
         const r = svgEl.getBoundingClientRect(), i = Math.max(0, Math.min(n - 1, Math.floor(((e.clientX - r.left) / r.width * W - L) / step))), row = rows[i], px = x(i);
@@ -2096,7 +2096,7 @@ function addWidget(b) {
     <div class="card-head"><h2>Add widget</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
     ${left.length ? `<div class="wlist">${left.map(k => { const W = defs[k]; return `<button type="button" class="witem" data-add="${k}" style="--wc:var(--h${W.hue});--wb:var(--h${W.hue}b)">
       <span class="wico">${svg(W.icon)}</span><span class="wtxt"><b>${esc(W.name)}</b><span>${esc(W.desc || W.sub)}</span></span><span class="wadd">${svg("plus")}Add</span></button>`; }).join("")}</div>` : `<p class="empty">Every widget is already on this ${B.where}.</p>`}
-    <p class="note">Drag a widget by its handle to move it. Your layout is yours only: nobody else's view changes.</p>
+    <p class="note">Drag a widget by its handle to move it. Only your view changes.</p>
     <div class="modal-foot one"><button type="button" class="pill-btn" data-reset>Back to the standard layout</button></div></div>`;
   document.body.append(d);
   const close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
@@ -2190,7 +2190,7 @@ function checkin(el) {
         `<button type="button" data-part="${x.part}" aria-pressed="${n === x.part}">${esc(partName(S.date, x.part))}</button>`).join("")}</div></div>
         ${pastor ? "" : `<div class="ci-part-acts">${ps.length < 3 ? `<button type="button" class="pill-btn sm" data-split>${svg("plus")}Add ${ORDINAL[ps.length + 1].toLowerCase()} service</button>` : ""}
         ${boss ? `<button type="button" class="pill-btn sm ci-remove" data-unsplit>${armedPart ? `Tap again to remove ${esc(partName(S.date, lastPart()))}` : `Remove ${esc(partName(S.date, lastPart()))}`}</button>` : ""}</div>`}</div>
-        <p class="note ci-part-note">Ticks here are for <b>${esc(partName(S.date, n))}</b>. Someone who comes to two or three services is counted once in the day's total.</p>`
+        <p class="note ci-part-note">Ticks here are for <b>${esc(partName(S.date, n))}</b>. Someone at several services counts once in the day's total.</p>`
       : pastor ? "" : `<button type="button" class="pill-btn sm" data-split style="margin-top:12px" title="Two services today? Split the day into services">${svg("plus")}Add a second service</button>`;
     wrap.querySelectorAll("[data-part]").forEach(b => b.onclick = () => { (S.ciParts ??= {})[S.date] = +b.dataset.part; armedPart = false; here = {}; svc.value = svcLabel(); drawParts(); draw(); pull(); });
     wrap.querySelector("[data-split]")?.addEventListener("click", split);
@@ -2383,7 +2383,7 @@ function checkin(el) {
     d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="Tick from a list">
       <div class="card-head"><h2>Tick from a list</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
       <div class="fields">
-        <p class="note" style="margin:0">For <b>${esc(curPart() ? partName(S.date, curPart()) : svcName(S.date))}</b>, ${esc(nice(S.date, true))}. Paste names one per line (or separated by commas), or pick a file.</p>
+        <p class="note" style="margin:0">For <b>${esc(curPart() ? partName(S.date, curPart()) : svcName(S.date))}</b>, ${esc(nice(S.date, true))}. Paste names, one per line, or pick a file.</p>
         <label class="bk-drop" style="padding:12px"><input type="file" id="tl-file" accept=".csv,.txt,text/csv,text/plain"><span class="bk-drop-btn" style="font-size:15px;padding:10px 18px">${svg("upload")}<span>Choose a file</span></span></label>
         <textarea class="in" id="tl-text" rows="6" placeholder="Ama Mensah&#10;Kofi Boateng&#10;Efua Owusu"></textarea>
         <div id="tl-prev"></div>
@@ -2739,11 +2739,11 @@ function bulkAdd() {
       <div class="bk-or"><span>or type the names</span></div>
       <div><label class="f" for="bk-text">Names, one per line</label>
         <textarea class="in" id="bk-text" rows="6" placeholder="Ama Mensah, 021 555 0101&#10;Kofi Boateng&#10;Efua Owusu, 022 555 0123, child"></textarea>
-        <p class="note" style="margin:6px 2px 0">Add a phone number after a comma if you have it, and "child" or "first-timer" for anyone who is.</p></div>
+        <p class="note" style="margin:6px 2px 0">Optional: a phone number after a comma, and "child" or "first-timer".</p></div>
       <div id="bk-map"></div>
       <div class="bk-two"><div><label class="f" for="bk-type">Everyone is</label><select class="in" id="bk-type">${typeOpts.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("")}</select></div>
         <div><label class="f" for="bk-age">Age group</label><select class="in" id="bk-age"><option>Adult</option><option>Child</option></select></div></div>
-      <p class="note" style="margin:0 2px">They go on <b>${esc(S.church)}</b>'s list. A file's own Type or Age group column wins, and you can change anyone in the list below.</p>
+      <p class="note" style="margin:0 2px">They go on <b>${esc(S.church)}</b>'s list. You can change anyone below.</p>
       <div id="bk-prev"></div>
     </div>
     <div class="msg bad" id="bk-err" hidden></div>
@@ -3148,7 +3148,7 @@ function editPerson(m) {
 // c: rows (each church's numbers), pick (the churches being shown), series ([date, adults, kids, first-timers, visitors] per service), ...
 const CDASH_DEFAULT = ["chart", "numbers", "churches", "follow"];
 const CWIDGETS = {
-  numbers: {name: "Service numbers", sub: c => c.when, desc: "Present (with the change since last time), adults and kids, first-timers, and how many of the register came.", size: "full", icon: "checkin", hue: 1,
+  numbers: {name: "Service numbers", sub: c => c.when, desc: "Present, adults and kids, first-timers, and how many of the register came.", size: "full", icon: "checkin", hue: 1,
     draw(el, c) {
       if (!c.had && c.day) { el.innerHTML = `<p class="empty">No service was recorded ${S.bChurch ? "at " + esc(S.bChurch) : "at any church"} on ${esc(nice(c.day, true))}.</p>`; return; }
       el.innerHTML = `<div class="ov">${[["Present", c.nowN, 5, c.delta === null ? "at the latest service" : c.delta === 0 ? "same as last time" : `${c.delta > 0 ? "▲" : "▼"} ${Math.abs(c.delta)} ${c.delta > 0 ? "more" : "fewer"} than last time`],
@@ -3172,7 +3172,7 @@ const CWIDGETS = {
         <b>${r.present}</b><span style="height:${Math.max(6, r.present / top * 100)}%"></span><small>${esc(r.church)}</small></button>`).join("")}</div>` : `<p class="empty">No services to compare.</p>`;
       el.querySelectorAll("[data-cb]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.cb; render(); });
     }},
-  split: {name: "Who came", sub: c => c.series.length ? `${nice(c.series.at(-1)[0], true)}` : "The latest service", desc: "Adults and kids at the latest service, and how many were first-timers or visitors.", size: "narrow", icon: "split", hue: 3,
+  split: {name: "Who came", sub: c => c.series.length ? `${nice(c.series.at(-1)[0], true)}` : "The latest service", desc: "Adults, kids, first-timers and visitors at the latest service.", size: "narrow", icon: "split", hue: 3,
     draw(el, c) {
       const x = c.series.at(-1);
       if (!x) { el.innerHTML = `<p class="empty">No services recorded yet.</p>`; return; }
@@ -3331,7 +3331,7 @@ async function manageChurches(box, rows) {
           ${home ? "" : `<button class="pill-btn sm ci-remove" data-chdel="${esc(c)}">${armed === c ? "Tap again to delete" : "Delete"}</button>`}</div>`; }).join("")}</div>
       <form class="row ch-add" id="ch-add"><div><label class="f" for="ch-new">Add a church</label><input class="in" id="ch-new" placeholder="e.g. Melbourne" required autocomplete="off"></div>
         <div style="flex:0 0 auto"><button class="pill-btn primary">${svg("plus")}Add church</button></div></form>
-      <p class="note">A church can be deleted once nobody is on its register and nobody signs in to it. Move or remove them first.</p>`;
+      <p class="note">A church can be deleted once nobody is on its register or signs in to it.</p>`;
     box.querySelectorAll("[data-chren]").forEach(b => b.onclick = () => formDialog(`Rename ${b.dataset.chren}`, [
       {k: "name", label: "New name", value: b.dataset.chren, required: true}], async v => {
         if (!v.name || v.name === b.dataset.chren) return;
@@ -3393,8 +3393,8 @@ async function admin(el) {
   const when = t => { const d = new Date(t); return d.toLocaleDateString(undefined, {day: "numeric", month: "short"}) + ", " + d.toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"}); };
   const inboxCard = `<div class="card" style="margin-bottom:14px" id="inbox"><div class="card-head"><h2>Messages${fresh.length ? ` <span class="badge red">${fresh.length} new</span>` : ""}</h2><span class="gap"></span>
       ${inbox?.length ? `<button class="link" style="margin:0" id="inbox-all">${S.inboxAll ? "Hide done" : "Show done too"}</button>` : ""}</div>
-    ${inbox === null ? `<p class="note" style="margin:0">Run the latest setup SQL in Supabase once to get messages from the Help page here.</p>`
-      : !shown.length ? `<p class="empty" style="margin:0">No ${inbox.length ? "new " : ""}messages. When someone uses Contact the admin on the Help page, it shows here and is emailed to you.</p>`
+    ${inbox === null ? `<p class="note" style="margin:0">Run the latest setup SQL in Supabase to see Help messages here.</p>`
+      : !shown.length ? `<p class="empty" style="margin:0">No ${inbox.length ? "new " : ""}messages. Messages from the Help page show here and are emailed to you.</p>`
       : shown.map(m => `<div class="inbox-item ${m.done ? "done" : ""}">
         <div class="ib-top"><b>${esc(m.name || m.email)}</b><small class="muted">${esc(when(m.created_at))}</small></div>
         <small class="muted">${esc([m.name ? m.email : "", ROLE[m.role] || m.role, m.church, m.topic].filter(Boolean).join(" · "))}</small>
@@ -3435,8 +3435,8 @@ async function admin(el) {
         <li>Make a new Google Sheet (sheets.new) in the Google account that should keep the backup. Name it e.g. <b>FCC backup</b>.</li>
         <li>In the sheet: <b>Extensions → Apps Script</b>. Delete what's there and paste the script below (Copy script).</li>
         <li>Press <b>Save</b>, pick <b>setup</b> next to Run, and press <b>Run</b>. Allow it when Google asks (Advanced → Go to… if it warns).</li>
-        <li>Back in the sheet you'll see the tabs and a Backup log. From now on it copies every night by itself.</li></ol>
-      <p class="note" style="margin:0 2px 8px">The script holds the backup key: keep the sheet private and don't share the script. This key is only shown now.</p>
+        <li>It now backs up every night by itself.</li></ol>
+      <p class="note" style="margin:0 2px 8px">Keep the sheet private: the script holds the backup key, shown only now.</p>
       <textarea class="in bk-code" readonly rows="8" aria-label="The script">${esc(code)}</textarea>
       <div class="modal-foot"><button type="button" class="pill-btn" data-x>Done</button><button type="button" class="pill-btn primary" id="bk-copy">Copy script</button></div></div>`;
     document.body.append(d);
@@ -3650,7 +3650,7 @@ function careGroups(el, K) {  // the Pastors and Shepherds pages: each one's peo
       : `<p class="empty">Nobody on this register yet.</p>`}
     ${canEdit ? `<div class="card plist" id="plist"><div class="pl-head"><span class="pl-ico">${svg(K.view)}</span><div><h2>${K.word} list</h2><p>${esc(S.church)} · ${plist.length} ${plist.length === 1 ? "name" : "names"}</p></div><span class="gap"></span>
         <button type="button" class="pill-btn sm primary" id="pl-add">${svg("plus")}Add ${K.word.toLowerCase()}</button></div>
-      ${untidy ? `<div class="msg np-fix"><span><b>${untidy} pastor ${untidy === 1 ? "name is" : "names are"} written a different way</b> (Rev. or Pst. instead of Reverend or Pastor). Tidy them in every church: lists, people and sign-ins stay matched.</span>
+      ${untidy ? `<div class="msg np-fix"><span><b>${untidy} pastor ${untidy === 1 ? "name is" : "names are"} written a different way</b> (Rev. or Pst. instead of Reverend or Pastor).</span>
         <button type="button" class="pill-btn primary sm" id="pl-tidy">Tidy titles</button></div>` : ""}
       <label class="find-bar pl-find">${svg("search")}<input id="pl-q" type="search" placeholder="Search ${K.words.toLowerCase()} by name" value="${esc(S[K.sel + "Q"] || "")}" autocomplete="off" aria-label="Search ${K.words.toLowerCase()}"></label>
       <div class="pl-chips" id="pl-chips"></div><div id="pl-rows"></div></div>` : ""}`;
@@ -3762,7 +3762,7 @@ async function signups(el) {
   el.innerHTML = head("Sign-ups", sub) + `<p class="empty">Loading…</p>`;
   let regs;
   try { regs = await api("registrations?select=id,full_name,phone,email,invited_by,first_visit,notes,wants_contact,created_at&status=eq.pending&order=created_at"); }
-  catch (e) { el.innerHTML = head("Sign-ups", sub) + `<div class="msg bad">Sign-ups can't be loaded yet. Run the latest setup SQL in Supabase once, then open this page again. (${esc(e.message)})</div>`; return; }
+  catch (e) { el.innerHTML = head("Sign-ups", sub) + `<div class="msg bad">Sign-ups can't load. Run the latest setup SQL in Supabase, then reopen this page. (${esc(e.message)})</div>`; return; }
   if (S.view !== "signups") return;
   S.pending = 0; try { localStorage.setItem(signSeenKey(), String(Date.now())); } catch {}  // seen: the badge clears
   document.querySelectorAll('[data-view="signups"] .count').forEach(x => x.remove());
@@ -3824,7 +3824,7 @@ async function teamForm(tok, preview) {
   }
   let info = preview ? {church: preview, by: S.me?.name || S.me?.email} : null;
   if (!preview) try { info = await api("rpc/app_team_form", {method: "POST", body: {tok}}); } catch {}
-  if (!info) { box.innerHTML = brand + `<h1>This link isn't working</h1><p>It may have run out (form links work for 14 days), or only part of it was copied. Ask the person who sent it to you for a new one.</p>`; return; }
+  if (!info) { box.innerHTML = brand + `<h1>This link isn't working</h1><p>It may have expired (links last 14 days). Ask for a new one.</p>`; return; }
   const row = () => `<div class="tf-row"><div class="tf-fields">
       <input class="in" data-k="name" maxlength="80" autocomplete="off" placeholder="Full name" aria-label="Full name">
       <input class="in" data-k="email" type="email" inputmode="email" autocapitalize="none" autocomplete="off" maxlength="120" placeholder="Email they will sign in with" aria-label="Email">
@@ -3832,7 +3832,7 @@ async function teamForm(tok, preview) {
     <button type="button" class="icon-btn" data-rm aria-label="Remove this person" title="Remove">${svg("close")}</button></div>`;
   const draw = () => {
     box.innerHTML = brand + `<h1>Who will look after ${esc(info.church)}?</h1>
-      <p>${esc(info.by || "Your admin")} asked you to list the people who will use the FCC Attendance app for ${esc(info.church)}. Nobody can sign in until an admin approves the list.</p>
+      <p>${esc(info.by || "Your admin")} asked you to list who will use the app for ${esc(info.church)}. An admin approves the list before anyone can sign in.</p>
       <form id="tf-form" novalidate>
         <label class="f" for="tf-me">Your name</label><input class="in" id="tf-me" maxlength="80" autocomplete="name" required>
         <div class="tf-roles">${TEAM_ROLES.map(([, t, d]) => `<div><b>${t}</b><span>${d}</span></div>`).join("")}</div>
@@ -3887,7 +3887,7 @@ async function teamforms(el) {
     [reqs, links] = await Promise.all([
       api("team_requests?select=id,church,sent_by,name,email,role,pastor,created_at&status=eq.pending&order=created_at"),
       api(`team_links?select=token,church,made_by_name,expires_at&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&order=created_at.desc&limit=8`)]);
-  } catch (e) { el.innerHTML = head("Team forms", sub) + `<div class="msg bad">Team forms need the latest setup SQL: run it in Supabase once, then open this page again. (${esc(e.message)})</div>`; return; }
+  } catch (e) { el.innerHTML = head("Team forms", sub) + `<div class="msg bad">Team forms can't load. Run the latest setup SQL in Supabase, then reopen this page. (${esc(e.message)})</div>`; return; }
   if (S.view !== "teamforms") return;
   S.teamPending = reqs.length;
   const signed = S.me.role === "admin" ? new Set((await api("app_users?select=email").catch(() => [])).map(u => u.email)) : new Set();
@@ -3899,7 +3899,7 @@ async function teamforms(el) {
   const roleSel = r => `<select class="in sm" data-role aria-label="Role for ${esc(r.name)}">${TEAM_ROLES.map(([v, t]) => `<option value="${v}" ${v === r.role ? "selected" : ""}>${t}</option>`).join("")}</select>`;
   el.innerHTML = head("Team forms", sub) + `
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Send a form</h2></div>
-      <p class="note" style="margin:0 2px 12px">Make a link for a church and send it to its leader. They list their people and roles; nobody can sign in until it's approved here.</p>
+      <p class="note" style="margin:0 2px 12px">Send a church leader a link to list their people. Approve the list here.</p>
       <div class="row"><div style="flex:1 1 200px"><label class="f" for="tf-ch">Church</label>
         <select class="in" id="tf-ch">${S.churches.map(c => `<option ${c === S.church ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></div>
         <div style="flex:0 0 auto;align-self:flex-end;display:flex;gap:8px"><button class="pill-btn" id="tf-prev">${svg("eye")}Preview</button><button class="pill-btn primary" id="tf-make">Make link</button></div></div>
@@ -3914,7 +3914,7 @@ async function teamforms(el) {
           <td><b>${esc(r.name)}</b><small class="muted" style="display:block">${esc(r.email)}</small>${signed.has(r.email) ? `<span class="badge yellow">Can already sign in</span>` : ""}</td>
           <td>${roleSel(r)}</td><td><input class="in sm" data-pastor ${["pastor", "shepherd"].includes(r.role) ? "" : "hidden"} list="tf-pn" value="${esc(r.pastor || "")}" placeholder="As on the Pastors or Shepherds list" aria-label="Pastor name for ${esc(r.name)}"></td></tr>`).join("")}
         </tbody></table></div>
-        <p class="note" style="margin:8px 2px 0">Change a role before approving if needed. A Pastor needs their name exactly as it is on the Pastors list.</p>
+        <p class="note" style="margin:8px 2px 0">A Pastor's name must match the Pastors list.</p>
         <div class="tf-acts"><button class="pill-btn" data-no>Turn down ticked</button><button class="pill-btn primary" data-ok>Approve ticked</button></div></div>`; }).join("")
       : `<div class="card"><p class="empty">Nothing waiting. Lists sent in from a form show here.</p></div>`}
     <datalist id="tf-pn">${pnames.map(n => `<option value="${esc(n)}">`).join("")}</datalist>`;
@@ -3926,7 +3926,7 @@ async function teamforms(el) {
         <a class="pill-btn sm" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">WhatsApp</a>
         <a class="pill-btn sm" href="mailto:?subject=${encodeURIComponent("FCC Attendance: who will sign in for " + church)}&body=${encodeURIComponent(msg)}">Email</a>
         ${onPhone() && navigator.share ? `<button class="pill-btn sm" data-s>More…</button>` : ""}</div>
-      <p class="note" style="margin:6px 2px 0">Copying doesn't use it up: the same link works for everyone you send it to, for 14 days.</p></div>`;
+      <p class="note" style="margin:6px 2px 0">One link works for everyone, for 14 days.</p></div>`;
     const out = el.querySelector("#tf-out");
     out.querySelector("[data-c]").onclick = e => navigator.clipboard?.writeText(url).then(() => { e.target.textContent = "Copied"; toast("Link copied."); }).catch(() => toast("Couldn't copy: press and hold the link instead."));
     const s = out.querySelector("[data-s]"); if (s) s.onclick = () => navigator.share({text: msg}).catch(() => {});
@@ -3972,7 +3972,7 @@ async function teamforms(el) {
 function archive(el) {
   const p = picture(), list = p.archived.slice().sort(byName);
   el.innerHTML = head("Archive", `${esc(S.church)} · not seen for two years`, list.length ? `<button class="pill-btn" id="dl">Download</button>` : "") + `
-    ${S.seen ? "" : `<div class="msg" style="margin:0 0 14px">Run the latest setup SQL in Supabase once so this list can look back further than the last year.</div>`}
+    ${S.seen ? "" : `<div class="msg" style="margin:0 0 14px">Run the latest setup SQL in Supabase to see further back than a year.</div>`}
     <div class="card">${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Last seen</th><th>Type</th><th>Age group</th><th>Phone</th></tr></thead><tbody>
       ${list.map(m => `<tr><td>${whoBtn(m)}</td><td class="muted">${esc(full(m.seen))}</td><td class="muted">${typeName(m)}</td><td class="muted">${m.kid ? "Child" : "Adult"}</td><td class="muted">${esc(m.phone || "")}</td></tr>`).join("")}
       </tbody></table></div>` : `<p class="empty">Nobody is in the archive.</p>`}
@@ -4034,7 +4034,7 @@ async function emailReports(el) {
   try {
     [setting, sent] = await Promise.all([api(`settings?select=value&key=eq.${encodeURIComponent(key)}`),
       api(`email_log?select=kind,report_date,sent_at,recipients,ok,detail&kind=in.(${isHome ? '"manual","daily"' : `"manual:${S.church.replace(/"/g, "")}"`})&order=sent_at.desc&limit=15`)]);
-  } catch (e) { el.innerHTML = head("Reports", sub) + `<div class="msg bad">Reports can't be loaded yet. Run the latest setup SQL in Supabase once, then open this page again. (${esc(e.message)})</div>`; return; }
+  } catch (e) { el.innerHTML = head("Reports", sub) + `<div class="msg bad">Reports can't load. Run the latest setup SQL in Supabase, then reopen this page. (${esc(e.message)})</div>`; return; }
   if (S.view !== "reports") return;
   const list = (setting[0]?.value || "").split(/[,\s;]+/).filter(Boolean), p = picture();
   el.innerHTML = head("Reports", sub) + `
@@ -4149,7 +4149,7 @@ async function help(el) {
   const topic = topics.find(t => t[0] === S.helpTopic);
   el.innerHTML = `<div class="help">
     <div class="help-side"><div class="head"><div><h1>Help</h1></div></div>
-      <p class="lede">Answers to common questions about the app, and a quick way to reach the admin.</p>
+      <p class="lede">Common questions, and a way to reach the admin.</p>
       <button type="button" class="pill-btn sm" id="tour-again" style="margin:0 0 12px">${svg("eye")}Show the welcome tour again</button>
       <div class="help-chips" role="tablist" aria-label="Topics">${topics.map(([k, name]) =>
         `<button class="hchip" role="tab" data-ht="${k}" aria-selected="${k === S.helpTopic}">${esc(name)}</button>`).join("")}</div></div>
@@ -4350,14 +4350,14 @@ function account(el) {
       <div style="margin-top:14px"><button class="pill-btn primary">Save name</button></div></form>
     <div id="look"></div>
     <form class="card" id="setpw"><div class="card-head"><h2>Password</h2></div>
-      <p class="note" style="margin-top:0">Set a password to skip the email code when you sign in, or change the one you have. You stay signed in.</p>
+      <p class="note" style="margin-top:0">Set a password to skip the email code.</p>
       <input type="email" autocomplete="username" value="${esc(S.me.email)}" readonly hidden>
       <label class="f" for="pw1">New password</label><input class="in" id="pw1" type="password" autocomplete="new-password" maxlength="72" required>
       <label class="f" for="pw2" style="margin-top:12px">Type it again</label><input class="in" id="pw2" type="password" autocomplete="new-password" maxlength="72" required>
       <ul class="pw-rules" id="pw-rules" aria-live="polite"></ul>
       <div style="margin-top:14px"><button class="pill-btn primary" id="pw-go">Save password</button></div></form>
     ${S.canSwitch ? `<div class="card"><div class="card-head"><h2>Your views</h2></div>
-      <p class="note" style="margin-top:0">You're ${baseName() === "Admin" ? "an" : "a"} ${baseName()} and also a ${pview() === "Reverend" ? "Reverend" : "pastor"} (${esc(S.me.pastor)}). Switch any time, no need to sign in again.</p>
+      <p class="note" style="margin-top:0">You're ${baseName() === "Admin" ? "an" : "a"} ${baseName()} and also a ${pview() === "Reverend" ? "Reverend" : "pastor"} (${esc(S.me.pastor)}). Switch any time.</p>
       <button class="pill-btn primary" data-switch>${svg("pastors")}${switchLabel()}</button></div>` : ""}
     <div class="card"><button class="pill-btn" data-bye>${svg("out")}Log out</button></div></div>`;
   el.querySelector("#me").onsubmit = async e => {
@@ -4408,7 +4408,7 @@ function settings(box) {
         `<option value="${k}" ${v.start === k ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`)}
       <div class="set-wide">${flip("set-mini", "Icons-only menu", "On laptops, show the side menu as icons only.", S.mini)}</div>
       ${flip("set-emoji", "Emojis in shared messages", "Adds emojis to the WhatsApp summaries you copy.", S.emoji)}
-      <div class="set-wide pg-head"><b>Pages you see</b><small>Turn off pages you don't use: they leave your menu and bottom bar. Only on this phone or computer, and nothing else changes.</small></div>
+      <div class="set-wide pg-head"><b>Pages you see</b><small>Hide pages you don't use. Only on this device.</small></div>
       ${pages().flatMap(g => g[1]).filter(([k], i) => i && k !== "help").map(([k, t]) => flip("set-pg-" + k, t, "", !(v.hide || []).includes(k))).join("")}
       <div class="set-row"><span class="gap" style="flex:1"></span><button type="button" class="pill-btn" data-look-reset>Reset to default</button></div></div>
     <div class="card set-card"><div class="card-head"><h2>Sharing summaries</h2></div>
@@ -4420,7 +4420,7 @@ function settings(box) {
   if (canStatus) box.insertAdjacentHTML("beforeend", `<div class="card set-card"><div class="card-head"><h2>Statuses</h2></div>
     <p class="note" style="margin:0 2px 6px">What each status does at ${esc(S.church)}.</p>
     ${Object.entries(statusRules()).map(([k, v]) => row(esc(k), "", `<select class="in" data-st="${esc(k)}" aria-label="${esc(k)}">${[["in", "Stays on the lists"], ["out", "Off the lists (back if ticked)"], ["gone", "Off for good"]]
-      .map(([a, t]) => `<option value="${a}" ${v === a ? "selected" : ""}>${t}</option>`).join("")}</select>${STATUS0[k] ? "" : `<button type="button" class="link-btn" data-st-del="${esc(k)}">Remove</button>`}`)).join("")}
+      .map(([a, t]) => `<option value="${a}" ${v === a ? "selected" : ""}>${t}</option>`).join("")}</select>${STATUS0[k] ? "" : `<button type="button" class="pill-btn sm" data-st-del="${esc(k)}">Remove</button>`}`)).join("")}
     <div class="set-row st-add" style="display:flex;gap:8px;align-items:center"><input class="in" id="st-new" style="flex:1;min-width:0" maxlength="30" placeholder="Add a status, e.g. Studying abroad" aria-label="New status"><button type="button" class="pill-btn" id="st-add">Add</button></div></div>`);
   const redo = () => settings(box), $ = q => box.querySelector(q);
   if (canStatus) {
