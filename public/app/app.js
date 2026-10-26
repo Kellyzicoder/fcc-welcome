@@ -878,7 +878,7 @@ async function start() {
     S.church = S.me.role === "admin" ? (S.churches.includes(S.church) ? S.church : S.me.home) : S.me.church || S.me.home;
     if (S.me.role === "pastor" && S.me.base === "admin" && !S.preview) S.church = await pastorChurch();
     await load();
-    S.pending = canApprove() ? await api("registrations?select=id&status=eq.pending").then(r => r.length).catch(() => 0) : 0;
+    S.pending = canApprove() ? await api("registrations?select=created_at&status=eq.pending").then(newSignups).catch(() => 0) : 0;
   }
   render();
   let seen = true; try { seen = !!localStorage.getItem("fcc-tour:" + S.me.email); } catch {}
@@ -1015,7 +1015,7 @@ async function freshen() {
     all(`services?select=service_date,name&service_date=gte.${since}`),
     all(`service_parts?select=service_date,part,name&church=eq.${encodeURIComponent(S.church)}&service_date=gte.${since}&order=service_date,part`).catch(() => null),
     all(`service_ticks?select=service_date,part,member_id&service_date=gte.${since}`).catch(() => null),
-    canApprove() ? api("registrations?select=id&status=eq.pending").then(r => r.length).catch(() => S.pending) : 0,
+    canApprove() ? api("registrations?select=created_at&status=eq.pending").then(newSignups).catch(() => S.pending) : 0,
     canTeam() ? api("team_requests?select=id&status=eq.pending").then(r => r.length).catch(() => 0) : 0]);  // all at once, not one after another
   const sig = JSON.stringify([members, ticks, services, parts, pticks, pending, teamPending]), changed = sig !== S.freshSig; S.freshSig = sig;
   S.members = S.me.role === "pastor" && S.me.base !== "pastor" ? members.filter(m => careOf(m).some(n => norm(n) === norm(S.me.pastor))) : members;
@@ -1274,7 +1274,7 @@ function render() {
     b.classList.add("busy");
     try {
       await load();
-      S.pending = canApprove() ? await api("registrations?select=id&status=eq.pending").then(r => r.length).catch(() => S.pending) : 0;
+      S.pending = canApprove() ? await api("registrations?select=created_at&status=eq.pending").then(newSignups).catch(() => S.pending) : 0;
       const y = scrollY; render(); scrollTo(0, y); setTimeout(() => scrollTo(0, y), 350); toast("Up to date.");
     } catch (e) { b.classList.remove("busy"); toast("Couldn't refresh: " + e.message); }
   });
@@ -3715,6 +3715,9 @@ async function person(el) {
 }
 
 // ---------------------------------------------------------------- sign-ups from the welcome form
+// The Sign-ups badge counts only sign-ups that came in since this person last opened Sign-ups; the page itself lists everyone waiting
+const signSeenKey = () => "fcc-signups-seen:" + (S.me?.email || "");
+const newSignups = rows => { let seen = 0; try { seen = +localStorage.getItem(signSeenKey()) || 0; } catch {} return rows.filter(r => Date.parse(r.created_at) > seen).length; };
 async function signups(el) {
   const sub = "From the welcome form, waiting for approval";
   el.innerHTML = head("Sign-ups", sub) + `<p class="empty">Loading…</p>`;
@@ -3722,7 +3725,8 @@ async function signups(el) {
   try { regs = await api("registrations?select=id,full_name,phone,email,invited_by,first_visit,notes,wants_contact,created_at&status=eq.pending&order=created_at"); }
   catch (e) { el.innerHTML = head("Sign-ups", sub) + `<div class="msg bad">Sign-ups can't be loaded yet. Run the latest setup SQL in Supabase once, then open this page again. (${esc(e.message)})</div>`; return; }
   if (S.view !== "signups") return;
-  S.pending = regs.length;
+  S.pending = 0; try { localStorage.setItem(signSeenKey(), String(Date.now())); } catch {}  // seen: the badge clears
+  document.querySelectorAll('[data-view="signups"] .count').forEach(x => x.remove());
   const home = Object.fromEntries(S.members.filter(m => churchOf(m) === S.me.home).map(m => [norm(m.full_name).replace(/\s+/g, " "), m]));
   el.innerHTML = head("Sign-ups", sub) + (regs.length ? regs.map(r => {
     const match = home[norm(r.full_name).replace(/\s+/g, " ")];
