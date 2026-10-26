@@ -2631,6 +2631,7 @@ function oldRegister() {
     const both = w.length > 1 ? people.filter(m => ws.get(m.id)[0] === w[0] && ws.get(m.id).includes(w[w.length - 1])) : []; if (both.length === 1) return [both[0], both];
     const first = people.filter(m => ws.get(m.id)[0] === w[0]); if (first.length === 1 && w.length === 1) return [first[0], first];
     return [null, [...new Set([...both, ...first, ...people.filter(m => ws.get(m.id).includes(w[0]))])].slice(0, 8)]; };
+  const newName = raw => clean(raw).split(" ").filter(w => !TITLES.test(w)).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ").slice(0, 80) || clean(raw);  // "Aunty Cha" → "Cha"
   let tabs = [], rows = [], dates = [];
   const read = () => {  // find the row of dates, then everyone below it with their green squares
     fail(""); const tab = tabs[+($("or-tab")?.value || 0)], yr = +$("or-year").value || new Date().getFullYear();
@@ -2639,11 +2640,13 @@ function oldRegister() {
     const cols = grid[head].map((c, j) => c && asDay(c.text, yr) ? [j, asDay(c.text, yr)] : null).filter(Boolean), first = cols[0][0];
     const nameCol = [...Array(first).keys()].reverse().find(j => grid.slice(head + 1).filter(r => r[j]?.text).length) ?? 0;
     const SKIP = /^(adults?|children|kids|names?|dates?|attendance|total.*|first timers?|visitors?|h\s*&\s*n.*|here\s*&\s*now.*|members?)$/i;
-    rows = [];
+    rows = []; let sect = "member";  // the heading a name sits under: first-timers and visitors are added as such if they're new
     for (const r of grid.slice(head + 1)) {
-      const name = r[nameCol]?.text || ""; if (/^total/i.test(name)) break; if (!name || SKIP.test(clean(name)) || !/\p{L}/u.test(name)) continue;
+      const name = r[nameCol]?.text || ""; if (/^total/i.test(name)) break;
+      if (name && SKIP.test(clean(name))) { const h = norm(clean(name)); sect = /first/.test(h) ? "first_timer" : /visitor/.test(h) ? "visitor" : /child|kid/.test(h) ? "child" : "member"; continue; }
+      if (!name || !/\p{L}/u.test(name)) continue;
       const came = cols.filter(([j]) => kind(r[j]?.fill) === "came").map(([, day]) => day), mid = cols.filter(([j]) => kind(r[j]?.fill) === "midweek").length;
-      const [m, likely] = guess(name); rows.push({name, came, mid, pick: m?.id || "", sure: !!m, likely});
+      const [m, likely] = guess(name); rows.push({name, came, mid, pick: m?.id || "", sure: !!m, likely, sect});
     }
     const taken = {}; rows.forEach(x => { if (x.pick) (taken[x.pick] ??= []).push(x); });
     for (const list of Object.values(taken)) if (list.length > 1) list.forEach(x => { x.sure = false; x.pick = ""; });  // two names on one person: both need a look
@@ -2652,15 +2655,19 @@ function oldRegister() {
   const opts = people.map(m => `<option value="${esc(m.id)}">${esc(m.full_name)}</option>`).join("");
   const draw = () => {
     const use = rows.filter(x => x.pick && x.came.length), n = use.reduce((a, x) => a + x.came.length, 0), check = rows.filter(x => !x.sure && x.came.length).length;
+    const notFound = rows.filter(x => !x.pick && !x.likely?.length && x.came.length);
     $("or-list").innerHTML = rows.length ? `<div class="or-sum"><b>${rows.length} names</b> · ${rows.filter(x => x.sure).length} matched${check ? ` · <span class="bad-t">${check} to check</span>` : ""}
         · <b>${n} check-ins</b> over ${dates.length} ${dates.length === 1 ? "Sunday" : "Sundays"}${dates.length ? ` (${esc(nice(dates[0]))} to ${esc(nice(dates[dates.length - 1]))})` : ""}
-        ${rows.some(x => x.mid) ? `<br><small>Orange squares (came midweek) aren't added: the sheet doesn't say which day.</small>` : ""}</div>
+        ${rows.some(x => x.mid) ? `<br><small>Orange squares (came midweek) aren't added: the sheet doesn't say which day.</small>` : ""}
+        ${notFound.length ? `<br><button type="button" class="link-btn" id="or-new">+ Add the ${notFound.length} not in the app as new people</button>` : ""}
+        ${rows.some(x => x.pick === "+new") ? `<br><small>${rows.filter(x => x.pick === "+new").length} new ${rows.filter(x => x.pick === "+new").length === 1 ? "person goes" : "people go"} on ${esc(S.church)}'s register first (first-timers and visitors as such), then their check-ins.</small>` : ""}</div>
       <div class="scroll or-scroll"><table class="utable"><thead><tr><th>On the sheet</th><th>Who it is in the app</th><th>Sundays</th></tr></thead><tbody>
       ${rows.map((x, i) => `<tr class="${x.sure || !x.came.length ? "" : "or-check"}"><td>${esc(x.name)}${!x.sure && x.came.length ? ` <span class="badge">Check</span>` : ""}</td>
-        <td><select class="in sm" data-or="${i}" aria-label="Who ${esc(x.name)} is"><option value="">${x.sure ? "Leave out" : "Choose who this is…"}</option>
+        <td><select class="in sm" data-or="${i}" aria-label="Who ${esc(x.name)} is"><option value="">${x.sure ? "Leave out" : "Choose who this is…"}</option><option value="+new">+ Add as a new person (${esc(newName(x.name))})</option>
           ${x.likely?.length && !x.sure ? `<optgroup label="Likely">${x.likely.map(m => `<option value="${esc(m.id)}">${esc(m.full_name)}</option>`).join("")}</optgroup><optgroup label="Everyone">${opts}</optgroup>` : opts}</select></td><td class="muted">${x.came.length}</td></tr>`).join("")}</tbody></table></div>` : "";
     $("or-list").querySelectorAll("[data-or]").forEach(s => { s.value = rows[+s.dataset.or].pick;
       s.onchange = () => { const x = rows[+s.dataset.or]; x.pick = s.value; x.sure = !!s.value; draw(); }; });
+    $("or-list").querySelector("#or-new")?.addEventListener("click", () => { notFound.forEach(x => { x.pick = "+new"; x.sure = true; }); draw(); });
     $("or-go").disabled = !n; $("or-go").textContent = n ? `Add ${n} check-ins` : "Add the check-ins";
   };
   $("or-file").onchange = async e => {
@@ -2675,6 +2682,15 @@ function oldRegister() {
     e.preventDefault(); const go = $("or-go"), use = rows.filter(x => x.pick && x.came.length); if (!use.length) return;
     go.disabled = true; go.textContent = "Adding…"; let n = 0;
     try {
+      const fresh = use.filter(x => x.pick === "+new");  // new people first, so their check-ins have someone to belong to
+      if (fresh.length) {
+        const list = fresh.map(x => { const type = x.sect === "first_timer" || x.sect === "visitor" ? x.sect : "member", d0 = [...x.came].sort()[0];
+          return {id: newId(), full_name: newName(x.name), phone: "", type, status: "", age_group: x.sect === "child" ? "Child" : "Adult", church: S.church, created_at: isoLocal(),
+                  date_joined: type === "member" ? d0 : null, first_visit: type === "member" ? null : d0}; });  // the same fields on every row, as a batch needs
+        await api("members", {method: "POST", prefer: "return=minimal", body: list}); S.members.push(...list);
+        fresh.forEach((x, i) => x.pick = list[i].id);
+        log("edit", "", "done", `added ${list.length} people from an old register`);
+      }
       for (const day of dates) {
         const ids = [...new Set(use.filter(x => x.came.includes(day)).map(x => x.pick))]; if (!ids.length) continue;
         const t = new Date(day + "T10:00:00"), o = -t.getTimezoneOffset(), at = `${day}T10:00:00${o >= 0 ? "+" : "-"}${pad(Math.floor(Math.abs(o) / 60))}:${pad(Math.abs(o) % 60)}`;
