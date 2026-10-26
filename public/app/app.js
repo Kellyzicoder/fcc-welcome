@@ -888,18 +888,20 @@ async function start() {
     S.pending = canApprove() ? await api("registrations?select=created_at&status=eq.pending").then(newSignups).catch(() => 0) : 0;
   }
   render();
-  let seen = true; try { seen = !!localStorage.getItem("fcc-tour:" + S.me.email); } catch {}
+  let seen = true; try { seen = localStorage.getItem("fcc-tour:" + S.me.email) === TOUR_V; } catch {}
   if (!seen && !S.preview) setTimeout(tour, 500);  // first time on this phone or laptop: a short tour of where things are
   else if (S.via === "email") setTimeout(offerPassword, 600);  // just signed in with an email code or link
   S.via = "";
 }
 // A short welcome tour: a few cards for this person's role on where to find things. Shown once per device; Help can show it again.
+const TOUR_V = "2";  // bump this whenever the tour's steps change, so everyone sees the new version once
 function tour() {
   const r = S.me.role, phone = matchMedia("(max-width: 1080px)").matches, Q = q => document.querySelector(q);
   // the menu item for a page: in the side menu on laptops; on phones the bottom bar, or More when it isn't there
   const nav = v => () => phone ? Q(`.dock [data-view="${v}"]`) || Q(".top [data-menu]") : Q(`.side .nav[data-view="${v}"]`);
   const more = v => phone && !Q(`.dock [data-view="${v}"]`) ? " Tap More to find it." : "";
-  const steps = [[null, "dashboard", 1, "Welcome to FCC Attendance", `Here's a quick look at where things are. It takes under a minute, and you can see it again any time from Help.`],
+  const steps = [[null, "dashboard", 1, "Welcome to FCC Attendance", `A quick look around. See it again any time from Help.`],
+    [() => phone ? Q(".top [data-menu]") : Q(".side .ngrp-h") || Q(".side .nav"), "menu", 1, "Menu", r === "pastor" || r === "bishop" ? "Every page is here." : "Every page is here, in groups. Tap a group to open it."],
     ...(r === "bishop" ? [[nav("overview"), "overview", 1, "All churches", "Every church's numbers in one place. Tap a church for its own dashboard, or a day in the calendar to look back."],
                           [() => Q("#addw"), "plus", 4, "Make it yours", "Add widgets, drag them by the handle, or resize them from ⋯. Your layout is only yours."]]
       : r === "pastor" ? [[nav("mine"), "mine", 1, "Home: your people", "Everyone assigned to you, who came, and who needs a call. Tap a name for their history."],
@@ -907,22 +909,23 @@ function tour() {
       : [[nav("dashboard"), "dashboard", 1, "Dashboard", "How the last service went, at a glance. This is where the app opens."],
          [nav("checkin"), "checkin", 2, "Check-in", "Tick people in as they arrive, or tap a team to tick a group. Press Save & lock when the service is done." + more("checkin")],
          [nav("followup"), "followup", 3, "Follow-up", "Amber (Check in) and red (Needs a call) show who has missed services in a row, so pastors know who to call." + more("followup")],
-         [nav("people"), "people", 5, "Congregation", "Everyone on the register. Tap a name for their history, or edit their details." + more("people")],
+         [nav("people"), "people", 5, "Congregation", "Everyone on the register. Tap a name for their history. Import people or load an old register from here." + more("people")],
          [() => Q("#addw"), "plus", 4, "Your dashboard", "Add widgets, drag them by the handle, or resize them from ⋯. Your layout is only yours."]]),
     [nav("help"), "help", 6, "Help", "Answers for your role, and Contact the admin if you're stuck." + more("help")],
-    [() => Q(".acct"), "person", 1, "Your account", "Tap your name for your details, password and settings like colours and text size."]];
+    [() => Q(".acct"), "person", 1, "Your account", "Your details, password and settings: colours, text size, pages you see."]];
   let i = 0;
   const cover = document.createElement("div"), spot = document.createElement("div"), d = document.createElement("div");
   cover.className = "tour-cover"; spot.className = "tour-spot"; d.className = "tour-pop";
-  const done = () => { try { localStorage.setItem("fcc-tour:" + S.me.email, "1"); } catch {} [cover, spot, d].forEach(x => x.remove());
-      document.removeEventListener("keydown", onKey); removeEventListener("resize", place); },
+  const done = () => { try { localStorage.setItem("fcc-tour:" + S.me.email, TOUR_V); } catch {} [cover, spot, d].forEach(x => x.remove());
+      document.removeEventListener("keydown", onKey); removeEventListener("resize", place); removeEventListener("scroll", place); },
     onKey = e => { if (e.key === "Escape") done(); else if (e.key === "ArrowRight" && i < steps.length - 1) { i++; draw(); } else if (e.key === "ArrowLeft" && i) { i--; draw(); } };
   // ring the menu item for this step and put the card beside it (or in the middle when there's nothing to point at)
   function place() {
     const el = steps[i][0]?.(), r = el && el.offsetParent !== null ? el.getBoundingClientRect() : null, W = innerWidth, H = innerHeight;
     cover.classList.toggle("dim", !r); spot.hidden = !r; d.classList.toggle("mid", !r); d.style.cssText = "";
     if (!r) return;
-    const pad = 6; Object.assign(spot.style, {left: r.left - pad + "px", top: r.top - pad + "px", width: r.width + pad * 2 + "px", height: r.height + pad * 2 + "px"});
+    const pad = 6; Object.assign(spot.style, {left: r.left - pad + "px", top: r.top - pad + "px", width: r.width + pad * 2 + "px", height: r.height + pad * 2 + "px",
+      borderRadius: Math.min(parseFloat(getComputedStyle(el).borderRadius) || 12, r.height / 2) + pad + "px"});  // the ring follows the item's shape
     const cw = d.offsetWidth, ch = d.offsetHeight, clampX = x => Math.max(12, Math.min(W - cw - 12, x)), clampY = y => Math.max(12, Math.min(H - ch - 12, y));
     if (!phone && r.right < W * .4) { d.style.left = r.right + 18 + "px"; d.style.top = clampY(r.top + r.height / 2 - ch / 2) + "px"; d.dataset.arrow = "left"; }
     else if (r.top > H / 2) { d.style.left = clampX(r.left + r.width / 2 - cw / 2) + "px"; d.style.top = r.top - ch - 18 + "px"; d.dataset.arrow = "down"; }
@@ -938,11 +941,12 @@ function tour() {
     d.querySelector("[data-next]").onclick = () => last ? done() : (i++, draw());
     d.querySelector("[data-prev]")?.addEventListener("click", () => { i--; draw(); });
     d.querySelector("[data-skip]")?.addEventListener("click", done);
-    const el = at?.(); if (el) el.scrollIntoView({block: "nearest"});
-    place(); d.querySelector("[data-next]").focus({preventScroll: true});
+    const el = at?.(); el?.closest(".ngrp:not(.open)")?.classList.add("open");  // a page in a closed menu group: open the group so it can be ringed
+    if (el) el.scrollIntoView({block: "nearest"});
+    place(); requestAnimationFrame(place); setTimeout(place, 350);  // again once the page and the bottom bar have settled d.querySelector("[data-next]").focus({preventScroll: true});
   };
   document.querySelectorAll(".modal, .tour-cover, .tour-spot, .tour-pop").forEach(m => m.remove());
-  document.body.append(cover, spot, d); document.addEventListener("keydown", onKey); addEventListener("resize", place); draw();
+  document.body.append(cover, spot, d); document.addEventListener("keydown", onKey); addEventListener("resize", place); addEventListener("scroll", place, {passive: true}); draw();
 }
 // Which church's pastor list has this person's pastor name (for the main admin, who has no single church)
 async function pastorChurch() {
