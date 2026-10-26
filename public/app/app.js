@@ -3424,7 +3424,7 @@ async function admin(el) {
   if (!TABS.some(t => t[0] === S.adminTab)) S.adminTab = fresh.length ? "messages" : "names";
   const tab = k => `data-at="${k}" ${S.adminTab === k ? "" : "hidden"}`;
   el.innerHTML = head("Admin", "Who can sign in, messages from Help, and database space") + `<div class="atabs" role="tablist" aria-label="Admin">${TABS.map(([k, name, n]) =>
-      `<button role="tab" data-atab="${k}" aria-selected="${S.adminTab === k}">${name}${k === "messages" && n ? ` <span class="anum new">${n}</span>` : k !== "space" && k !== "backup" && k !== "messages" ? ` <span class="anum">${n}</span>` : ""}</button>`).join("")}</div>
+      `<button role="tab" data-atab="${k}" aria-selected="${S.adminTab === k}">${name}${k === "messages" && n ? ` <span class="anum new">${n}</span>` : ""}</button>`).join("")}</div>
     <section ${tab("messages")}>${inboxCard}</section><section ${tab("backup")}>${backupCard}</section><section ${tab("space")}>${spaceCard}</section>
     <section ${tab("names")}>
     <div class="tiles">${[["Total sign-ins", users.length, "Across all churches"], ["Church admins", users.filter(u => u.role === "lead").length, "Run a church"],
