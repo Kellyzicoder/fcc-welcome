@@ -86,7 +86,8 @@ function toast(text) {
   const t = Object.assign(document.createElement("div"), {className: "toast", textContent: text});
   document.body.append(t); setTimeout(() => t.remove(), 3500);
 }
-const BACKUP_SCRIPT = String.raw`// FCC Attendance: copies everything into this Google Sheet every night. Run setup once (the Run button with setup picked).
+const BACKUP_SCRIPT = String.raw`/** @OnlyCurrentDoc */
+// FCC Attendance: copies everything into this Google Sheet every night. Run setup once (the Run button with setup picked).
 const URL_ = "__URL__", PUBLIC_KEY = "__PUBLIC__", BACKUP_KEY = "__KEY__";
 function setup() {
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
@@ -96,19 +97,36 @@ function setup() {
 function backup() {
   const r = UrlFetchApp.fetch(URL_ + "/rest/v1/rpc/app_backup", {method: "post", contentType: "application/json", muteHttpExceptions: true,
     headers: {apikey: PUBLIC_KEY, Authorization: "Bearer " + PUBLIC_KEY}, payload: JSON.stringify({backup_key: BACKUP_KEY})});
-  const ss = SpreadsheetApp.getActive(), log = ss.getSheetByName("Backup log") || ss.insertSheet("Backup log", 0);
+  const ss = SpreadsheetApp.getActive(), log = ss.getSheetByName("Backup log") || ss.insertSheet("Backup log");
   if (r.getResponseCode() !== 200) { log.appendRow([new Date(), "Failed", r.getContentText().slice(0, 300)]); throw new Error("Backup failed: " + r.getContentText()); }
-  const d = JSON.parse(r.getContentText()), home = d.home || "Home church", done = [], kept = new Set(["Backup log"]);
-  const put = (name, rows, freezeCols) => {  // one tab: a heading row, then a row each (as text, so phone numbers keep their 0)
+  const d = JSON.parse(r.getContentText()), home = d.home || "Home church", done = [], kept = new Set(["Backup log"]), order = [];
+  // the look: a soft blue-grey heading row in small capitals, roomy rows, thin lines between them
+  const FONT = "Inter", HEAD_BG = "#e8edf3", HEAD_INK = "#5b6675", INK = "#1f2933", LINE = "#e2e7ee";
+  const style = (sh, rows, cols, freezeCols) => {
+    const all = sh.getRange(1, 1, rows, cols);
+    all.setFontFamily(FONT).setFontSize(10).setFontColor(INK).setVerticalAlignment("middle").setWrap(false)
+      .setBorder(null, null, true, null, null, true, LINE, SpreadsheetApp.BorderStyle.SOLID);
+    sh.getRange(1, 1, 1, cols).setBackground(HEAD_BG).setFontColor(HEAD_INK).setFontWeight("bold").setFontSize(9);
+    sh.setRowHeight(1, 38); if (rows > 1) sh.setRowHeights(2, rows - 1, 34);
+    sh.setFrozenRows(1); if (freezeCols) sh.setFrozenColumns(freezeCols);
+    sh.setHiddenGridlines(true);
+  };
+  const put = (name, rows, freezeCols, hide) => {  // one tab: a heading row, then a row each (as text, so phone numbers keep their 0)
     const cols = [...new Set(rows.flatMap(x => Object.keys(x)))], sh = ss.getSheetByName(name) || ss.insertSheet(name);
     sh.clear(); kept.add(name); done.push(name + " " + rows.length);
-    if (!cols.length) return;
-    const vals = [cols, ...rows.map(x => cols.map(c => x[c] == null ? "" : typeof x[c] === "object" ? JSON.stringify(x[c]) : String(x[c])))];
-    sh.getRange(1, 1, vals.length, cols.length).setNumberFormat("@").setValues(vals); sh.setFrozenRows(1); if (freezeCols) sh.setFrozenColumns(freezeCols);
+    if (hide) sh.hideSheet(); else { sh.showSheet(); order.push(sh); }
+    if (!cols.length) return sh;
+    const vals = [cols.map(c => c.toUpperCase()), ...rows.map(x => cols.map(c => x[c] == null ? "" : typeof x[c] === "object" ? JSON.stringify(x[c]) : String(x[c])))];
+    sh.getRange(1, 1, vals.length, cols.length).setNumberFormat("@").setValues(vals);
+    style(sh, vals.length, cols.length, freezeCols);
+    if (vals.length > 1 && freezeCols) sh.getRange(2, 1, vals.length - 1, 1).setFontWeight("bold");
+    sh.autoResizeColumns(1, cols.length);  // then a little room either side, so the words don't touch the lines
+    for (let c = 1; c <= cols.length; c++) sh.setColumnWidth(c, Math.min(320, Math.max(90, sh.getColumnWidth(c) + 28)));
+    return sh;
   };
   // each church gets two tabs: "– details" (a row per person) and "– attendance" (how often each person comes, in colour)
   const churchOf = x => String(x.church || "").trim() || home, MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const GREEN = "#188038", AMBER = "#e37400", RED = "#c5221f", GREY = "#9aa0a6", HEAD = "#e8eaed";
+  const GREEN = "#188038", AMBER = "#e37400", RED = "#c5221f", GREY = "#9aa0a6", WHITE = "#ffffff";
   const rate = (a, h) => !h ? GREY : a / h >= .75 ? GREEN : a / h >= .5 ? AMBER : RED;  // 3 or 4 of 4 Sundays green, 2 amber, 0 or 1 red
   const tz = Session.getScriptTimeZone(), today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd"), yr = today.slice(0, 4), mo = +today.slice(5, 7);
   const nice = s => s ? +s.slice(8, 10) + " " + MON[+s.slice(5, 7) - 1] + (s.slice(0, 4) === yr ? "" : " " + s.slice(0, 4)) : "";
@@ -120,33 +138,40 @@ function backup() {
     const people = (d.members || []).filter(x => churchOf(x) === c).sort((a, b) => String(a.full_name).localeCompare(String(b.full_name))), ids = new Set(people.map(x => x.id));
     const held = new Set((d.attendance || []).filter(t => ids.has(t.member_id) && t.service_date <= today).map(t => t.service_date));  // days this church had a service
     const yearDays = [...held].filter(x => x.startsWith(yr)).sort(), inMonth = m => yearDays.filter(x => +x.slice(5, 7) === m);
-    // details
+    // attendance first (it's the one people open), then details
+    const name = c + " – attendance", sh = ss.getSheetByName(name) || ss.insertSheet(name); sh.clear(); sh.showSheet(); kept.add(name); order.push(sh); done.push(name + " " + people.length);
     const extra = [...new Set(people.flatMap(x => Object.keys(x)))].filter(k => !DETAILS.some(([f]) => f === k) && k !== "church");  // id and the rest, kept for a restore
-    put(c + " – details", people.map(x => Object.assign(Object.fromEntries(DETAILS.map(([f, label]) => [label, x[f]])), Object.fromEntries(extra.map(k => [k, x[k]])))), 1);
-    const gid = ss.getSheetByName(c + " – details").getSheetId();
-    // attendance
-    const name = c + " – attendance", sh = ss.getSheetByName(name) || ss.insertSheet(name); sh.clear(); kept.add(name); done.push(name + " " + people.length);
-    const head = ["Name", "Last came", "This year", ...MON, ...sundays.map(x => nice(x))], vals = [head], bg = [head.map(() => HEAD)], fg = [head.map(() => "#202124")];
+    const gid = put(c + " – details", people.map(x => Object.assign(Object.fromEntries(DETAILS.map(([f, label]) => [label, x[f]])), Object.fromEntries(extra.map(k => [k, x[k]])))), 1).getSheetId();
+    const head = ["Name", "Last came", "This year", ...MON, ...sundays.map(x => nice(x))].map(h => h.toUpperCase()), vals = [head], bg = [head.map(() => HEAD_BG)], fg = [head.map(() => HEAD_INK)];
     for (const x of people) {
       const mine = came[x.id] || new Set(), last = [...mine].filter(t => t <= today).sort().pop(), a = yearDays.filter(t => mine.has(t)).length;
-      const row = [x.full_name || "(no name)", nice(last), yearDays.length ? a + " of " + yearDays.length + " · missed " + (yearDays.length - a) : ""], b = ["#ffffff", "#ffffff", yearDays.length ? rate(a, yearDays.length) : "#ffffff"];
-      for (let m = 1; m <= 12; m++) { const h = inMonth(m), n = h.filter(t => mine.has(t)).length; row.push(m > mo ? "" : h.length ? n + "/" + h.length : "–"); b.push(m > mo ? "#ffffff" : rate(n, h.length)); }
+      const row = [x.full_name || "(no name)", nice(last), yearDays.length ? a + " of " + yearDays.length + " · missed " + (yearDays.length - a) : ""], b = [WHITE, WHITE, yearDays.length ? rate(a, yearDays.length) : WHITE];
+      for (let m = 1; m <= 12; m++) { const h = inMonth(m), n = h.filter(t => mine.has(t)).length; row.push(m > mo ? "" : h.length ? n + "/" + h.length : "–"); b.push(m > mo ? WHITE : rate(n, h.length)); }
       for (const s of sundays) { row.push(""); b.push(s > today || !held.has(s) ? GREY : mine.has(s) ? GREEN : RED); }  // this month: colour only
-      vals.push(row); bg.push(b); fg.push(b.map(colour => colour === "#ffffff" ? "#202124" : "#ffffff"));
+      vals.push(row); bg.push(b); fg.push(b.map(colour => colour === WHITE ? INK : WHITE));
     }
-    const all = sh.getRange(1, 1, vals.length, head.length);
-    all.setNumberFormat("@").setValues(vals).setBackgrounds(bg).setFontColors(fg).setHorizontalAlignment("center");
-    sh.getRange(1, 1, 1, head.length).setFontWeight("bold"); sh.getRange(2, 3, Math.max(1, people.length), head.length - 2).setFontWeight("bold");
-    if (people.length) sh.getRange(2, 1, people.length, 1).setHorizontalAlignment("left").setRichTextValues(people.map((x, i) =>  // the name opens their details
-      [SpreadsheetApp.newRichTextValue().setText(x.full_name || "(no name)").setLinkUrl("#gid=" + gid + "&range=A" + (i + 2)).build()]));
-    sh.setFrozenRows(1); sh.setFrozenColumns(1); sh.setColumnWidth(1, 190); sh.setColumnWidth(3, 170); sh.setColumnWidths(4, head.length - 3, 56);
+    sh.getRange(1, 1, vals.length, head.length).setNumberFormat("@").setValues(vals);
+    style(sh, vals.length, head.length, 1);
+    sh.getRange(1, 1, vals.length, head.length).setBackgrounds(bg).setFontColors(fg).setHorizontalAlignment("center");
+    if (people.length) {
+      const bold = SpreadsheetApp.newTextStyle().setBold(true).setFontFamily(FONT).build();
+      sh.getRange(2, 3, people.length, head.length - 2).setFontWeight("bold");
+      sh.getRange(2, 1, people.length, 1).setHorizontalAlignment("left").setFontWeight("bold").setRichTextValues(people.map((x, i) =>  // the name opens their details
+        [SpreadsheetApp.newRichTextValue().setText(x.full_name || "(no name)").setLinkUrl("#gid=" + gid + "&range=A" + (i + 2)).setTextStyle(bold).build()]));
+    }
+    sh.getRange(1, 1, vals.length, 2).setHorizontalAlignment("left");
+    sh.setColumnWidth(1, 210); sh.setColumnWidth(2, 110); sh.setColumnWidth(3, 190); sh.setColumnWidths(4, head.length - 3, 62);
   }
-  for (const name of ["churches", "services", "service_parts", "service_ticks", "lists", "signins"]) put(name, d[name] || []);
+  // kept for a full restore, but hidden so the sheet stays tidy (to see them: View → Hidden sheets)
+  for (const [name, key] of [["data: churches", "churches"], ["data: services", "services"], ["data: service parts", "service_parts"],
+    ["data: service ticks", "service_ticks"], ["data: pastor lists", "lists"], ["data: sign-ins", "signins"]]) put(name, d[key] || [], 0, true);
   // tabs from before (a church renamed or deleted, or older layouts) go; any tab of your own stays
   const props = PropertiesService.getScriptProperties(), before = JSON.parse(props.getProperty("tabs") || "[]");
   for (const sh of ss.getSheets()) { const n = sh.getName();
-    if (!kept.has(n) && (before.includes(n) || /( – people| – attendance|^members$|^attendance$)/.test(n))) ss.deleteSheet(sh); }
+    if (!kept.has(n) && (before.includes(n) || /( – people| – attendance|^members$|^attendance$|^churches$|^services$|^service_parts$|^service_ticks$|^lists$|^signins$)/.test(n))) ss.deleteSheet(sh); }
   props.setProperty("tabs", JSON.stringify([...kept]));
+  // tabs in order: each church's attendance and details, then the Backup log
+  order.push(log); order.forEach((sh, i) => { ss.setActiveSheet(sh); ss.moveActiveSheet(i + 1); }); if (order[0]) ss.setActiveSheet(order[0]);
   log.appendRow([new Date(), "Done", done.join(" · ")]);
 }`;
 function download(name, rows) {
