@@ -53,6 +53,11 @@ button:disabled, [aria-disabled="true"] {cursor: default;}
              background: linear-gradient(135deg, #17616a, #2aa686);
              display: grid; place-items: center; color: #ffcf00; font-weight: 700;}
 .side h6 {margin: 12px 10px 5px; font-size: 11px; letter-spacing: .08em; color: var(--ink-3); font-weight: 600;}
+.ngrp {border-radius: 18px; margin: 2px 0;} .ngrp.open {background: var(--soft); padding-bottom: 6px;}
+.ngrp-h {width: 100%; box-sizing: border-box;} .ngrp-c {margin-left: auto; display: inline-flex; opacity: .55; transition: transform .2s;} .ngrp-h .count + .ngrp-c {margin-left: 8px;}
+.ngrp-c svg {width: 16px; height: 16px;} .ngrp.open .ngrp-c {transform: rotate(180deg);} .ngrp.open .ngrp-h .count {display: none;} .ngrp.open .ngrp-h .count + .ngrp-c {margin-left: auto;}
+.ngrp-b {display: none; margin: 0 6px 0 23px; padding-left: 8px; border-left: 1.5px solid var(--line);} .ngrp.open .ngrp-b {display: grid; gap: 2px;}
+.shell.mini .ngrp-h {display: none;} .shell.mini .ngrp {background: none; border-radius: 0; border-top: 1px solid var(--line); margin-top: 8px; padding: 6px 0 0;} .shell.mini .ngrp-b {display: grid; margin: 0; padding: 0; border: 0;}
 .nav {display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 14px; color: var(--ink-2);
       font-weight: 500; text-decoration: none; border: 0; background: none; width: 100%; text-align: left;}
 .nav:hover {background: var(--soft); color: var(--ink);}
@@ -287,6 +292,10 @@ textarea.in {width: 100%; resize: vertical; font: inherit;}
 .sheet {width: min(860px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 24px; padding: 22px;
         box-shadow: 0 30px 80px rgba(8, 15, 30, .45);}
 .sheet .card-head h2 {font-size: 20px;}
+/* a long popup scrolls from its top (nothing hidden above the screen), and its title and ✕ stay in view while it scrolls */
+.modal > .sheet {margin: auto;}
+.modal > .sheet > .card-head:first-child {position: sticky; top: -22px; z-index: 3; background: var(--panel); margin: -22px -22px 0; padding: 22px 22px 12px; border-radius: 24px 24px 0 0;}
+@media (max-width: 720px) { .modal > .sheet > .card-head:first-child {top: -18px; margin: -18px -16px 0; padding: 18px 16px 10px;} }
 .modal-grid {display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 16px; align-items: start;}
 /* Wide screens: the preview stays in view while the boxes on the left scroll */
 @media (min-width: 721px) { .modal-grid > .opt:last-child {position: sticky; top: 0;} .modal-grid .preview {max-height: calc(100dvh - 150px);} }
@@ -365,7 +374,7 @@ button.chip {cursor: pointer; font: inherit; font-weight: 500;} button.chip:not(
    without carrying the page along with it */
 @media (min-width: 1081px) { .side {background: none; box-shadow: none; border-radius: 0; padding: 6px 8px; overscroll-behavior: contain; scrollbar-width: thin;} }
 /* phone and tablet: a menu button sits by the thumb at the bottom right; the sidebar slides in from that side */
-.dock, .scrim {display: none;}
+.dock, .scrim, .menu-tg {display: none;}
 @media (max-width: 1080px) {
   .shell {grid-template-columns: 1fr; padding: 12px; gap: 12px;}
   /* a dark bar at the bottom, by the thumb: the four most-used pages and More (which opens the full menu) */
@@ -379,11 +388,18 @@ button.chip {cursor: pointer; font: inherit; font-weight: 500;} button.chip:not(
   .dock span {display: none;}
   .dock button.on {background: var(--accent); color: #fff; padding: 0 18px 0 16px; flex-shrink: 0;} .dock button.on span {display: inline;}
   body {padding-bottom: calc(114px + env(safe-area-inset-bottom));}
-  .side {position: fixed; top: 0; right: 0; bottom: 0; height: auto; width: min(290px, 84vw); border-radius: 24px 0 0 24px;
-         z-index: 20; overflow-y: auto; transform: translateX(105%); visibility: hidden;
+  .side {position: fixed; top: 0; left: 0; bottom: 0; height: auto; width: min(290px, 84vw); border-radius: 0 24px 24px 0;
+         z-index: 20; overflow-y: auto; transform: translateX(-105%); visibility: hidden;  /* opens from the ☰ at the top left */
          transition: transform .2s ease, visibility .2s; padding-top: calc(18px + env(safe-area-inset-top));
          padding-bottom: calc(18px + env(safe-area-inset-bottom));}
   .shell.open .side {transform: none; visibility: visible;}
+  /* the page slides over to the right with the menu, and follows a finger while it's swiped */
+  .shell {overflow-x: clip;} .main, .dock {transition: transform .2s ease;}
+  .shell.open .main, .shell.open .dock {transform: translateX(min(290px, 84vw));}
+  .shell.dragging .side {transform: translateX(calc(var(--pull) - 100%)); visibility: visible; transition: none;}
+  .shell.dragging .main, .shell.dragging .dock {transform: translateX(var(--pull)); transition: none;}
+  .menu-tg {display: grid; place-items: center; width: 40px; height: 40px; margin: 0 2px 0 -6px; border: 0; background: none; color: var(--ink); border-radius: 12px; cursor: pointer; flex: none;}
+  .menu-tg svg {width: 24px; height: 24px; stroke-width: 2.2;} .menu-tg:active {background: var(--soft);}
   .shell.open .scrim {display: block; position: fixed; inset: 0; background: rgba(10, 16, 28, .45); z-index: 19;}
   .tiles {grid-template-columns: repeat(2, minmax(0, 1fr));}
   .grid-2 {grid-template-columns: 1fr;}
@@ -392,6 +408,7 @@ button.chip {cursor: pointer; font: inherit; font-weight: 500;} button.chip:not(
 @media (max-width: 640px) {
   .top {padding: 12px 14px; flex-wrap: wrap;} .search {display: none;} .acct span:last-child, .mode button span {display: none;} .acct {padding: 4px;}
   .chart text {font-size: 12px;}
+  [data-text="normal"] .body {zoom: .93;}  /* phones: a little smaller, so more fits (Settings → Text size makes it bigger) */
   .body {padding: 14px;} .head h1 {font-size: 23px;} .tile .num {font-size: 28px;} .card {padding: 15px;}
   .hide-sm {display: none;}
 }
@@ -447,6 +464,8 @@ input.in:focus, select.in:focus {border-color: var(--accent); box-shadow: 0 0 0 
 .bk-drop {position: relative; display: grid; justify-items: center; gap: 8px; text-align: center; padding: 18px 16px; border: 2px dashed var(--line); border-radius: 16px; background: var(--soft); cursor: pointer;}
 .bk-drop.over, .bk-drop:hover {border-color: var(--accent); background: var(--accent-soft);} .bk-drop input {position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%;}
 .bk-drop:focus-within {outline: 2px solid var(--accent); outline-offset: 2px;}
+.or-sum {font-size: 14px; line-height: 1.5; margin: 2px 2px 10px;} .or-sum small {color: var(--ink-3);} .bad-t {color: var(--red); font-weight: 600;}
+.or-scroll {max-height: min(52vh, 520px); overflow: auto;} .or-check td {background: color-mix(in srgb, var(--amber, #e37400) 9%, transparent);} .or-scroll select {min-width: 200px;}
 .bk-drop-btn {display: inline-flex; align-items: center; gap: 10px; background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 16px; padding: 13px 24px; border-radius: 999px; max-width: 100%;}
 .bk-drop {grid-template-columns: minmax(0, 1fr);} .bk-drop-btn {justify-self: center; min-width: 0; max-width: 100%; box-sizing: border-box;} .bk-drop-btn span {overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;} .bk-name {display: grid;} .bk-name small {color: var(--ink-3); font-size: 12px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;} .bk-drop-btn svg {width: 20px; height: 20px; flex: none;} .bk-drop small {color: var(--ink-2); font-size: 12.5px; max-width: 380px;}
 .bk-or {display: flex; align-items: center; gap: 10px; color: var(--ink-3); font-size: 12.5px;} .bk-or::before, .bk-or::after {content: ""; flex: 1; border-top: 1px solid var(--line);}

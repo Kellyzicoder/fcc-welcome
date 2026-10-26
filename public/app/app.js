@@ -4,6 +4,13 @@
 
 const RED_AT = 5, YELLOW_AT = 3, ARCHIVE_DAYS = 730;
 const AWAY = new Set(["inactive", "moved", "left", "deceased", "transferred", "away"]);
+const GONE = new Set(["moved", "left", "deceased", "transferred"]);
+// Statuses and what each does, per church (Settings → Statuses): "in" stays on Check-in and Follow-up (a tick makes them Active);
+// "out" is off those lists but found by searching Check-in (a tick brings them back); "gone" is off for good (Congregation only)
+const STATUS0 = {Away: "in", Inactive: "in", Moved: "in", Left: "out", Transferred: "out", Deceased: "gone"};
+const statusRules = (ch = S.church) => ({...STATUS0, ...(S.statusRules?.[ch] || {})});
+const ruleOf = m => { const st = String(m.status || "").trim(); if (!st) return "in";
+  const r = statusRules(churchOf(m)), k = Object.keys(r).find(x => norm(x) === norm(st)); return k ? r[k] : "in"; };
 const ROLE = {admin: "Admin", bishop: "Bishop", lead: "Church admin", team: "Team", pastor: "Pastor"};
 const ROLE_OPTS = [["team", "Team (ushers)"], ["pastor", "Pastor (only their own people)"], ["reverend", "Reverend (like a Pastor: only their own people)"], ["shepherd", "Shepherd (like a Pastor: only the people assigned to them)"],
   ["lead", "Church admin (whole church, follow-up)"],
@@ -86,7 +93,8 @@ function toast(text) {
   const t = Object.assign(document.createElement("div"), {className: "toast", textContent: text});
   document.body.append(t); setTimeout(() => t.remove(), 3500);
 }
-const BACKUP_SCRIPT = String.raw`// FCC Attendance: copies everything into this Google Sheet every night. Run setup once (the Run button with setup picked).
+const BACKUP_SCRIPT = String.raw`/** @OnlyCurrentDoc */
+// FCC Attendance: copies everything into this Google Sheet every night. Run setup once (the Run button with setup picked).
 const URL_ = "__URL__", PUBLIC_KEY = "__PUBLIC__", BACKUP_KEY = "__KEY__";
 function setup() {
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
@@ -96,57 +104,105 @@ function setup() {
 function backup() {
   const r = UrlFetchApp.fetch(URL_ + "/rest/v1/rpc/app_backup", {method: "post", contentType: "application/json", muteHttpExceptions: true,
     headers: {apikey: PUBLIC_KEY, Authorization: "Bearer " + PUBLIC_KEY}, payload: JSON.stringify({backup_key: BACKUP_KEY})});
-  const ss = SpreadsheetApp.getActive(), log = ss.getSheetByName("Backup log") || ss.insertSheet("Backup log", 0);
+  const ss = SpreadsheetApp.getActive(), log = ss.getSheetByName("Backup log") || ss.insertSheet("Backup log");
   if (r.getResponseCode() !== 200) { log.appendRow([new Date(), "Failed", r.getContentText().slice(0, 300)]); throw new Error("Backup failed: " + r.getContentText()); }
-  const d = JSON.parse(r.getContentText()), home = d.home || "Home church", done = [], kept = new Set(["Backup log"]);
-  const put = (name, rows, freezeCols) => {  // one tab: a heading row, then a row each (as text, so phone numbers keep their 0)
-    const cols = [...new Set(rows.flatMap(x => Object.keys(x)))], sh = ss.getSheetByName(name) || ss.insertSheet(name);
-    sh.clear(); kept.add(name); done.push(name + " " + rows.length);
-    if (!cols.length) return;
-    const vals = [cols, ...rows.map(x => cols.map(c => x[c] == null ? "" : typeof x[c] === "object" ? JSON.stringify(x[c]) : String(x[c])))];
-    sh.getRange(1, 1, vals.length, cols.length).setNumberFormat("@").setValues(vals); sh.setFrozenRows(1); if (freezeCols) sh.setFrozenColumns(freezeCols);
-  };
-  // each church gets two tabs: "– details" (a row per person) and "– attendance" (how often each person comes, in colour)
-  const churchOf = x => String(x.church || "").trim() || home, MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const GREEN = "#188038", AMBER = "#e37400", RED = "#c5221f", GREY = "#9aa0a6", HEAD = "#e8eaed";
-  const rate = (a, h) => !h ? GREY : a / h >= .75 ? GREEN : a / h >= .5 ? AMBER : RED;  // 3 or 4 of 4 Sundays green, 2 amber, 0 or 1 red
-  const tz = Session.getScriptTimeZone(), today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd"), yr = today.slice(0, 4), mo = +today.slice(5, 7);
-  const nice = s => s ? +s.slice(8, 10) + " " + MON[+s.slice(5, 7) - 1] + (s.slice(0, 4) === yr ? "" : " " + s.slice(0, 4)) : "";
-  const sundays = []; for (let day = 1; day <= 31; day++) { const t = new Date(Date.UTC(+yr, mo - 1, day)); if (t.getUTCMonth() === mo - 1 && t.getUTCDay() === 0) sundays.push(t.toISOString().slice(0, 10)); }
-  const DETAILS = [["full_name", "Name"], ["phone", "Phone"], ["email", "Email"], ["type", "Type"], ["status", "Status"], ["age_group", "Age group"], ["gender", "Gender"],
-    ["pastor", "Pastor"], ["shepherd", "Shepherd"], ["role", "Team / role"], ["group_name", "Group"], ["address", "Address"], ["date_joined", "Joined"], ["first_visit", "First visit"]];
+  const d = JSON.parse(r.getContentText()), home = d.home || "Home church", done = [], kept = new Set(["Backup log"]), order = [], churchTabs = [];
+  // the look: a soft blue-grey heading in small capitals, roomy rows, thin lines between them
+  const FONT = "Inter", HEAD_BG = "#e8edf3", HEAD_INK = "#5b6675", INK = "#1f2933", LINE = "#e2e7ee", WHITE = "#ffffff", SECTION = "#d6e4f5";
+  const CAME = "#188038", MISSED = "#c5221f", MIDWEEK = "#e37400", NONE = "#c4c9d0";  // came; missed; came midweek but not on Sunday; no service that Sunday
+  const SOLID = SpreadsheetApp.BorderStyle.SOLID;
+  const tab = name => { const sh = ss.getSheetByName(name) || ss.insertSheet(name); sh.clear(); sh.clearConditionalFormatRules(); kept.add(name);
+    sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).breakApart(); return sh; };
+  const text = rows => rows.map(r => r.map(v => v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v)));
+  const tz = Session.getScriptTimeZone(), today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd"), yr = +today.slice(0, 4);
+  const MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const day = (s, k) => new Date(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10) + k)).toISOString().slice(0, 10);
+  const sundays = []; for (let t = new Date(Date.UTC(yr, 0, 1)); t.getUTCFullYear() === yr; t = new Date(t.getTime() + 864e5)) if (t.getUTCDay() === 0) sundays.push(t.toISOString().slice(0, 10));
+  const nice = s => s ? +s.slice(8, 10) + " " + MON[+s.slice(5, 7) - 1].charAt(0) + MON[+s.slice(5, 7) - 1].slice(1).toLowerCase() + (+s.slice(0, 4) === yr ? "" : " " + s.slice(0, 4)) : "";
+  const churchOf = x => String(x.church || "").trim() || home;
   const came = {}; for (const t of d.attendance || []) (came[t.member_id] = came[t.member_id] || new Set()).add(t.service_date);
+  // each person's group on the tab, in this order. Here & Now: members who don't come around much (worked out each night, below)
+  const GROUPS = [["Members", (x, hn) => !x.status && x.type !== "first_timer" && x.type !== "visitor" && !/child/i.test(x.age_group || "") && !hn],
+    ["Here & Now", (x, hn) => !x.status && x.type !== "first_timer" && x.type !== "visitor" && !/child/i.test(x.age_group || "") && hn],
+    ["Children", x => !x.status && /child/i.test(x.age_group || "")], ["First-timers", x => !x.status && x.type === "first_timer"],
+    ["Visitors", x => !x.status && x.type === "visitor"], ["Away, moved or left", x => !!x.status]];
+  // one tab per church: a title and key, then each group (numbered), every Sunday of the year in colour, and the totals
   for (const c of [...new Set([home, ...(d.churches || []).map(x => x.name)])]) {
     const people = (d.members || []).filter(x => churchOf(x) === c).sort((a, b) => String(a.full_name).localeCompare(String(b.full_name))), ids = new Set(people.map(x => x.id));
     const held = new Set((d.attendance || []).filter(t => ids.has(t.member_id) && t.service_date <= today).map(t => t.service_date));  // days this church had a service
-    const yearDays = [...held].filter(x => x.startsWith(yr)).sort(), inMonth = m => yearDays.filter(x => +x.slice(5, 7) === m);
-    // details
-    const extra = [...new Set(people.flatMap(x => Object.keys(x)))].filter(k => !DETAILS.some(([f]) => f === k) && k !== "church");  // id and the rest, kept for a restore
-    put(c + " – details", people.map(x => Object.assign(Object.fromEntries(DETAILS.map(([f, label]) => [label, x[f]])), Object.fromEntries(extra.map(k => [k, x[k]])))), 1);
-    const gid = ss.getSheetByName(c + " – details").getSheetId();
-    // attendance
-    const name = c + " – attendance", sh = ss.getSheetByName(name) || ss.insertSheet(name); sh.clear(); kept.add(name); done.push(name + " " + people.length);
-    const head = ["Name", "Last came", "This year", ...MON, ...sundays.map(x => nice(x))], vals = [head], bg = [head.map(() => HEAD)], fg = [head.map(() => "#202124")];
-    for (const x of people) {
-      const mine = came[x.id] || new Set(), last = [...mine].filter(t => t <= today).sort().pop(), a = yearDays.filter(t => mine.has(t)).length;
-      const row = [x.full_name || "(no name)", nice(last), yearDays.length ? a + " of " + yearDays.length + " · missed " + (yearDays.length - a) : ""], b = ["#ffffff", "#ffffff", yearDays.length ? rate(a, yearDays.length) : "#ffffff"];
-      for (let m = 1; m <= 12; m++) { const h = inMonth(m), n = h.filter(t => mine.has(t)).length; row.push(m > mo ? "" : h.length ? n + "/" + h.length : "–"); b.push(m > mo ? "#ffffff" : rate(n, h.length)); }
-      for (const s of sundays) { row.push(""); b.push(s > today || !held.has(s) ? GREY : mine.has(s) ? GREEN : RED); }  // this month: colour only
-      vals.push(row); bg.push(b); fg.push(b.map(colour => colour === "#ffffff" ? "#202124" : "#ffffff"));
+    const past = sundays.filter(s => s <= today && held.has(s));  // Sundays so far this year with a service
+    // before someone joined (or, for a first-timer or visitor, first came), their Sundays stay blank and aren't counted as missed
+    const startOf = x => [x.first_visit, x.date_joined, ...(x.type === "first_timer" || x.type === "visitor" ? [...(came[x.id] || [])] : [])].filter(Boolean).sort()[0] || "";
+    const status = (x, s) => { const mine = came[x.id] || new Set(), start = startOf(x);
+      if (s > today || (start && s < start)) return WHITE; if (mine.has(s)) return CAME;
+      for (let k = -6; k < 0; k++) if (mine.has(day(s, k))) return MIDWEEK;  // came to a service that week, just not on the Sunday
+      return held.has(s) ? MISSED : NONE; };
+    // Here & Now: came (on the Sunday or midweek) to fewer than 1 in 4 of the Sundays held in the last 3 months (counted from when they joined)
+    const recent = [...held].filter(s => new Date(s + "T00:00:00Z").getUTCDay() === 0 && s > day(today, -91));
+    const hereNow = x => { const ss2 = recent.map(s => status(x, s)).filter(k => k !== WHITE && k !== NONE);
+      return ss2.length >= 4 && ss2.filter(k => k === CAME || k === MIDWEEK).length / ss2.length < .25; };
+    const FIXED = ["#", "NAME", "PHONE", "PASTOR", "LAST CAME", "MISSED THIS YEAR", "NOTE"], n = FIXED.length, cols = n + sundays.length;
+    const sh = tab(c); order.push(sh); churchTabs.push(c); done.push(c + " " + people.length);
+    const blank = () => Array(cols).fill(""), vals = [], bg = [], kinds = [];
+    const add = (row, colours, kind) => { vals.push(row); bg.push(colours || Array(cols).fill(WHITE)); kinds.push(kind); };
+    // title and key
+    add(Object.assign(blank(), {0: "SUNDAY ATTENDANCE '" + String(yr).slice(2) + " · " + c.toUpperCase()}), null, "title");
+    const key = Object.assign(blank(), {1: "Came", 2: "Missed", 3: "Came midweek, not Sunday", 4: "No service"}), keyBg = Array(cols).fill(WHITE);
+    keyBg[1] = CAME; keyBg[2] = MISSED; keyBg[3] = MIDWEEK; keyBg[4] = NONE; add(key, keyBg, "key"); add(blank(), null, "gap");
+    // two heading rows: the month over its Sundays, then the day of the month
+    const months = [...FIXED, ...Array(sundays.length).fill("")], days = [...FIXED.map(() => ""), ...sundays.map(s => String(+s.slice(8, 10)))];
+    sundays.forEach((s, i) => { if (!i || s.slice(5, 7) !== sundays[i - 1].slice(5, 7)) months[n + i] = MON[+s.slice(5, 7) - 1]; });
+    const headAt = vals.length + 1; add(months, Array(cols).fill(HEAD_BG), "head"); add(days, Array(cols).fill(HEAD_BG), "head");
+    const totals = sundays.map(() => [0, 0]);
+    for (const [label, test] of GROUPS) {
+      const list = people.filter(x => test(x, hereNow(x))); if (!list.length) continue;
+      add(Object.assign(blank(), {0: label.toUpperCase() + " · " + list.length}), Array(cols).fill(SECTION), "section");
+      list.forEach((x, i) => {
+        const mine = came[x.id] || new Set(), last = [...mine].filter(t => t <= today).sort().pop(), colours = sundays.map(s => status(x, s));
+        const missed = colours.filter(k => k === MISSED).length, counted = colours.filter((k, j) => k !== WHITE && k !== NONE && held.has(sundays[j])).length;
+        colours.forEach((k, j) => { if (k === CAME) totals[j][0]++; else if (k === MISSED || k === MIDWEEK) totals[j][1]++; });
+        add([String(i + 1), x.full_name || "(no name)", x.phone, x.pastor, nice(last), counted ? missed + " of " + counted : "", x.status || (x.type === "first_timer" && x.first_visit ? "First came " + nice(x.first_visit) : ""),
+          ...sundays.map(() => "")], [...Array(n).fill(WHITE), ...colours], "person");
+      });
     }
-    const all = sh.getRange(1, 1, vals.length, head.length);
-    all.setNumberFormat("@").setValues(vals).setBackgrounds(bg).setFontColors(fg).setHorizontalAlignment("center");
-    sh.getRange(1, 1, 1, head.length).setFontWeight("bold"); sh.getRange(2, 3, Math.max(1, people.length), head.length - 2).setFontWeight("bold");
-    if (people.length) sh.getRange(2, 1, people.length, 1).setHorizontalAlignment("left").setRichTextValues(people.map((x, i) =>  // the name opens their details
-      [SpreadsheetApp.newRichTextValue().setText(x.full_name || "(no name)").setLinkUrl("#gid=" + gid + "&range=A" + (i + 2)).build()]));
-    sh.setFrozenRows(1); sh.setFrozenColumns(1); sh.setColumnWidth(1, 190); sh.setColumnWidth(3, 170); sh.setColumnWidths(4, head.length - 3, 56);
+    add(blank(), null, "gap");
+    add(Object.assign([...FIXED.map(() => ""), ...totals.map((t, j) => sundays[j] <= today && held.has(sundays[j]) ? String(t[0]) : "")], {1: "PRESENT"}), null, "total");
+    add(Object.assign([...FIXED.map(() => ""), ...totals.map((t, j) => sundays[j] <= today && held.has(sundays[j]) ? String(t[1]) : "")], {1: "ABSENT"}), null, "total");
+    // write it all, then the styling
+    const all = sh.getRange(1, 1, vals.length, cols);
+    all.setNumberFormat("@").setValues(text(vals)).setBackgrounds(bg).setFontFamily(FONT).setFontSize(10).setFontColor(INK).setVerticalAlignment("middle").setWrap(false);
+    const rowsOf = k => kinds.map((x, i) => x === k ? i + 1 : 0).filter(Boolean);
+    for (const i of rowsOf("person")) sh.getRange(i, 1, 1, cols).setBorder(null, null, true, null, null, null, LINE, SOLID);
+    for (const i of rowsOf("person")) sh.getRange(i, n + 1, 1, sundays.length).setBorder(true, true, true, true, true, false, WHITE, SOLID);  // white gaps between the squares
+    sh.getRange(1, 1, 1, cols).setFontSize(15).setFontWeight("bold");
+    sh.getRange(2, 2, 1, 4).setFontColor(WHITE).setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center");
+    sh.getRange(headAt, 1, 2, cols).setFontColor(HEAD_INK).setFontWeight("bold").setFontSize(9);
+    sh.getRange(headAt + 1, 1, 1, cols).setBorder(null, null, true, null, null, null, "#cfd6df", SOLID);
+    for (let i = 0; i < sundays.length; i++) if (months[n + i]) { let k = 1; while (n + i + k < cols && !months[n + i + k]) k++; sh.getRange(headAt, n + i + 1, 1, k).merge(); }
+    for (let j = 1; j <= n; j++) sh.getRange(headAt, j, 2, 1).merge();
+    sh.getRange(headAt, n + 1, 2, sundays.length).setHorizontalAlignment("center");
+    for (const i of rowsOf("section")) sh.getRange(i, 1, 1, cols).setFontWeight("bold").setFontSize(9).setFontColor("#1f4f8a");
+    for (const i of rowsOf("person")) { sh.getRange(i, 2).setFontWeight("bold"); sh.getRange(i, 1).setFontColor(HEAD_INK).setHorizontalAlignment("right"); sh.getRange(i, 6).setHorizontalAlignment("center"); }
+    for (const i of rowsOf("total")) sh.getRange(i, 1, 1, cols).setFontWeight("bold").setHorizontalAlignment("center").setBackground(HEAD_BG);
+    sh.setRowHeights(1, vals.length, 30); sh.setRowHeight(1, 40); sh.setRowHeights(headAt, 2, 22);
+    sh.setFrozenRows(headAt + 1); sh.setFrozenColumns(2); sh.setHiddenGridlines(true);
+    [34, 200, 120, 190, 100, 130, 150].forEach((w, j) => sh.setColumnWidth(j + 1, w));
+    sh.setColumnWidths(n + 1, sundays.length, 30);
   }
-  for (const name of ["churches", "services", "service_parts", "service_ticks", "lists", "signins"]) put(name, d[name] || []);
-  // tabs from before (a church renamed or deleted, or older layouts) go; any tab of your own stays
-  const props = PropertiesService.getScriptProperties(), before = JSON.parse(props.getProperty("tabs") || "[]");
-  for (const sh of ss.getSheets()) { const n = sh.getName();
-    if (!kept.has(n) && (before.includes(n) || /( – people| – attendance|^members$|^attendance$)/.test(n))) ss.deleteSheet(sh); }
-  props.setProperty("tabs", JSON.stringify([...kept]));
+  // everything else, kept for a full restore but hidden so the sheet stays tidy (to see them: View → Hidden sheets)
+  const raw = (name, list) => { const sh = tab(name), keys = [...new Set((list || []).flatMap(x => Object.keys(x)))]; sh.hideSheet(); done.push(name + " " + (list || []).length);
+    if (keys.length) sh.getRange(1, 1, list.length + 1, keys.length).setNumberFormat("@").setValues(text([keys, ...list.map(x => keys.map(k => x[k]))])); };
+  for (const [name, key] of [["data: people", "members"], ["data: attendance", "attendance"], ["data: churches", "churches"], ["data: services", "services"],
+    ["data: service parts", "service_parts"], ["data: service ticks", "service_ticks"], ["data: pastor lists", "lists"], ["data: sign-ins", "signins"]]) raw(name, d[key]);
+  // A church that's gone (deleted or renamed in the app) keeps its last copy: renamed "… (removed date)", moved to the end, never deleted.
+  // Older layouts' tabs go. Any tab of your own stays.
+  const props = PropertiesService.getScriptProperties(), before = JSON.parse(props.getProperty("churchTabs") || "[]");
+  for (const sh of ss.getSheets()) { const nm = sh.getName(); if (kept.has(nm)) continue;
+    if (before.includes(nm)) { sh.setName(nm + " (removed " + nice(today) + " " + yr + ")"); sh.setTabColor("#9aa0a6"); }
+    else if (/( – people| – attendance| – details|^members$|^attendance$|^churches$|^services$|^service_parts$|^service_ticks$|^lists$|^signins$)/.test(nm)) ss.deleteSheet(sh); }
+  props.setProperty("churchTabs", JSON.stringify(churchTabs));
+  // tabs in order: the churches, then the Backup log (removed churches and your own tabs after)
+  order.push(log); order.forEach((sh, i) => { ss.setActiveSheet(sh); ss.moveActiveSheet(i + 1); }); if (order[0]) ss.setActiveSheet(order[0]);
   log.appendRow([new Date(), "Done", done.join(" · ")]);
 }`;
 function download(name, rows) {
@@ -354,11 +410,11 @@ function waDialog(title, build, opts = {}) {
     <div class="modal-grid"><div class="opts">
         ${acc("Service", `${opts.day ? `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-day">Service date</label></b><small>The service this summary is for</small></div><input class="in wa-pill" id="m-day" type="date" value="${opts.day}" max="${today()}"></div>` : ""}`)}
         ${opts.fields ? acc("Service details", `<div class="wa-sec"><b>Service details</b></div>${opts.fields.some(f => f[0] === "yt") && ["admin", "lead"].includes(S.me.role)
-          ? `<div class="live-fill" role="note">${svg("live")}<span><b>Livestream figures will be populated automatically.</b> Set the service start and end times below, and adjust any values manually if needed.</span></div>` : ""}<div id="m-fields"></div>${opts.plat ? `<div class="plat-row" id="m-plat"></div>` : ""}`) : ""}
+          ? `<div class="live-fill" role="note">${svg("live")}<span><b>Livestream numbers fill in by themselves.</b> Set the start and end times below.</span></div>` : ""}<div id="m-fields"></div>${opts.plat ? `<div class="plat-row" id="m-plat"></div>` : ""}`) : ""}
         ${incl.length ? acc("Include in the message", `<div class="opt wa-inc"><div class="wa-txt"><b>Include in the message</b><small>Tap to add or leave out. ${esc(incl.map(c => c[3]).join(" "))}</small></div>
           <div class="wa-chips">${incl.map(([id, t, on]) => `<label class="wa-chip"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>${svg("tick")}${t}</span></label>`).join("")}</div></div>`) : ""}
         ${opts.link ? acc("Livestream link", `<div class="opt wa-row"><div class="wa-txt"><b><label for="m-link">Livestream link</label></b><small>Optional. It goes at the end of the message</small></div><input class="in" id="m-link" type="url" inputmode="url" placeholder="https://…"></div>`, false) : ""}
-        ${opts.fields ? `<div class="draft-line"><span id="m-draft"></span><button type="button" class="link-btn" data-clear hidden>Start again</button></div>` : ""}
+        ${opts.fields ? `<div class="draft-line"><span id="m-draft"></span><button type="button" class="pill-btn sm" data-clear hidden>Start again</button></div>` : ""}
       </div>
       ${opts.into ? `<aside class="wa-side" aria-label="Preview">  <!-- the message as a document on the side, updating as the boxes are filled in -->
         <div class="wa-prev-head"><b>Preview</b><div class="pv-seg" role="group" aria-label="How the preview looks"><button type="button" data-pv="nice" aria-pressed="${S.pvRaw ? "false" : "true"}">Formatted</button><button type="button" data-pv="raw" aria-pressed="${S.pvRaw ? "true" : "false"}">Plain text</button></div></div>
@@ -409,7 +465,7 @@ function waDialog(title, build, opts = {}) {
     const on = liveList.find(x => at >= x.start - 30 * 6e4 && at <= (x.end || x.start)); if (on) return on;  // running then (or about to start)
     const x = [...liveList].sort((a, b) => Math.abs(a.start - at) - Math.abs(b.start - at))[0];
     return Math.abs(x.start - at) <= 2 * 3600e3 ? x : null; };
-  const liveUnder = j => { const x = liveAt(st[`time_${j + 1}`], st[`end_${j + 1}`]) || liveList[j]; return x ? `<small class="wide svc-live">${svg("live")}Livestream ${hm(x.start)}: YouTube ${x.youtube} · Facebook ${x.facebook} · Zoom ${x.zoom} (${Math.max(0, x.zoom - 2)} without the host and co-host)</small>` : ""; };
+  const liveUnder = j => { const x = liveAt(st[`time_${j + 1}`], st[`end_${j + 1}`]) || liveList[j]; return x ? `<small class="wide svc-live">${svg("live")}Livestream ${hm(x.start)}: YouTube ${x.youtube} · Facebook ${x.facebook} · Zoom ${x.zoom} (${Math.max(0, x.zoom - 2)} without hosts)</small>` : ""; };
   // When a service's start time is picked: offer that time's livestream peaks for its boxes
   // When a service's times are picked: offer the highest on each platform between those times (the livestream's own peaks
   // if the live dashboard can't give them for part of a stream), Zoom 2 less for the host and co-host
@@ -418,8 +474,8 @@ function waDialog(title, build, opts = {}) {
     const box = d.querySelector(`[data-ask="${n}"]`), t = st[`time_${n}`], e = st[`end_${n}`]; if (!box || !t || !liveOk()) return;
     const x = liveAt(t, e), sfx = st.multi ? "_" + n : "", when = e ? `${clock(t)} to ${clock(e)}` : clock(t), mine = ++askTurn;
     box.hidden = false;
-    if (!x) { box.innerHTML = liveList.length ? `<span>No livestream ${e ? "during" : "near"} ${when}. The day's livestreams started at ${liveList.map(y => hm(y.start)).join(", ")}.</span><button type="button" class="link-btn" data-no>OK</button>`
-        : `<span>No livestream numbers for this day.</span><button type="button" class="link-btn" data-no>OK</button>`;
+    if (!x) { box.innerHTML = liveList.length ? `<span>No livestream ${e ? "during" : "near"} ${when}. Livestreams started at ${liveList.map(y => hm(y.start)).join(", ")}.</span><button type="button" class="pill-btn sm" data-no>OK</button>`
+        : `<span>No livestream numbers for this day.</span><button type="button" class="pill-btn sm" data-no>OK</button>`;
       box.querySelector("[data-no]").onclick = () => { box.hidden = true; }; return; }
     const ms = v => { const [h, m] = v.split(":").map(Number); return new Date(st.day + "T00:00:00").setHours(h, m); };
     const from = ms(t), to = e && ms(e) > from ? ms(e) : (x.end || x.start + 36e5);
@@ -513,15 +569,15 @@ function waDialog(title, build, opts = {}) {
         else put(nums(list.length === 1 ? list[0] : [...list].sort((a, b) => (b.youtube + b.facebook + b.zoom) - (a.youtube + a.facebook + a.zoom))[0]), ""); keepDraft(); draw(); };
       if (opts.into) return;  // the Summary page offers each service's livestream under its times instead of this note
       const box = document.createElement("div"); box.className = "live-note";
-      const zoomNote = `<small>Zoom counts the host and co-host as viewers, so 2 are taken off what Zoom showed. Split adults and children yourself. Morning prayers (5 to 6 am) aren't counted. Pick a service's start time to fill in the livestream from that time.</small>`;
+      const zoomNote = `<small>Zoom: 2 taken off for hosts. Split adults and children yourself. 5–6 am prayers aren't counted.</small>`;
       if (!st.multi && list.length > 1) {  // the livestream saw more than one service, but the boxes are for one: ask
         box.innerHTML = `<b>${svg("live")}The livestream had ${list.length} services today</b>${list.map(x => `<span>${hm(x.start)}: ${line(x)}</span>`).join("")}
-          ${zoomNote}<button type="button" class="link-btn" data-multi-on>Yes, fill in each service</button>`;
+          ${zoomNote}<button type="button" class="pill-btn sm" data-multi-on>Yes, fill in each service</button>`;
         box.querySelector("[data-multi-on]").onclick = () => { st.multi = true; st.count = Math.min(3, Math.max(2, list.length)); const m = d.querySelector("#m-multi"); if (m) m.checked = true;
-          drawFields(); fill(); liveNote(); toast("Each service has its own boxes now, filled in from the livestream. Check them before sending."); };
+          drawFields(); fill(); liveNote(); toast("Each service now has its own boxes. Check them before sending."); };
       } else {
         box.innerHTML = `<b>${svg("live")}Livestream peaks</b>${st.multi ? `<span>Each service's peaks are under its own boxes.</span>` : list.slice(0, 1).map(x => `<span>${hm(x.start)} service: ${line(x)}</span>`).join("")}
-          ${zoomNote}<button type="button" class="link-btn" data-fill>Fill in the empty boxes</button>`;
+          ${zoomNote}<button type="button" class="pill-btn sm" data-fill>Fill in the empty boxes</button>`;
         box.querySelector("[data-fill]").onclick = () => { fill(); toast("Filled in from the livestream. Check them before sending."); };
         if (look().liveFill) { fill(); box.querySelector("[data-fill]").textContent = "Filled in for you"; }
       }
@@ -768,7 +824,7 @@ function offerPassword() {
   const d = document.createElement("div"); d.className = "modal";
   d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="Sign in faster next time">
     <div class="card-head"><h2>Sign in faster next time?</h2></div>
-    <p class="note" style="margin-top:0">Set a password and next time just type your email and password. No waiting for an email.</p>
+    <p class="note" style="margin-top:0">Set a password to sign in without waiting for an email.</p>
     <input type="email" autocomplete="username" value="${esc(S.me.email)}" readonly hidden>
     <div class="fields"><div><label class="f" for="op1">New password</label><input class="in" id="op1" type="password" autocomplete="new-password" maxlength="72" required></div>
       <div><label class="f" for="op2">Type it again</label><input class="in" id="op2" type="password" autocomplete="new-password" maxlength="72" required></div></div>
@@ -804,7 +860,7 @@ async function start() {
   try { S.me = await api("rpc/app_me", {method: "POST", body: {}}); } catch (e) { return S.session ? fatal(e.message) : null; }
   if (!S.me?.role) {
     root.innerHTML = `<div class="center"><div class="login"><h1>Not set up yet</h1>
-      <p>${esc(S.me?.email || "This email")} isn't on the list of people who can use the app. Ask your church admin to add it, then sign in again.</p>
+      <p>${esc(S.me?.email || "This email")} can't use the app yet. Ask your church admin to add it.</p>
       <button class="pill-btn block" id="out">Sign out</button></div></div>`;
     root.querySelector("#out").onclick = signOut; return;
   }
@@ -829,7 +885,7 @@ async function start() {
     S.church = S.me.role === "admin" ? (S.churches.includes(S.church) ? S.church : S.me.home) : S.me.church || S.me.home;
     if (S.me.role === "pastor" && S.me.base === "admin" && !S.preview) S.church = await pastorChurch();
     await load();
-    S.pending = canApprove() ? await api("registrations?select=id&status=eq.pending").then(r => r.length).catch(() => 0) : 0;
+    S.pending = canApprove() ? await api("registrations?select=created_at&status=eq.pending").then(newSignups).catch(() => 0) : 0;
   }
   render();
   let seen = true; try { seen = !!localStorage.getItem("fcc-tour:" + S.me.email); } catch {}
@@ -841,7 +897,7 @@ async function start() {
 function tour() {
   const r = S.me.role, phone = matchMedia("(max-width: 1080px)").matches, Q = q => document.querySelector(q);
   // the menu item for a page: in the side menu on laptops; on phones the bottom bar, or More when it isn't there
-  const nav = v => () => phone ? Q(`.dock [data-view="${v}"]`) || Q(".dock [data-menu]") : Q(`.side .nav[data-view="${v}"]`);
+  const nav = v => () => phone ? Q(`.dock [data-view="${v}"]`) || Q(".top [data-menu]") : Q(`.side .nav[data-view="${v}"]`);
   const more = v => phone && !Q(`.dock [data-view="${v}"]`) ? " Tap More to find it." : "";
   const steps = [[null, "dashboard", 1, "Welcome to FCC Attendance", `Here's a quick look at where things are. It takes under a minute, and you can see it again any time from Help.`],
     ...(r === "bishop" ? [[nav("overview"), "overview", 1, "All churches", "Every church's numbers in one place. Tap a church for its own dashboard, or a day in the calendar to look back."],
@@ -944,6 +1000,7 @@ async function load() {
     all(`service_parts?select=service_date,part,name&church=eq.${encodeURIComponent(S.church)}&service_date=gte.${since}&order=service_date,part`).catch(() => null),
     all(`service_ticks?select=service_date,part,member_id&service_date=gte.${since}`).catch(() => [])]);
   S.pastorList = Object.fromEntries(lists.map(r => [r.key.slice(8), (r.value || "").split("\n").map(x => x.trim()).filter(Boolean)]));
+  S.statusRules = await api("rpc/app_status_rules", {method: "POST", body: {}}).catch(() => S.statusRules || {});  // Settings → Statuses, per church
   S.shepherdList = await api("settings?select=key,value&key=like.shepherds:*")
     .then(r => Object.fromEntries(r.map(x => [x.key.slice(10), (x.value || "").split("\n").map(y => y.trim()).filter(Boolean)]))).catch(() => ({}));
   S.seen = seen && Object.fromEntries(seen.map(r => [r.member_id, r.last_seen]));
@@ -966,7 +1023,7 @@ async function freshen() {
     all(`services?select=service_date,name&service_date=gte.${since}`),
     all(`service_parts?select=service_date,part,name&church=eq.${encodeURIComponent(S.church)}&service_date=gte.${since}&order=service_date,part`).catch(() => null),
     all(`service_ticks?select=service_date,part,member_id&service_date=gte.${since}`).catch(() => null),
-    canApprove() ? api("registrations?select=id&status=eq.pending").then(r => r.length).catch(() => S.pending) : 0,
+    canApprove() ? api("registrations?select=created_at&status=eq.pending").then(newSignups).catch(() => S.pending) : 0,
     canTeam() ? api("team_requests?select=id&status=eq.pending").then(r => r.length).catch(() => 0) : 0]);  // all at once, not one after another
   const sig = JSON.stringify([members, ticks, services, parts, pticks, pending, teamPending]), changed = sig !== S.freshSig; S.freshSig = sig;
   S.members = S.me.role === "pastor" && S.me.base !== "pastor" ? members.filter(m => careOf(m).some(n => norm(n) === norm(S.me.pastor))) : members;
@@ -996,7 +1053,7 @@ function picture(upTo = today()) {  // everything the pages show, as things stoo
   const dates = Object.keys(byDate).sort(), cutoff = new Date(Date.now() - ARCHIVE_DAYS * 864e5).toISOString().slice(0, 10);
   const people = [], archived = [];
   for (const m of mine) {
-    if (AWAY.has(norm(m.status))) continue;
+    if (ruleOf(m) !== "in") continue;  // only statuses set to stay on the lists are in Follow-up (Settings → Statuses)
     const start = [m.date_joined, m.first_visit].filter(Boolean).sort()[0] || "0000";
     let missed = 0, seen = null;
     // only Sunday services count as missed; coming to any service (midweek too) counts as being seen
@@ -1075,6 +1132,15 @@ const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 // letters of a one-word name ("Auckland" -> AUC)
 const churchAbbr = c => { const w = String(c || "").trim().split(/\s+/).filter(Boolean);
   return (w.length > 1 ? w.slice(0, 3).map(x => x[0]) .join("") : (w[0] || "").slice(0, 3)).toUpperCase(); };
+// The menu's groups open and close like dropdowns; the one with the page you're on is open. A group of one is just its page.
+const GICON = {ATTENDANCE: "checkin", PEOPLE: "people", SHARE: "reports", CHURCHES: "overview", ADMIN: "admin", RECORDS: "activity"};
+function menuOpen() { try { return JSON.parse(localStorage.getItem("fcc-menu-open:" + (S.me?.email || "")) || "[]"); } catch { return []; } }
+function navGroup(h, items, btns) {
+  if (!h || items.length < 2) return btns;
+  const here = items.some(([k]) => k === S.view), open = here || menuOpen().includes(h), name = h.charAt(0) + h.slice(1).toLowerCase();
+  const n = items.reduce((t, [k]) => t + (k === "signups" ? S.pending || 0 : k === "teamforms" ? S.teamPending || 0 : 0), 0);
+  return `<div class="ngrp${open ? " open" : ""}"><button type="button" class="nav ngrp-h" data-grp="${h}" aria-expanded="${open}" title="${name}">${svg(GICON[h] || items[0][0])}<span class="nl">${name}</span>${n ? `<span class="count">${n}</span>` : ""}<span class="ngrp-c">${svg("caret")}</span></button><div class="ngrp-b">${btns}</div></div>`;
+}
 function pages() {  // the menu, in groups; what each role can actually load is decided by the database
   const r = S.me.role;
   if (r === "bishop") return [["", [["overview", "All churches"], ["help", "Help"]]]];
@@ -1142,7 +1208,7 @@ function render() {
   const short = {dashboard: "Home", overview: "Churches", people: "People", followup: "Follow-up"};  // the bottom bar on phones: the four most-used pages, then More
   // pages someone turned off in Settings → Pages you see: left out of their menu and bottom bar (the first page always stays)
   const hid = new Set(look().hide || []), menuGroups = groups.map(([h, items]) => [h, items.filter(([k]) => !hid.has(k) || k === allowed[0])]).filter(g => g[1].length);
-  const dock = menuGroups.flatMap(g => g[1]).filter(x => ["mine", "dashboard", "checkin", "followup", "people", "overview"].includes(x[0])).slice(0, 4).map(([k, t]) => [k, short[k] || t]);
+  const dock = menuGroups.flatMap(g => g[1]).filter(x => ["mine", "dashboard", "checkin", "followup", "people", "overview"].includes(x[0])).slice(0, 5).map(([k, t]) => [k, short[k] || t]);
   const go = to => {  // a page opens straight away from what's already loaded; the latest is fetched behind it, and only if
     // something changed is the page redrawn, in place (same scroll, and not while a box is open or someone is typing)
     const me = S.goTok = (S.goTok || 0) + 1; S.view = to; render();
@@ -1160,12 +1226,12 @@ function render() {
       ${S.me.role === "bishop" ? "" : `<div class="side-church">${S.me.role === "admin"  // the church being worked in, at the top; only an admin can change it
         ? `<button type="button" class="church on" data-chpick aria-haspopup="listbox" aria-expanded="false" title="Working in ${esc(S.church)}: tap to switch church"><i></i><b class="ch-ab" aria-hidden="true">${esc(churchAbbr(S.church))}</b><span>${esc(S.church)}</span><em>Change</em></button>`
         : `<div class="church on" title="Your church"><i></i><b class="ch-ab" aria-hidden="true">${esc(churchAbbr(S.church))}</b><span>${esc(S.church)}</span></div>`}</div>`}
-      ${menuGroups.map(([h, items]) => (h ? `<h6>${h}</h6>` : "") + items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" title="${t}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}<span class="nl">${t}</span>${
-        k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : k === "teamforms" && S.teamPending ? `<span class="count">${S.teamPending}</span>` : ""}</button>`).join("")).join("")}
+      ${menuGroups.map(([h, items]) => navGroup(h, items, items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" title="${t}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}<span class="nl">${t}</span>${
+        k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : k === "teamforms" && S.teamPending ? `<span class="count">${S.teamPending}</span>` : ""}</button>`).join(""))).join("")}
       <div class="side-foot">${S.me.base === "admin" ? (S.preview ? `<button class="nav" data-unpreview title="Back to Admin">${svg("back")}<span class="nl">Back to Admin</span></button>`
           : `<button class="nav" data-viewas title="View as another role">${svg("eye")}<span class="nl">View as another role</span></button>`) : ""}${S.canSwitch ? `<button class="nav" data-switch title="${switchLabel()}">${svg("pastors")}<span class="nl">${switchLabel()}</span></button>` : ""}<button class="nav out" data-out title="Log out">${svg("out")}<span class="nl">Log out</span></button></div></aside>
     <main class="main">${S.preview ? `<div class="preview-bar">${svg("eye")}<span>Viewing as <b>${esc(previewName())}</b>. View only: nothing you do here is saved.</span>
-        <button class="pill-btn sm" data-unpreview>Back to Admin</button></div>` : ""}<div class="top">${S.hist?.length && S.view !== allowed[0] ? `<button class="back" data-back>${svg("back")}Back</button>` : ""}<span class="gap"></span>
+        <button class="pill-btn sm" data-unpreview>Back to Admin</button></div>` : ""}<div class="top"><button type="button" class="menu-tg" data-menu aria-label="Menu" aria-controls="menu" aria-expanded="false">${svg("menu")}</button>${S.hist?.length && S.view !== allowed[0] ? `<button class="back" data-back>${svg("back")}Back</button>` : ""}<span class="gap"></span>
         ${fsOk() ? `<button class="refresh-btn fs-btn" data-fs title="${document.fullscreenElement ? "Show the browser again" : "Full screen: hide the browser"}" aria-label="${document.fullscreenElement ? "Exit full screen" : "Full screen"}">${svg(document.fullscreenElement ? "shrink" : "expand")}</button>` : ""}
         ${S.me.role === "bishop" ? "" : `<button class="refresh-btn" data-refresh title="Load the latest check-ins and changes" aria-label="Refresh">${svg("refresh")}<span>Refresh</span></button>`}
         <div class="mode" role="group" aria-label="Colour mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button></div>
@@ -1173,9 +1239,10 @@ function render() {
         <button class="out-btn" data-out title="Log out">${svg("out")}<span>Log out</span></button></div>
       <div class="body" id="view"></div></main>
     <nav class="dock" aria-label="Main">${dock.map(([k, t]) => `<button class="${S.view === k ? "on" : ""} ${t.length > 9 ? "long" : ""}" data-view="${k}" aria-label="${t}">${svg(k)}<span>${t}</span></button>`).join("")}
-      <button class="${dock.some(x => x[0] === S.view) ? "" : "on"}" data-menu aria-label="More" aria-controls="menu" aria-expanded="false">${svg("more")}<span>More</span></button></nav></div>`;
+</nav></div>`;  // everything else: the ☰ menu at the top left
   const shell = root.querySelector(".shell"), menuBtn = root.querySelector("[data-menu]");
   const menu = open => { shell.classList.toggle("open", open); menuBtn.setAttribute("aria-expanded", open); };
+  S.menu = menu;  // the phone swipe below opens and closes it too
   menuBtn.onclick = () => menu(!shell.classList.contains("open"));
   root.querySelector("[data-mini]").onclick = e => {  // laptop menu: icons only, or icons with names; remembered on this device
     S.mini = !S.mini; try { localStorage.setItem("fcc-mini", S.mini ? "1" : "0"); } catch {}
@@ -1186,6 +1253,10 @@ function render() {
   document.onkeydown = e => { if (e.key === "Escape") menu(false); };
   applyLook();
   root.querySelectorAll("[data-view]").forEach(b => b.onclick = () => go(b.dataset.view));
+  root.querySelectorAll("[data-grp]").forEach(b => b.onclick = () => {  // open or close a menu group in place; remembered on this device
+    const g = b.closest(".ngrp"), on = !g.classList.contains("open"); g.classList.toggle("open", on); b.setAttribute("aria-expanded", on);
+    const list = new Set(menuOpen()); if (on) list.add(b.dataset.grp); else list.delete(b.dataset.grp);
+    try { localStorage.setItem("fcc-menu-open:" + (S.me?.email || ""), JSON.stringify([...list])); } catch {} });
   // Change church: a short list opens right there; picking one switches church and stays on the same page
   root.querySelectorAll("[data-chpick]").forEach(b => b.onclick = e => {
     e.stopPropagation();
@@ -1224,7 +1295,7 @@ function render() {
     b.classList.add("busy");
     try {
       await load();
-      S.pending = canApprove() ? await api("registrations?select=id&status=eq.pending").then(r => r.length).catch(() => S.pending) : 0;
+      S.pending = canApprove() ? await api("registrations?select=created_at&status=eq.pending").then(newSignups).catch(() => S.pending) : 0;
       const y = scrollY; render(); scrollTo(0, y); setTimeout(() => scrollTo(0, y), 350); toast("Up to date.");
     } catch (e) { b.classList.remove("busy"); toast("Couldn't refresh: " + e.message); }
   });
@@ -1269,6 +1340,38 @@ function pageIn(el) {
   addEventListener("scroll", check, {passive: true}); addEventListener("resize", check);
 }
 // The phone's back gesture (and the Back button, which uses it) returns to the page you came from.
+// Phones: swipe right across the page to pull the menu open (the page slides over with your finger, as in Threads),
+// and swipe left to close it. Up-and-down scrolling, and anything that scrolls sideways itself, are left alone.
+(() => {
+  let st = null;
+  addEventListener("touchstart", e => {
+    st = null;
+    if (innerWidth > 1080 || e.touches.length !== 1 || document.querySelector(".modal, .tour-pop")) return;
+    const sh = document.querySelector(".shell"), side = document.querySelector(".side"); if (!sh || !side) return;
+    if (e.target.closest?.("input, textarea, select, .chart, .dock")) return;
+    for (let n = e.target; n && n !== document.body; n = n.parentElement) {  // something that scrolls sideways keeps its own swipe
+      if (n === side) break;
+      if (/(auto|scroll)/.test(getComputedStyle(n).overflowX) && n.scrollWidth > n.clientWidth + 2) return; }
+    const t = e.touches[0]; st = {x: t.clientX, y: t.clientY, open: sh.classList.contains("open"), drag: false, w: side.offsetWidth, sh, p: 0};
+  }, {passive: true});
+  addEventListener("touchmove", e => {
+    if (!st) return;
+    const t = e.touches[0], dx = t.clientX - st.x, dy = t.clientY - st.y;
+    if (!st.drag) {
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { st = null; return; }  // scrolling up or down
+      if (Math.abs(dx) < 14) return;
+      if (st.open ? dx > 0 : dx < 0) { st = null; return; }
+      st.drag = true; st.sh.classList.add("dragging");
+    }
+    st.p = Math.min(st.w, Math.max(0, (st.open ? st.w : 0) + dx)); st.sh.style.setProperty("--pull", st.p + "px");
+  }, {passive: true});
+  const end = () => {
+    if (!st) return; const s = st; st = null; if (!s.drag) return;
+    s.sh.classList.remove("dragging"); s.sh.style.removeProperty("--pull");
+    S.menu?.(s.p > s.w * (s.open ? .7 : .3));  // past a third of the way: it opens; back under two thirds: it closes
+  };
+  addEventListener("touchend", end); addEventListener("touchcancel", end);
+})();
 addEventListener("popstate", () => {
   if (!S.me || !S.hist?.length) return;
   S.view = S.hist.pop(); S.goingBack = true; document.querySelectorAll(".modal").forEach(m => m.remove()); render();
@@ -1482,7 +1585,7 @@ const WIDGETS = {
         ${p.last && partsOf(p.last).length ? `<p class="ov-parts">${partCounts(p, p.last).map(x => `${esc(x.name)}: <b>${x.n}</b>`).join(" · ")} · someone at both counts once in Present</p>` : ""}`;
       el.querySelectorAll(".ov-cell").forEach(t => t.onclick = () => { S.date = p.last || today(); S.view = "checkin"; render(); });
     }},
-  compare: {name: "Compared with last time", sub: p => { const prev = p.last && sameDayBefore(p, p.last); return prev ? `Against ${svcName(prev)} · ${nice(prev, true)}` : "The same day last week"; }, desc: "Each number against the previous service on the same day of the week, as more or fewer people.", size: "wide", icon: "compare", hue: 4,
+  compare: {name: "Compared with last time", sub: p => { const prev = p.last && sameDayBefore(p, p.last); return prev ? `Against ${svcName(prev)} · ${nice(prev, true)}` : "The same day last week"; }, desc: "Each number against the last service on the same day.", size: "wide", icon: "compare", hue: 4,
     draw(el, p) {
       const prev = p.last && sameDayBefore(p, p.last);
       if (!prev) { el.innerHTML = `<p class="empty">Needs two services on the same day of the week first.</p>`; return; }
@@ -1498,7 +1601,7 @@ const WIDGETS = {
       chart(el.querySelector(".chart"), series, null, p.last);
     }},
   calendar: {name: "Calendar", sub: "Services this month and how many came", size: "narrow", icon: "followup", hue: 2, draw(el, p) { calendar(el, p); }},
-  trend: {name: "Attendance trend", sub: () => TREND[trendView()][1], desc: "Attendance over time. Switch between Sundays, every service, midweek or monthly.", size: "full", icon: "trend", hue: 1,
+  trend: {name: "Attendance trend", sub: () => TREND[trendView()][1], desc: "Attendance over time: Sundays, all services, midweek or monthly.", size: "full", icon: "trend", hue: 1,
     draw(el, p) {
       const v = trendView(), w = el.closest(".w"), tools = w.querySelector(".w-tools");
       tools.innerHTML = `<select class="in sel" aria-label="What the trend shows">${Object.entries(TREND).map(([k, [t]]) => `<option value="${k}" ${k === v ? "selected" : ""}>${t}</option>`).join("")}</select>`;
@@ -1548,7 +1651,7 @@ const WIDGETS = {
       };
       svgEl.onpointerleave = () => { tip.style.opacity = 0; cur.setAttribute("opacity", 0); dot.setAttribute("opacity", 0); };
     }},
-  split: {name: "Who came", sub: p => p.last ? `${svcName(p.last)} · ${nice(p.last, true)}` : "The latest service", desc: "The latest service split into adults, kids, first-timers and visitors, against the same day last week.", size: "narrow", icon: "split", hue: 3,
+  split: {name: "Who came", sub: p => p.last ? `${svcName(p.last)} · ${nice(p.last, true)}` : "The latest service", desc: "Adults, kids, first-timers and visitors at the latest service.", size: "narrow", icon: "split", hue: 3,
     draw(el, p) {
       if (!p.last) { el.innerHTML = `<p class="empty">No service recorded yet.</p>`; return; }
       const c = countsOn(p, p.last), prev = sameDayBefore(p, p.last), b = prev ? countsOn(p, prev) : null;
@@ -1619,7 +1722,7 @@ const WIDGETS = {
         el.innerHTML = `<form class="live-set"><p>Show <b>${esc(church)}</b>'s YouTube livestream here: paste your church's YouTube channel link.</p>
           <div class="live-row"><input class="in" name="link" placeholder="youtube.com/@yourchurch" value="${esc(now)}" autocomplete="off" inputmode="url">
           <button class="pill-btn primary">Connect</button></div>
-          <p class="note">This shows your YouTube viewers. Facebook and Zoom can be added later with the admin's help.</p>${now ? `<button type="button" class="link-btn" data-unlink>Disconnect this channel</button>` : ""}</form>`;
+          <p class="note">Shows YouTube viewers. Ask the admin to add Facebook or Zoom.</p>${now ? `<button type="button" class="pill-btn sm" data-unlink>Disconnect this channel</button>` : ""}</form>`;
         const f = el.querySelector("form"), go = async link => {
           if (S.preview) return toast("Not saved: you're viewing as someone else, which is view only.");
           f.querySelector("button.primary").disabled = true;
@@ -1658,8 +1761,8 @@ const WIDGETS = {
             <div class="lv-prog"><div class="lv-prog-main"><div class="lv-prog-top"><b class="lv-side-t">Viewers <small class="lv-when"></small></b>
                   ${j.home ? `<select class="in sel lv-range" aria-label="Show"><option value="day">The day picked above</option><option value="week" ${S.lvRange === "week" ? "selected" : ""}>Last 7 days</option></select>` : ""}</div>
                 <div class="lv-prog-body"></div></div></div>
-            ${j.platforms.zoom.status === "live" ? `<p class="note" style="margin:10px 0 0">Zoom includes the host and co-host: take 2 off for the attendance count.</p>` : ""}
-            ${j.channel ? `<div class="live-ch"><small>YouTube channel: <b>${esc(j.channel)}</b></small><button type="button" class="link-btn" data-change>Change</button></div>` : ""}`;
+            ${j.platforms.zoom.status === "live" ? `<p class="note" style="margin:10px 0 0">Zoom counts hosts: take 2 off.</p>` : ""}
+            ${j.channel ? `<div class="live-ch"><small>YouTube channel: <b>${esc(j.channel)}</b></small><button type="button" class="pill-btn sm" data-change>Change</button></div>` : ""}`;
           el.querySelector("[data-change]")?.addEventListener("click", () => connect(j.channel));
           // the chart: this service from the recent history, or the week from the saved services (each day's highest)
           const hmm = t => new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
@@ -1838,7 +1941,7 @@ const WIDGETS = {
       el.innerHTML = `<div class="rr-top"><div><b>${pct === null ? "–" : pct + "%"}</b><span>came back within 4 weeks</span></div>
           <div class="legend"><span><i style="background:var(--h3)"></i>Came back ${tb}</span><span><i style="background:var(--ink-3)"></i>First-timers ${tf}</span></div></div>
         <div class="chart rr-chart"><div class="tip"></div>${s}</svg></div>
-        <p class="note" style="margin:8px 0 0">${pct === null ? "No first-timers in these " + (view === "month" ? "months" : "weeks") + " yet. " : ""}Target: half come back. The latest ${view === "month" ? "month is" : "few weeks are"} still counting, so ${view === "month" ? "it is" : "they are"} left out of the %.</p>`;
+        <p class="note" style="margin:8px 0 0">${pct === null ? "No first-timers in these " + (view === "month" ? "months" : "weeks") + " yet. " : ""}Target: half come back. The latest ${view === "month" ? "month isn't" : "few weeks aren't"} counted yet.</p>`;
       const box = el.querySelector(".rr-chart"), svgEl = box.querySelector("svg"), tip = box.querySelector(".tip"), cur = svgEl.querySelector(".cursor"), dot = svgEl.querySelector(".dot");
       svgEl.onpointermove = svgEl.onpointerdown = e => {
         const r = svgEl.getBoundingClientRect(), i = Math.max(0, Math.min(n - 1, Math.floor(((e.clientX - r.left) / r.width * W - L) / step))), row = rows[i], px = x(i);
@@ -2006,7 +2109,7 @@ function addWidget(b) {
     <div class="card-head"><h2>Add widget</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
     ${left.length ? `<div class="wlist">${left.map(k => { const W = defs[k]; return `<button type="button" class="witem" data-add="${k}" style="--wc:var(--h${W.hue});--wb:var(--h${W.hue}b)">
       <span class="wico">${svg(W.icon)}</span><span class="wtxt"><b>${esc(W.name)}</b><span>${esc(W.desc || W.sub)}</span></span><span class="wadd">${svg("plus")}Add</span></button>`; }).join("")}</div>` : `<p class="empty">Every widget is already on this ${B.where}.</p>`}
-    <p class="note">Drag a widget by its handle to move it. Your layout is yours only: nobody else's view changes.</p>
+    <p class="note">Drag a widget by its handle to move it. Only your view changes.</p>
     <div class="modal-foot one"><button type="button" class="pill-btn" data-reset>Back to the standard layout</button></div></div>`;
   document.body.append(d);
   const close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
@@ -2031,7 +2134,12 @@ async function setPresent(id, on, seen, at = isoLocal(), part = 0) {
     }
     await api("attendance?on_conflict=service_date,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, member_id: id, checked_at: at}});
     if (part) await api("service_ticks?on_conflict=service_date,part,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, part, member_id: id, checked_at: at}});
-    log("tick", id, "done", part ? partName(S.date, part) : ""); return "done";
+    log("tick", id, "done", part ? partName(S.date, part) : "");
+    const m = S.members.find(x => x.id === id);  // someone marked Away or Inactive who comes back is Active again (whoever ticks them)
+    if (m && String(m.status || "").trim() && ruleOf(m) !== "gone")
+      api("rpc/app_back_active", {method: "POST", body: {mid: id}})
+        .then(ok => { if (ok) { Object.assign(m, {status: "", version: (Number(m.version) || 1) + 1}); toast(`${m.full_name} is back, so they're Active again.`); } }).catch(() => {});
+    return "done";
   }
   if (part) {  // off one of the day's services; off the day too once they're at none of them
     await api(`service_ticks?service_date=eq.${S.date}&part=eq.${part}&member_id=eq.${encodeURIComponent(id)}`, {method: "DELETE", prefer: "return=minimal"});
@@ -2046,7 +2154,8 @@ async function setPresent(id, on, seen, at = isoLocal(), part = 0) {
   log("untick", id, result); return result;
 }
 function checkin(el) {
-  const mine = S.members.filter(m => churchOf(m) === S.church && !AWAY.has(norm(m.status))).sort((a, b) => norm(a.full_name).localeCompare(norm(b.full_name)));
+  const mine = S.members.filter(m => churchOf(m) === S.church && ruleOf(m) === "in").sort((a, b) => norm(a.full_name).localeCompare(norm(b.full_name)));
+  const back = S.members.filter(m => churchOf(m) === S.church && ruleOf(m) === "out");  // off the lists: found by searching; ticking brings them back
   let here = {};
   const pastor = S.me.role === "pastor";  // a pastor ticks their own people only (locks work as for ushers): no adding or renaming
   // Laid out like Admin → Sign-ins: numbers on top, then pills to filter, team and search on the right, a table of names, 25 a page
@@ -2094,7 +2203,7 @@ function checkin(el) {
         `<button type="button" data-part="${x.part}" aria-pressed="${n === x.part}">${esc(partName(S.date, x.part))}</button>`).join("")}</div></div>
         ${pastor ? "" : `<div class="ci-part-acts">${ps.length < 3 ? `<button type="button" class="pill-btn sm" data-split>${svg("plus")}Add ${ORDINAL[ps.length + 1].toLowerCase()} service</button>` : ""}
         ${boss ? `<button type="button" class="pill-btn sm ci-remove" data-unsplit>${armedPart ? `Tap again to remove ${esc(partName(S.date, lastPart()))}` : `Remove ${esc(partName(S.date, lastPart()))}`}</button>` : ""}</div>`}</div>
-        <p class="note ci-part-note">Ticks here are for <b>${esc(partName(S.date, n))}</b>. Someone who comes to two or three services is counted once in the day's total.</p>`
+        <p class="note ci-part-note">Ticks here are for <b>${esc(partName(S.date, n))}</b>. Someone at several services counts once in the day's total.</p>`
       : pastor ? "" : `<button type="button" class="pill-btn sm" data-split style="margin-top:12px" title="Two services today? Split the day into services">${svg("plus")}Add a second service</button>`;
     wrap.querySelectorAll("[data-part]").forEach(b => b.onclick = () => { (S.ciParts ??= {})[S.date] = +b.dataset.part; armedPart = false; here = {}; svc.value = svcLabel(); drawParts(); draw(); pull(); });
     wrap.querySelector("[data-split]")?.addEventListener("click", split);
@@ -2177,7 +2286,7 @@ function checkin(el) {
   const PER = 60;  // three columns of 20
   let armed = false, armedAll = false, busy = false;
   const narrowedTo = () => { const q = norm(S.q);  // team and search; the pills then pick within these
-    return mine.filter(m => (!S.ciRole || rolesOf(m).some(r => norm(r) === S.ciRole)) && (!q || norm(m.full_name).includes(q) || norm(m.phone).includes(q) || rolesOf(m).some(r => norm(r).includes(q)))); };
+    return (q ? [...mine, ...back] : mine).filter(m => (!S.ciRole || rolesOf(m).some(r => norm(r) === S.ciRole)) && (!q || norm(m.full_name).includes(q) || norm(m.phone).includes(q) || rolesOf(m).some(r => norm(r).includes(q)))); };
   const showing = () => narrowedTo();
   const draw = () => {
     const shown = narrowedTo(), narrowed = !!(S.ciRole || norm(S.q)), ticked = shown.filter(m => here[m.id]).length;
@@ -2185,7 +2294,7 @@ function checkin(el) {
     const page = shown.slice((S.ciPage - 1) * PER, S.ciPage * PER);
     const nums = [...new Set([1, S.ciPage - 1, S.ciPage, S.ciPage + 1, pages])].filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
     box.innerHTML = shown.length ? `<div class="names">${page.map(m => `<label class="name ${here[m.id] ? "on" : ""}"><input type="checkbox" data-id="${esc(m.id)}" ${here[m.id] ? "checked" : ""} ${lock ? "disabled" : ""}>
-        <span class="nava" ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span><span class="nn">${esc(m.full_name)}</span><small>${[m.type === "first_timer" ? "first-timer" : m.type === "visitor" ? "visitor" : "", isKid(m) ? "child" : ""].filter(Boolean).map(esc).join(" · ")}</small></label>`).join("")}</div>`
+        <span class="nava" ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span><span class="nn">${esc(m.full_name)}</span><small>${[m.type === "first_timer" ? "first-timer" : m.type === "visitor" ? "visitor" : "", isKid(m) ? "child" : "", m.status ? String(m.status).toLowerCase() : ""].filter(Boolean).map(esc).join(" · ")}</small></label>`).join("")}</div>`
       : `<p class="empty">${norm(S.q) ? "Nobody matches that search." : "Nobody here. Try another filter or team."}</p>`;
     el.querySelector("#ci-pager").innerHTML = pages > 1 ? `<div class="pager"><span class="muted">Page ${S.ciPage} of ${pages} · ${shown.length} people</span><span class="gap"></span>
         <button class="pg" data-cpg="${S.ciPage - 1}" ${S.ciPage === 1 ? "disabled" : ""} aria-label="Previous page">${svg("prev")}</button>
@@ -2287,7 +2396,7 @@ function checkin(el) {
     d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="Tick from a list">
       <div class="card-head"><h2>Tick from a list</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
       <div class="fields">
-        <p class="note" style="margin:0">For <b>${esc(curPart() ? partName(S.date, curPart()) : svcName(S.date))}</b>, ${esc(nice(S.date, true))}. Paste names one per line (or separated by commas), or pick a file.</p>
+        <p class="note" style="margin:0">For <b>${esc(curPart() ? partName(S.date, curPart()) : svcName(S.date))}</b>, ${esc(nice(S.date, true))}. Paste names, one per line, or pick a file.</p>
         <label class="bk-drop" style="padding:12px"><input type="file" id="tl-file" accept=".csv,.txt,text/csv,text/plain"><span class="bk-drop-btn" style="font-size:15px;padding:10px 18px">${svg("upload")}<span>Choose a file</span></span></label>
         <textarea class="in" id="tl-text" rows="6" placeholder="Ama Mensah&#10;Kofi Boateng&#10;Efua Owusu"></textarea>
         <div id="tl-prev"></div>
@@ -2473,6 +2582,162 @@ function followup(el) {
 // A phone number typed into the name, e.g. "Ama Mensah 0211234567" or "Ama Mensah – 021 123 4567": gives [name, phone]
 const NAME_PHONE = /^(.*?\p{L}.*?)[\s,;:–—-]+(\+?\d[\d\s().-]{6,}\d)\s*$/u;
 const splitNamePhone = s => { const m = String(s || "").match(NAME_PHONE); return m && m[2].replace(/\D/g, "").length >= 8 ? [m[1].replace(/[\s,;:–—-]+$/, "").trim(), m[2].replace(/[^\d+]/g, "")] : null; };
+// An Excel file (.xlsx), read in the browser with nothing to install: each tab's cells, with their text and fill colour.
+async function readXlsx(file) {
+  const buf = new Uint8Array(await file.arrayBuffer()), dv = new DataView(buf.buffer), files = {};
+  let e = buf.length - 22; while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error("That isn't an Excel file. In Google Sheets use File → Download → Microsoft Excel (.xlsx).");
+  for (let i = 0, p = dv.getUint32(e + 16, true); i < dv.getUint16(e + 10, true); i++) {  // the zip's list of files
+    const nl = dv.getUint16(p + 28, true);
+    files[new TextDecoder().decode(buf.subarray(p + 46, p + 46 + nl))] = {method: dv.getUint16(p + 10, true), size: dv.getUint32(p + 20, true), at: dv.getUint32(p + 42, true)};
+    p += 46 + nl + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
+  }
+  const xml = async name => { const f = files[name]; if (!f) return null;
+    const start = f.at + 30 + dv.getUint16(f.at + 26, true) + dv.getUint16(f.at + 28, true), data = buf.subarray(start, start + f.size);
+    const text = f.method === 8 ? await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).text() : new TextDecoder().decode(data);
+    return new DOMParser().parseFromString(text, "application/xml"); };
+  const all = (doc, tag) => doc ? [...doc.getElementsByTagNameNS("*", tag)] : [];
+  const strings = all(await xml("xl/sharedStrings.xml"), "si").map(si => all(si, "t").map(t => t.textContent).join(""));
+  const styles = await xml("xl/styles.xml"), fills = all(all(styles, "fills")[0], "fill").map(f => {
+    const pf = all(f, "patternFill")[0], fg = pf && pf.getAttribute("patternType") === "solid" ? all(pf, "fgColor")[0] : null, rgb = fg?.getAttribute("rgb");
+    return rgb ? "#" + rgb.slice(-6).toLowerCase() : ""; });
+  const fillOf = all(all(styles, "cellXfs")[0], "xf").map(x => fills[+x.getAttribute("fillId") || 0] || "");
+  const book = await xml("xl/workbook.xml"), rels = all(await xml("xl/_rels/workbook.xml.rels"), "Relationship");
+  const tabs = [];
+  for (const s of all(book, "sheet")) {
+    const id = s.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || s.getAttribute("r:id");
+    const target = rels.find(r => r.getAttribute("Id") === id)?.getAttribute("Target") || ""; const doc = await xml("xl/" + target.replace(/^\/?xl\//, ""));
+    const rows = [];
+    for (const c of all(doc, "c")) {
+      const [, col, row] = c.getAttribute("r").match(/^([A-Z]+)(\d+)$/), j = [...col].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1, t = c.getAttribute("t");
+      const v = all(c, "v")[0]?.textContent ?? "", text = t === "s" ? strings[+v] ?? "" : t === "inlineStr" ? all(c, "t").map(x => x.textContent).join("") : v;
+      ((rows[+row - 1] ??= [])[j] = {text: String(text).trim(), fill: fillOf[+c.getAttribute("s") || 0] || ""});
+    }
+    tabs.push({name: s.getAttribute("name"), rows});
+  }
+  return tabs;
+}
+// Old register → the app: an admin or church admin picks the Excel file of a paper-style register (names down the side, Sundays across,
+// green = came), checks who each name is, and the green squares become check-ins. Nothing is saved until "Add the check-ins".
+function oldRegister() {
+  document.querySelectorAll(".modal").forEach(m => m.remove());
+  const d = document.createElement("div"); d.className = "modal";
+  d.innerHTML = `<form class="sheet" role="dialog" aria-modal="true" aria-label="Load an old register">
+    <div class="card-head"><h2>Load an old register</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+    <div class="fields">
+      <p class="note" style="margin:0 2px">Names down the side, Sundays across the top. A green square or a mark (✓, P, 1) means they came. From Google Sheets: <b>File → Download → .xlsx</b>.</p>
+      <label class="bk-drop"><input type="file" id="or-file" accept=".xlsx,.csv,.tsv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
+        <span class="bk-drop-btn">${svg("upload")}<span>Choose the file</span></span><small>Nothing is saved until you press Add.</small></label>
+      <div id="or-opts"></div><div id="or-list"></div>
+    </div>
+    <div class="msg bad" id="or-err" hidden></div>
+    <div class="modal-foot"><button type="button" class="pill-btn" data-x>Cancel</button><button class="pill-btn primary" id="or-go" disabled>Add the check-ins</button></div></form>`;
+  document.body.append(d);
+  const $ = id => d.querySelector("#" + id), close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
+  d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
+  document.addEventListener("keydown", onKey);
+  const fail = t => { $("or-err").textContent = t; $("or-err").hidden = !t; };
+  const MON = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  const asDay = (t, yr) => { const m = String(t).toLowerCase().match(/^(\d{1,2})(?:st|nd|rd|th)?[\s\-\/.]*([a-z]{3})/) || null;
+    if (m && MON.includes(m[2])) return `${yr}-${pad(MON.indexOf(m[2]) + 1)}-${pad(+m[1])}`;
+    const k = String(t).toLowerCase().match(/^([a-z]{3})[a-z]*\.?[\s\-\/]*(\d{1,2})(?:st|nd|rd|th)?$/); if (k && MON.includes(k[1])) return `${yr}-${pad(MON.indexOf(k[1]) + 1)}-${pad(+k[2])}`;  // "Jan 4"
+    const n = String(t).match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/); if (n) return `${+n[3] < 100 ? 2000 + +n[3] : n[3]}-${pad(+n[2])}-${pad(+n[1])}`;
+    if (/^\d{5}$/.test(t)) return new Date(Date.UTC(1899, 11, 30) + t * 864e5).toISOString().slice(0, 10);  // an Excel date number
+    return ""; };
+  // the colour of a square: green came, orange came midweek (no date to tick), anything else not counted
+  const kind = hex => { if (!hex) return ""; const n = parseInt(hex.slice(1), 16), r = n >> 16, g = n >> 8 & 255, b = n & 255;
+    return g > 120 && g > r + 40 && g > b + 40 ? "came" : r > 180 && g > 90 && g < 200 && b < 90 ? "midweek" : ""; };
+  // or a mark typed in the square: ✓, P, Y, yes, 1, present, L (late) count as came; A, N, 0 and blanks don't; X is whatever the sheet says it means
+  const CAME = /^(✓|✔|☑|√|v|p|y|yes|1|present|came|here|l|late)$/i;
+  const mark = t => { t = String(t ?? "").trim().replace(/\.$/, ""); return CAME.test(t) ? "came" : /^[x×]$/i.test(t) ? "x" : ""; };
+  // a CSV (or tab-separated) register: no colours, just the marks
+  const readCsv = text => { text = text.replace(/^\uFEFF/, ""); const l0 = text.split(/\r?\n/)[0], sep = [",", ";", "\t"].sort((a, b) => l0.split(b).length - l0.split(a).length)[0];
+    const rows = [[]]; let cell = "", q = false; const put = () => { rows[rows.length - 1].push({text: cell.trim(), fill: ""}); cell = ""; };
+    for (let i = 0; i < text.length; i++) { const ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+      else if (ch === '"') q = true; else if (ch === sep) put(); else if (ch === "\n") { put(); rows.push([]); } else if (ch !== "\r") cell += ch; }
+    put(); return [{name: "CSV", rows}]; };
+  // names: numbering, titles and notes in brackets come off, so "23. Aunty Cha" looks for Cha
+  const TITLES = /^(aunty|auntie|aunt|uncle|unlce|ps|pst|pastor|lp|lady|bishop|bp|brother|bro|sister|sis|mama|papa|mr|mrs|ms|miss|dr|rev|reverend|elder|deacon|deaconess|prophet|apostle|evangelist)\.?$/i;
+  const clean = raw => String(raw).replace(/^\s*\d+\s*[.)\-:]\s*/, "").replace(/\(.*?\)?$/s, "").replace(/\(.*?\)/g, "").replace(/\s+\d+\s*$/, "").replace(/\s+/g, " ").trim();
+  const words = n => norm(n).replace(/[^\p{L}\s'-]/gu, " ").split(/\s+/).filter(w => w && !TITLES.test(w));
+  const people = S.members.filter(m => churchOf(m) === S.church).sort(byName), ws = new Map(people.map(m => [m.id, words(m.full_name)]));
+  const guess = raw => {  // [the person, if it's clear who; the likely people otherwise]
+    const w = words(clean(raw)); if (!w.length) return [null, []];
+    const full = people.filter(m => ws.get(m.id).join(" ") === w.join(" ")); if (full.length === 1) return [full[0], full];
+    const both = w.length > 1 ? people.filter(m => ws.get(m.id)[0] === w[0] && ws.get(m.id).includes(w[w.length - 1])) : []; if (both.length === 1) return [both[0], both];
+    const first = people.filter(m => ws.get(m.id)[0] === w[0]); if (first.length === 1 && w.length === 1) return [first[0], first];
+    return [null, [...new Set([...both, ...first, ...people.filter(m => ws.get(m.id).includes(w[0]))])].slice(0, 8)]; };
+  const newName = raw => clean(raw).split(" ").filter(w => !TITLES.test(w)).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ").slice(0, 80) || clean(raw);  // "Aunty Cha" → "Cha"
+  let tabs = [], rows = [], dates = [];
+  const read = () => {  // find the row of dates, then everyone below it with their green squares
+    fail(""); const tab = tabs[+($("or-tab")?.value || 0)], yr = +$("or-year").value || new Date().getFullYear();
+    const grid = Array.from(tab.rows, r => r || []), head = grid.findIndex(r => r.filter(c => c && asDay(c.text, yr)).length >= 4);
+    if (head < 0) { rows = []; dates = []; $("or-list").innerHTML = ""; $("or-go").disabled = true; return fail("Couldn't find a row of Sunday dates (like 4th Jan, 11th Jan…) on this tab."); }
+    const cols = grid[head].map((c, j) => c && asDay(c.text, yr) ? [j, asDay(c.text, yr)] : null).filter(Boolean), first = cols[0][0];
+    const nameCol = [...Array(first).keys()].reverse().find(j => grid.slice(head + 1).filter(r => r[j]?.text).length) ?? 0;
+    const SKIP = /^(adults?|children|kids|names?|dates?|attendance|total.*|first timers?|visitors?|h\s*&\s*n.*|here\s*&\s*now.*|members?)$/i;
+    rows = []; let sect = "member";  // the heading a name sits under: first-timers and visitors are added as such if they're new
+    for (const r of grid.slice(head + 1)) {
+      const name = r[nameCol]?.text || ""; if (/^totals?\b/i.test(name)) break;  // the totals row ends the names (but not "Totally…")
+      if (name && SKIP.test(clean(name))) { const h = norm(clean(name)); sect = /first/.test(h) ? "first_timer" : /visitor/.test(h) ? "visitor" : /child|kid/.test(h) ? "child" : "member"; continue; }
+      if (!name || !/\p{L}/u.test(name)) continue;
+      const xIs = $("or-x")?.value || "came", hit = c => kind(c?.fill) === "came" || mark(c?.text) === "came" || (mark(c?.text) === "x" && xIs === "came");
+      const came = cols.filter(([j]) => hit(r[j])).map(([, day]) => day), mid = cols.filter(([j]) => kind(r[j]?.fill) === "midweek").length;
+      const [m, likely] = guess(name); rows.push({name, came, mid, pick: m?.id || "", sure: !!m, likely, sect});
+    }
+    const taken = {}; rows.forEach(x => { if (x.pick) (taken[x.pick] ??= []).push(x); });
+    for (const list of Object.values(taken)) if (list.length > 1) list.forEach(x => { x.sure = false; x.pick = ""; });  // two names on one person: both need a look
+    dates = [...new Set(rows.flatMap(x => x.came))].sort(); draw();
+  };
+  const opts = people.map(m => `<option value="${esc(m.id)}">${esc(m.full_name)}</option>`).join("");
+  const draw = () => {
+    const use = rows.filter(x => x.pick && x.came.length), n = use.reduce((a, x) => a + x.came.length, 0), check = rows.filter(x => !x.sure && x.came.length).length;
+    const notFound = rows.filter(x => !x.pick && !x.likely?.length && x.came.length);
+    $("or-list").innerHTML = rows.length ? `${notFound.length ? `<div class="or-sum"><button type="button" class="pill-btn sm" id="or-new">${svg("plus")}<span>Add ${notFound.length} as new</span></button></div>` : ""}
+      <div class="scroll or-scroll"><table class="utable"><thead><tr><th>On the sheet</th><th>Who it is in the app</th><th>Sundays</th></tr></thead><tbody>
+      ${rows.map((x, i) => `<tr class="${x.sure || !x.came.length ? "" : "or-check"}"><td>${esc(x.name)}${!x.sure && x.came.length ? ` <span class="badge">Check</span>` : ""}</td>
+        <td><select class="in sm" data-or="${i}" aria-label="Who ${esc(x.name)} is"><option value="">${x.sure ? "Leave out" : "Choose who this is…"}</option><option value="+new">+ Add as a new person (${esc(newName(x.name))})</option>
+          ${x.likely?.length && !x.sure ? `<optgroup label="Likely">${x.likely.map(m => `<option value="${esc(m.id)}">${esc(m.full_name)}</option>`).join("")}</optgroup><optgroup label="Everyone">${opts}</optgroup>` : opts}</select></td><td class="muted">${x.came.length}</td></tr>`).join("")}</tbody></table></div>` : "";
+    $("or-list").querySelectorAll("[data-or]").forEach(s => { s.value = rows[+s.dataset.or].pick;
+      s.onchange = () => { const x = rows[+s.dataset.or]; x.pick = s.value; x.sure = !!s.value; draw(); }; });
+    $("or-list").querySelector("#or-new")?.addEventListener("click", () => { notFound.forEach(x => { x.pick = "+new"; x.sure = true; }); draw(); });
+    $("or-go").disabled = !n; $("or-go").textContent = n ? `Add ${n} check-ins` : "Add the check-ins";
+  };
+  $("or-file").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return; fail("");
+    try { tabs = /\.(csv|tsv|txt)$/i.test(f.name) ? readCsv(await f.text()) : await readXlsx(f); } catch (err) { return fail(/DecompressionStream/.test(err.message) ? "This browser can't open Excel files: try Chrome or Safari." : err.message); }
+    const yr = (f.name.match(/'?(\d{2})\b(?!.*\d)/) || [])[1];
+    $("or-opts").innerHTML = `<div class="bk-two">${tabs.length > 1 ? `<div><label class="f" for="or-tab">Tab</label><select class="in" id="or-tab">${tabs.map((t, i) => `<option value="${i}">${esc(t.name)}</option>`).join("")}</select></div>` : ""}
+      <div><label class="f" for="or-year">Year of the dates</label><input class="in" id="or-year" inputmode="numeric" maxlength="4" value="${yr ? 2000 + +yr : new Date().getFullYear()}"></div>
+      ${tabs.some(t => t.rows.some(r => r?.some(c => mark(c?.text) === "x"))) ? `<div><label class="f" for="or-x">An X means</label><select class="in" id="or-x"><option value="came">Came</option><option value="missed">Missed</option></select></div>` : ""}</div>`;
+    $("or-opts").querySelectorAll("select, input").forEach(x => x.onchange = read); read();
+  };
+  d.querySelector("form").onsubmit = async e => {
+    e.preventDefault(); const go = $("or-go"), use = rows.filter(x => x.pick && x.came.length); if (!use.length) return;
+    go.disabled = true; go.textContent = "Adding…"; let n = 0;
+    try {
+      const fresh = use.filter(x => x.pick === "+new");  // new people first, so their check-ins have someone to belong to
+      if (fresh.length) {
+        const list = fresh.map(x => { const type = x.sect === "first_timer" || x.sect === "visitor" ? x.sect : "member", d0 = [...x.came].sort()[0];
+          return {id: newId(), full_name: newName(x.name), phone: "", type, status: "", age_group: x.sect === "child" ? "Child" : "Adult", church: S.church, created_at: isoLocal(),
+                  date_joined: type === "member" ? d0 : null, first_visit: type === "member" ? null : d0}; });  // the same fields on every row, as a batch needs
+        await api("members", {method: "POST", prefer: "return=minimal", body: list}); S.members.push(...list);
+        fresh.forEach((x, i) => x.pick = list[i].id);
+        log("edit", "", "done", `added ${list.length} people from an old register`);
+      }
+      for (const day of dates) {
+        const ids = [...new Set(use.filter(x => x.came.includes(day)).map(x => x.pick))]; if (!ids.length) continue;
+        const t = new Date(day + "T10:00:00"), o = -t.getTimezoneOffset(), at = `${day}T10:00:00${o >= 0 ? "+" : "-"}${pad(Math.floor(Math.abs(o) / 60))}:${pad(Math.abs(o) % 60)}`;
+        await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: day, name: svcName(day)}});
+        await api("attendance?on_conflict=service_date,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: ids.map(id => ({service_date: day, member_id: id, checked_at: at}))});
+        n += ids.length;
+      }
+      log("edit", "", "done", `loaded an old register: ${n} check-ins over ${dates.length} Sundays · ${S.church}`);
+      close(); toast(`Added ${n} check-ins.`); await load(); render();
+    } catch (err) { fail("Stopped part-way (" + n + " added): " + err.message + ". Press Add again to carry on: nothing is added twice."); go.disabled = false; go.textContent = "Add the check-ins"; }
+  };
+}
 function bulkAdd() {
   document.querySelectorAll(".modal").forEach(m => m.remove());
   const d = document.createElement("div"); d.className = "modal";
@@ -2481,15 +2746,17 @@ function bulkAdd() {
     <div class="fields">
       <label class="bk-drop" id="bk-drop"><input type="file" id="bk-file" accept=".csv,.txt,.tsv,text/csv,text/plain">
         <span class="bk-drop-btn">${svg("upload")}<span>Import a CSV file</span></span>
-        <small>Or drop it here. Any layout works: you'll match the columns next, and the names and numbers are tidied for you.</small></label>
+        <small>Adds people from a list.</small></label>
+      ${["admin", "lead"].includes(S.me.role) && !S.preview ? `<div style="display:grid;gap:6px;justify-items:center;text-align:center"><button type="button" class="pill-btn sm" id="bk-old">${svg("upload")}<span>Load an old register</span></button>
+        <small style="color:var(--ink-2);font-size:12.5px;margin:0 2px">Adds past Sundays' check-ins.</small></div>` : ""}
       <div class="bk-or"><span>or type the names</span></div>
       <div><label class="f" for="bk-text">Names, one per line</label>
         <textarea class="in" id="bk-text" rows="6" placeholder="Ama Mensah, 021 555 0101&#10;Kofi Boateng&#10;Efua Owusu, 022 555 0123, child"></textarea>
-        <p class="note" style="margin:6px 2px 0">Add a phone number after a comma if you have it, and "child" or "first-timer" for anyone who is.</p></div>
+        <p class="note" style="margin:6px 2px 0">Optional: a phone number after a comma, and "child" or "first-timer".</p></div>
       <div id="bk-map"></div>
       <div class="bk-two"><div><label class="f" for="bk-type">Everyone is</label><select class="in" id="bk-type">${typeOpts.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("")}</select></div>
         <div><label class="f" for="bk-age">Age group</label><select class="in" id="bk-age"><option>Adult</option><option>Child</option></select></div></div>
-      <p class="note" style="margin:0 2px">They go on <b>${esc(S.church)}</b>'s list. A file's own Type or Age group column wins, and you can change anyone in the list below.</p>
+      <p class="note" style="margin:0 2px">They go on <b>${esc(S.church)}</b>'s list. You can change anyone below.</p>
       <div id="bk-prev"></div>
     </div>
     <div class="msg bad" id="bk-err" hidden></div>
@@ -2616,6 +2883,7 @@ function bulkAdd() {
     drop.querySelector(".bk-drop-btn span").textContent = f.name;
     $("bk-text").value = await f.text(); fromFile = true; err.hidden = true; read(); };
   $("bk-text").focus();
+  $("bk-old")?.addEventListener("click", oldRegister);
   d.querySelector("form").onsubmit = async e => {
     e.preventDefault();
     const ok = rows.filter(r => !r.why), go = $("bk-go"), err = $("bk-err"); if (!ok.length) return;
@@ -2656,7 +2924,7 @@ function people(el) {
   const mine = S.selOnly ? everyone.filter(m => S.sel.has(m.id)).sort((a, b) => SORT[S.sortBy][1](a, b) || byName(a, b)) : (q ? inRole.filter(m => [m.full_name, m.phone, m.role, m.pastor, m.status].some(x => norm(x).includes(q))) : inRole)
     .filter(SHOW[S.showF][1]).sort((a, b) => SORT[S.sortBy][1](a, b) || byName(a, b));
   const plist = S.pastorList[S.church] || [], admin = S.me.role === "admin";
-  const edit = S.me.role !== "team", statuses = ["", "Away", "Inactive", "Moved", "Left", "Transferred", "Deceased"];
+  const edit = S.me.role !== "team", statuses = ["", ...Object.keys(statusRules())];
   const roleNames = roleKeys.map(k => counts[k].label);
   const picked = everyone.filter(m => S.sel.has(m.id)), shownPicked = mine.filter(m => S.sel.has(m.id)).length;
   const typeOf = typeName, ageOf = m => isKid(m) ? "Child" : "Adult";
@@ -2842,7 +3110,7 @@ function people(el) {
 // The Edit popup for one person; used on Congregation and on the Pastors page.
 function editPerson(m) {
     if (!m) return;
-    const plist = S.pastorList[churchOf(m)] || [], admin = S.me.role === "admin", statuses = ["", "Away", "Inactive", "Moved", "Left", "Transferred", "Deceased"];
+    const plist = S.pastorList[churchOf(m)] || [], admin = S.me.role === "admin", statuses = ["", ...Object.keys(statusRules(churchOf(m)))];
     const ageOf = m => isKid(m) ? "Child" : "Adult";
     const roleNames = [...new Map(S.members.filter(x => churchOf(x) === churchOf(m)).flatMap(rolesOf).map(r => [norm(r), r])).values()].sort();
     const cur = pastorsOf(m), slist = (S.shepherdList || {})[churchOf(m)] || [], scur = shepherdsOf(m);
@@ -2893,7 +3161,7 @@ function editPerson(m) {
 // c: rows (each church's numbers), pick (the churches being shown), series ([date, adults, kids, first-timers, visitors] per service), ...
 const CDASH_DEFAULT = ["chart", "numbers", "churches", "follow"];
 const CWIDGETS = {
-  numbers: {name: "Service numbers", sub: c => c.when, desc: "Present (with the change since last time), adults and kids, first-timers, and how many of the register came.", size: "full", icon: "checkin", hue: 1,
+  numbers: {name: "Service numbers", sub: c => c.when, desc: "Present, adults and kids, first-timers, and how many of the register came.", size: "full", icon: "checkin", hue: 1,
     draw(el, c) {
       if (!c.had && c.day) { el.innerHTML = `<p class="empty">No service was recorded ${S.bChurch ? "at " + esc(S.bChurch) : "at any church"} on ${esc(nice(c.day, true))}.</p>`; return; }
       el.innerHTML = `<div class="ov">${[["Present", c.nowN, 5, c.delta === null ? "at the latest service" : c.delta === 0 ? "same as last time" : `${c.delta > 0 ? "▲" : "▼"} ${Math.abs(c.delta)} ${c.delta > 0 ? "more" : "fewer"} than last time`],
@@ -2917,7 +3185,7 @@ const CWIDGETS = {
         <b>${r.present}</b><span style="height:${Math.max(6, r.present / top * 100)}%"></span><small>${esc(r.church)}</small></button>`).join("")}</div>` : `<p class="empty">No services to compare.</p>`;
       el.querySelectorAll("[data-cb]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.cb; render(); });
     }},
-  split: {name: "Who came", sub: c => c.series.length ? `${nice(c.series.at(-1)[0], true)}` : "The latest service", desc: "Adults and kids at the latest service, and how many were first-timers or visitors.", size: "narrow", icon: "split", hue: 3,
+  split: {name: "Who came", sub: c => c.series.length ? `${nice(c.series.at(-1)[0], true)}` : "The latest service", desc: "Adults, kids, first-timers and visitors at the latest service.", size: "narrow", icon: "split", hue: 3,
     draw(el, c) {
       const x = c.series.at(-1);
       if (!x) { el.innerHTML = `<p class="empty">No services recorded yet.</p>`; return; }
@@ -3076,7 +3344,7 @@ async function manageChurches(box, rows) {
           ${home ? "" : `<button class="pill-btn sm ci-remove" data-chdel="${esc(c)}">${armed === c ? "Tap again to delete" : "Delete"}</button>`}</div>`; }).join("")}</div>
       <form class="row ch-add" id="ch-add"><div><label class="f" for="ch-new">Add a church</label><input class="in" id="ch-new" placeholder="e.g. Melbourne" required autocomplete="off"></div>
         <div style="flex:0 0 auto"><button class="pill-btn primary">${svg("plus")}Add church</button></div></form>
-      <p class="note">A church can be deleted once nobody is on its register and nobody signs in to it. Move or remove them first.</p>`;
+      <p class="note">A church can be deleted once nobody is on its register or signs in to it.</p>`;
     box.querySelectorAll("[data-chren]").forEach(b => b.onclick = () => formDialog(`Rename ${b.dataset.chren}`, [
       {k: "name", label: "New name", value: b.dataset.chren, required: true}], async v => {
         if (!v.name || v.name === b.dataset.chren) return;
@@ -3123,7 +3391,7 @@ async function admin(el) {
   const backupCard = `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Google Sheet backup</h2><span class="gap"></span>
       ${bkStatus && bkStatus !== "sql" ? `<span class="badge ${bkStatus.last_used && Date.now() - new Date(bkStatus.last_used) < 2 * 864e5 ? "" : "warn"}">${bkStatus.last_used ? "Last copied " + esc(ago(bkStatus.last_used)) : "Not run yet"}</span>` : ""}</div>
     ${bkStatus === "sql" ? `<p class="note" style="margin:0">Run the latest setup SQL in Supabase once to set this up.</p>` : `
-    <p class="note" style="margin:0 2px 12px">Every night a Google Sheet in your Google Drive copies everything: two tabs for each church: everyone's details, and their attendance in colour (this year, each month, and this month's Sundays), then the services, the Pastors and Shepherds lists and the sign-ins. It runs on Google, so no computer needs to be on. The free Supabase plan keeps no backups of its own.
+    <p class="note" style="margin:0 2px 12px">Every night a Google Sheet in your Google Drive copies everything: a tab for each church: everyone on its register, how many Sundays they've missed this year, and every Sunday of the year in colour, then the services, the Pastors and Shepherds lists and the sign-ins. It runs on Google, so no computer needs to be on. The free Supabase plan keeps no backups of its own.
       Google keeps the sheet's earlier days too (File → Version history).</p>
     ${bkStatus ? `<p class="note" style="margin:0 2px 12px">Key made ${esc(ago(bkStatus.made_at))}${bkStatus.made_by ? " by " + esc(bkStatus.made_by) : ""}. Making a new one stops the old sheet copying.</p>` : ""}
     <button type="button" class="pill-btn primary" id="bk-make">${bkStatus ? "Set up again (new key)" : "Set up the Google Sheet"}</button>`}</div>`;
@@ -3138,8 +3406,8 @@ async function admin(el) {
   const when = t => { const d = new Date(t); return d.toLocaleDateString(undefined, {day: "numeric", month: "short"}) + ", " + d.toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"}); };
   const inboxCard = `<div class="card" style="margin-bottom:14px" id="inbox"><div class="card-head"><h2>Messages${fresh.length ? ` <span class="badge red">${fresh.length} new</span>` : ""}</h2><span class="gap"></span>
       ${inbox?.length ? `<button class="link" style="margin:0" id="inbox-all">${S.inboxAll ? "Hide done" : "Show done too"}</button>` : ""}</div>
-    ${inbox === null ? `<p class="note" style="margin:0">Run the latest setup SQL in Supabase once to get messages from the Help page here.</p>`
-      : !shown.length ? `<p class="empty" style="margin:0">No ${inbox.length ? "new " : ""}messages. When someone uses Contact the admin on the Help page, it shows here and is emailed to you.</p>`
+    ${inbox === null ? `<p class="note" style="margin:0">Run the latest setup SQL in Supabase to see Help messages here.</p>`
+      : !shown.length ? `<p class="empty" style="margin:0">No ${inbox.length ? "new " : ""}messages. Messages from the Help page show here and are emailed to you.</p>`
       : shown.map(m => `<div class="inbox-item ${m.done ? "done" : ""}">
         <div class="ib-top"><b>${esc(m.name || m.email)}</b><small class="muted">${esc(when(m.created_at))}</small></div>
         <small class="muted">${esc([m.name ? m.email : "", ROLE[m.role] || m.role, m.church, m.topic].filter(Boolean).join(" · "))}</small>
@@ -3180,8 +3448,8 @@ async function admin(el) {
         <li>Make a new Google Sheet (sheets.new) in the Google account that should keep the backup. Name it e.g. <b>FCC backup</b>.</li>
         <li>In the sheet: <b>Extensions → Apps Script</b>. Delete what's there and paste the script below (Copy script).</li>
         <li>Press <b>Save</b>, pick <b>setup</b> next to Run, and press <b>Run</b>. Allow it when Google asks (Advanced → Go to… if it warns).</li>
-        <li>Back in the sheet you'll see the tabs and a Backup log. From now on it copies every night by itself.</li></ol>
-      <p class="note" style="margin:0 2px 8px">The script holds the backup key: keep the sheet private and don't share the script. This key is only shown now.</p>
+        <li>It now backs up every night by itself.</li></ol>
+      <p class="note" style="margin:0 2px 8px">Keep the sheet private: the script holds the backup key, shown only now.</p>
       <textarea class="in bk-code" readonly rows="8" aria-label="The script">${esc(code)}</textarea>
       <div class="modal-foot"><button type="button" class="pill-btn" data-x>Done</button><button type="button" class="pill-btn primary" id="bk-copy">Copy script</button></div></div>`;
     document.body.append(d);
@@ -3395,7 +3663,7 @@ function careGroups(el, K) {  // the Pastors and Shepherds pages: each one's peo
       : `<p class="empty">Nobody on this register yet.</p>`}
     ${canEdit ? `<div class="card plist" id="plist"><div class="pl-head"><span class="pl-ico">${svg(K.view)}</span><div><h2>${K.word} list</h2><p>${esc(S.church)} · ${plist.length} ${plist.length === 1 ? "name" : "names"}</p></div><span class="gap"></span>
         <button type="button" class="pill-btn sm primary" id="pl-add">${svg("plus")}Add ${K.word.toLowerCase()}</button></div>
-      ${untidy ? `<div class="msg np-fix"><span><b>${untidy} pastor ${untidy === 1 ? "name is" : "names are"} written a different way</b> (Rev. or Pst. instead of Reverend or Pastor). Tidy them in every church: lists, people and sign-ins stay matched.</span>
+      ${untidy ? `<div class="msg np-fix"><span><b>${untidy} pastor ${untidy === 1 ? "name is" : "names are"} written a different way</b> (Rev. or Pst. instead of Reverend or Pastor).</span>
         <button type="button" class="pill-btn primary sm" id="pl-tidy">Tidy titles</button></div>` : ""}
       <label class="find-bar pl-find">${svg("search")}<input id="pl-q" type="search" placeholder="Search ${K.words.toLowerCase()} by name" value="${esc(S[K.sel + "Q"] || "")}" autocomplete="off" aria-label="Search ${K.words.toLowerCase()}"></label>
       <div class="pl-chips" id="pl-chips"></div><div id="pl-rows"></div></div>` : ""}`;
@@ -3499,14 +3767,18 @@ async function person(el) {
 }
 
 // ---------------------------------------------------------------- sign-ups from the welcome form
+// The Sign-ups badge counts only sign-ups that came in since this person last opened Sign-ups; the page itself lists everyone waiting
+const signSeenKey = () => "fcc-signups-seen:" + (S.me?.email || "");
+const newSignups = rows => { let seen = 0; try { seen = +localStorage.getItem(signSeenKey()) || 0; } catch {} return rows.filter(r => Date.parse(r.created_at) > seen).length; };
 async function signups(el) {
   const sub = "From the welcome form, waiting for approval";
   el.innerHTML = head("Sign-ups", sub) + `<p class="empty">Loading…</p>`;
   let regs;
   try { regs = await api("registrations?select=id,full_name,phone,email,invited_by,first_visit,notes,wants_contact,created_at&status=eq.pending&order=created_at"); }
-  catch (e) { el.innerHTML = head("Sign-ups", sub) + `<div class="msg bad">Sign-ups can't be loaded yet. Run the latest setup SQL in Supabase once, then open this page again. (${esc(e.message)})</div>`; return; }
+  catch (e) { el.innerHTML = head("Sign-ups", sub) + `<div class="msg bad">Sign-ups can't load. Run the latest setup SQL in Supabase, then reopen this page. (${esc(e.message)})</div>`; return; }
   if (S.view !== "signups") return;
-  S.pending = regs.length;
+  S.pending = 0; try { localStorage.setItem(signSeenKey(), String(Date.now())); } catch {}  // seen: the badge clears
+  document.querySelectorAll('[data-view="signups"] .count').forEach(x => x.remove());
   const home = Object.fromEntries(S.members.filter(m => churchOf(m) === S.me.home).map(m => [norm(m.full_name).replace(/\s+/g, " "), m]));
   el.innerHTML = head("Sign-ups", sub) + (regs.length ? regs.map(r => {
     const match = home[norm(r.full_name).replace(/\s+/g, " ")];
@@ -3565,7 +3837,7 @@ async function teamForm(tok, preview) {
   }
   let info = preview ? {church: preview, by: S.me?.name || S.me?.email} : null;
   if (!preview) try { info = await api("rpc/app_team_form", {method: "POST", body: {tok}}); } catch {}
-  if (!info) { box.innerHTML = brand + `<h1>This link isn't working</h1><p>It may have run out (form links work for 14 days), or only part of it was copied. Ask the person who sent it to you for a new one.</p>`; return; }
+  if (!info) { box.innerHTML = brand + `<h1>This link isn't working</h1><p>It may have expired (links last 14 days). Ask for a new one.</p>`; return; }
   const row = () => `<div class="tf-row"><div class="tf-fields">
       <input class="in" data-k="name" maxlength="80" autocomplete="off" placeholder="Full name" aria-label="Full name">
       <input class="in" data-k="email" type="email" inputmode="email" autocapitalize="none" autocomplete="off" maxlength="120" placeholder="Email they will sign in with" aria-label="Email">
@@ -3573,7 +3845,7 @@ async function teamForm(tok, preview) {
     <button type="button" class="icon-btn" data-rm aria-label="Remove this person" title="Remove">${svg("close")}</button></div>`;
   const draw = () => {
     box.innerHTML = brand + `<h1>Who will look after ${esc(info.church)}?</h1>
-      <p>${esc(info.by || "Your admin")} asked you to list the people who will use the FCC Attendance app for ${esc(info.church)}. Nobody can sign in until an admin approves the list.</p>
+      <p>${esc(info.by || "Your admin")} asked you to list who will use the app for ${esc(info.church)}. An admin approves the list before anyone can sign in.</p>
       <form id="tf-form" novalidate>
         <label class="f" for="tf-me">Your name</label><input class="in" id="tf-me" maxlength="80" autocomplete="name" required>
         <div class="tf-roles">${TEAM_ROLES.map(([, t, d]) => `<div><b>${t}</b><span>${d}</span></div>`).join("")}</div>
@@ -3628,7 +3900,7 @@ async function teamforms(el) {
     [reqs, links] = await Promise.all([
       api("team_requests?select=id,church,sent_by,name,email,role,pastor,created_at&status=eq.pending&order=created_at"),
       api(`team_links?select=token,church,made_by_name,expires_at&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&order=created_at.desc&limit=8`)]);
-  } catch (e) { el.innerHTML = head("Team forms", sub) + `<div class="msg bad">Team forms need the latest setup SQL: run it in Supabase once, then open this page again. (${esc(e.message)})</div>`; return; }
+  } catch (e) { el.innerHTML = head("Team forms", sub) + `<div class="msg bad">Team forms can't load. Run the latest setup SQL in Supabase, then reopen this page. (${esc(e.message)})</div>`; return; }
   if (S.view !== "teamforms") return;
   S.teamPending = reqs.length;
   const signed = S.me.role === "admin" ? new Set((await api("app_users?select=email").catch(() => [])).map(u => u.email)) : new Set();
@@ -3640,7 +3912,7 @@ async function teamforms(el) {
   const roleSel = r => `<select class="in sm" data-role aria-label="Role for ${esc(r.name)}">${TEAM_ROLES.map(([v, t]) => `<option value="${v}" ${v === r.role ? "selected" : ""}>${t}</option>`).join("")}</select>`;
   el.innerHTML = head("Team forms", sub) + `
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Send a form</h2></div>
-      <p class="note" style="margin:0 2px 12px">Make a link for a church and send it to its leader. They list their people and roles; nobody can sign in until it's approved here.</p>
+      <p class="note" style="margin:0 2px 12px">Send a church leader a link to list their people. Approve the list here.</p>
       <div class="row"><div style="flex:1 1 200px"><label class="f" for="tf-ch">Church</label>
         <select class="in" id="tf-ch">${S.churches.map(c => `<option ${c === S.church ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></div>
         <div style="flex:0 0 auto;align-self:flex-end;display:flex;gap:8px"><button class="pill-btn" id="tf-prev">${svg("eye")}Preview</button><button class="pill-btn primary" id="tf-make">Make link</button></div></div>
@@ -3655,7 +3927,7 @@ async function teamforms(el) {
           <td><b>${esc(r.name)}</b><small class="muted" style="display:block">${esc(r.email)}</small>${signed.has(r.email) ? `<span class="badge yellow">Can already sign in</span>` : ""}</td>
           <td>${roleSel(r)}</td><td><input class="in sm" data-pastor ${["pastor", "shepherd"].includes(r.role) ? "" : "hidden"} list="tf-pn" value="${esc(r.pastor || "")}" placeholder="As on the Pastors or Shepherds list" aria-label="Pastor name for ${esc(r.name)}"></td></tr>`).join("")}
         </tbody></table></div>
-        <p class="note" style="margin:8px 2px 0">Change a role before approving if needed. A Pastor needs their name exactly as it is on the Pastors list.</p>
+        <p class="note" style="margin:8px 2px 0">A Pastor's name must match the Pastors list.</p>
         <div class="tf-acts"><button class="pill-btn" data-no>Turn down ticked</button><button class="pill-btn primary" data-ok>Approve ticked</button></div></div>`; }).join("")
       : `<div class="card"><p class="empty">Nothing waiting. Lists sent in from a form show here.</p></div>`}
     <datalist id="tf-pn">${pnames.map(n => `<option value="${esc(n)}">`).join("")}</datalist>`;
@@ -3667,7 +3939,7 @@ async function teamforms(el) {
         <a class="pill-btn sm" href="https://wa.me/?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">WhatsApp</a>
         <a class="pill-btn sm" href="mailto:?subject=${encodeURIComponent("FCC Attendance: who will sign in for " + church)}&body=${encodeURIComponent(msg)}">Email</a>
         ${onPhone() && navigator.share ? `<button class="pill-btn sm" data-s>More…</button>` : ""}</div>
-      <p class="note" style="margin:6px 2px 0">Copying doesn't use it up: the same link works for everyone you send it to, for 14 days.</p></div>`;
+      <p class="note" style="margin:6px 2px 0">One link works for everyone, for 14 days.</p></div>`;
     const out = el.querySelector("#tf-out");
     out.querySelector("[data-c]").onclick = e => navigator.clipboard?.writeText(url).then(() => { e.target.textContent = "Copied"; toast("Link copied."); }).catch(() => toast("Couldn't copy: press and hold the link instead."));
     const s = out.querySelector("[data-s]"); if (s) s.onclick = () => navigator.share({text: msg}).catch(() => {});
@@ -3713,7 +3985,7 @@ async function teamforms(el) {
 function archive(el) {
   const p = picture(), list = p.archived.slice().sort(byName);
   el.innerHTML = head("Archive", `${esc(S.church)} · not seen for two years`, list.length ? `<button class="pill-btn" id="dl">Download</button>` : "") + `
-    ${S.seen ? "" : `<div class="msg" style="margin:0 0 14px">Run the latest setup SQL in Supabase once so this list can look back further than the last year.</div>`}
+    ${S.seen ? "" : `<div class="msg" style="margin:0 0 14px">Run the latest setup SQL in Supabase to see further back than a year.</div>`}
     <div class="card">${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Last seen</th><th>Type</th><th>Age group</th><th>Phone</th></tr></thead><tbody>
       ${list.map(m => `<tr><td>${whoBtn(m)}</td><td class="muted">${esc(full(m.seen))}</td><td class="muted">${typeName(m)}</td><td class="muted">${m.kid ? "Child" : "Adult"}</td><td class="muted">${esc(m.phone || "")}</td></tr>`).join("")}
       </tbody></table></div>` : `<p class="empty">Nobody is in the archive.</p>`}
@@ -3775,7 +4047,7 @@ async function emailReports(el) {
   try {
     [setting, sent] = await Promise.all([api(`settings?select=value&key=eq.${encodeURIComponent(key)}`),
       api(`email_log?select=kind,report_date,sent_at,recipients,ok,detail&kind=in.(${isHome ? '"manual","daily"' : `"manual:${S.church.replace(/"/g, "")}"`})&order=sent_at.desc&limit=15`)]);
-  } catch (e) { el.innerHTML = head("Reports", sub) + `<div class="msg bad">Reports can't be loaded yet. Run the latest setup SQL in Supabase once, then open this page again. (${esc(e.message)})</div>`; return; }
+  } catch (e) { el.innerHTML = head("Reports", sub) + `<div class="msg bad">Reports can't load. Run the latest setup SQL in Supabase, then reopen this page. (${esc(e.message)})</div>`; return; }
   if (S.view !== "reports") return;
   const list = (setting[0]?.value || "").split(/[,\s;]+/).filter(Boolean), p = picture();
   el.innerHTML = head("Reports", sub) + `
@@ -3890,7 +4162,7 @@ async function help(el) {
   const topic = topics.find(t => t[0] === S.helpTopic);
   el.innerHTML = `<div class="help">
     <div class="help-side"><div class="head"><div><h1>Help</h1></div></div>
-      <p class="lede">Answers to common questions about the app, and a quick way to reach the admin.</p>
+      <p class="lede">Common questions, and a way to reach the admin.</p>
       <button type="button" class="pill-btn sm" id="tour-again" style="margin:0 0 12px">${svg("eye")}Show the welcome tour again</button>
       <div class="help-chips" role="tablist" aria-label="Topics">${topics.map(([k, name]) =>
         `<button class="hchip" role="tab" data-ht="${k}" aria-selected="${k === S.helpTopic}">${esc(name)}</button>`).join("")}</div></div>
@@ -4091,14 +4363,14 @@ function account(el) {
       <div style="margin-top:14px"><button class="pill-btn primary">Save name</button></div></form>
     <div id="look"></div>
     <form class="card" id="setpw"><div class="card-head"><h2>Password</h2></div>
-      <p class="note" style="margin-top:0">Set a password to skip the email code when you sign in, or change the one you have. You stay signed in.</p>
+      <p class="note" style="margin-top:0">Set a password to skip the email code.</p>
       <input type="email" autocomplete="username" value="${esc(S.me.email)}" readonly hidden>
       <label class="f" for="pw1">New password</label><input class="in" id="pw1" type="password" autocomplete="new-password" maxlength="72" required>
       <label class="f" for="pw2" style="margin-top:12px">Type it again</label><input class="in" id="pw2" type="password" autocomplete="new-password" maxlength="72" required>
       <ul class="pw-rules" id="pw-rules" aria-live="polite"></ul>
       <div style="margin-top:14px"><button class="pill-btn primary" id="pw-go">Save password</button></div></form>
     ${S.canSwitch ? `<div class="card"><div class="card-head"><h2>Your views</h2></div>
-      <p class="note" style="margin-top:0">You're ${baseName() === "Admin" ? "an" : "a"} ${baseName()} and also a ${pview() === "Reverend" ? "Reverend" : "pastor"} (${esc(S.me.pastor)}). Switch any time, no need to sign in again.</p>
+      <p class="note" style="margin-top:0">You're ${baseName() === "Admin" ? "an" : "a"} ${baseName()} and also a ${pview() === "Reverend" ? "Reverend" : "pastor"} (${esc(S.me.pastor)}). Switch any time.</p>
       <button class="pill-btn primary" data-switch>${svg("pastors")}${switchLabel()}</button></div>` : ""}
     <div class="card"><button class="pill-btn" data-bye>${svg("out")}Log out</button></div></div>`;
   el.querySelector("#me").onsubmit = async e => {
@@ -4149,14 +4421,30 @@ function settings(box) {
         `<option value="${k}" ${v.start === k ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`)}
       <div class="set-wide">${flip("set-mini", "Icons-only menu", "On laptops, show the side menu as icons only.", S.mini)}</div>
       ${flip("set-emoji", "Emojis in shared messages", "Adds emojis to the WhatsApp summaries you copy.", S.emoji)}
-      <div class="set-wide pg-head"><b>Pages you see</b><small>Turn off pages you don't use: they leave your menu and bottom bar. Only on this phone or computer, and nothing else changes.</small></div>
+      <div class="set-wide pg-head"><b>Pages you see</b><small>Hide pages you don't use. Only on this device.</small></div>
       ${pages().flatMap(g => g[1]).filter(([k], i) => i && k !== "help").map(([k, t]) => flip("set-pg-" + k, t, "", !(v.hide || []).includes(k))).join("")}
       <div class="set-row"><span class="gap" style="flex:1"></span><button type="button" class="pill-btn" data-look-reset>Reset to default</button></div></div>
     <div class="card set-card"><div class="card-head"><h2>Sharing summaries</h2></div>
       ${row("Send to", "Extra places to send a summary, next to WhatsApp and Copy.", `<div class="chips" role="group" aria-label="Send to">${SHARE.map(([k, t]) =>
         `<button type="button" class="chip" data-share-pick="${k}" aria-pressed="${shareTo().includes(k)}">${t}</button>`).join("")}</div>`)}
       ${["admin", "lead"].includes(S.me.role) ? flip("set-livefill", "Fill in livestream numbers", "In the service summary, fill YouTube, Facebook and Zoom from the livestream's peaks for today.", !!v.liveFill) : ""}</div>`;
+  // Statuses: what each one does at this church, set by anyone who ticks people in (admins, church admins, ushers, pastors, shepherds)
+  const canStatus = ["admin", "lead", "team", "pastor"].includes(S.me.role) && !S.preview;
+  if (canStatus) box.insertAdjacentHTML("beforeend", `<div class="card set-card"><div class="card-head"><h2>Statuses</h2></div>
+    <p class="note" style="margin:0 2px 6px">What each status does at ${esc(S.church)}.</p>
+    ${Object.entries(statusRules()).map(([k, v]) => row(esc(k), "", `<select class="in" data-st="${esc(k)}" aria-label="${esc(k)}">${[["in", "Stays on the lists"], ["out", "Off the lists (back if ticked)"], ["gone", "Off for good"]]
+      .map(([a, t]) => `<option value="${a}" ${v === a ? "selected" : ""}>${t}</option>`).join("")}</select>${STATUS0[k] ? "" : `<button type="button" class="pill-btn sm" data-st-del="${esc(k)}">Remove</button>`}`)).join("")}
+    <div class="set-row st-add" style="display:flex;gap:8px;align-items:center"><input class="in" id="st-new" style="flex:1;min-width:0" maxlength="30" placeholder="Add a status, e.g. Studying abroad" aria-label="New status"><button type="button" class="pill-btn" id="st-add">Add</button></div></div>`);
   const redo = () => settings(box), $ = q => box.querySelector(q);
+  if (canStatus) {
+    const saveSt = async rules => { try { await api("rpc/app_set_status_rules", {method: "POST", body: {ch: S.church, rules}}); (S.statusRules ??= {})[S.church] = rules; toast("Saved."); redo(); }
+      catch (e) { toast(/app_set_status_rules|function/i.test(e.message) ? "Run the latest setup SQL in Supabase once, then try again." : "Not saved: " + e.message); } };
+    box.querySelectorAll("[data-st]").forEach(x => x.onchange = () => saveSt({...statusRules(), [x.dataset.st]: x.value}));
+    box.querySelectorAll("[data-st-del]").forEach(b => b.onclick = () => { const r = {...statusRules()}; delete r[b.dataset.stDel]; saveSt(r); });
+    $("#st-add").onclick = () => { const n = $("#st-new").value.trim().replace(/\s+/g, " ").slice(0, 30); if (!n) return;
+      if (norm(n) === "active" || Object.keys(statusRules()).some(k => norm(k) === norm(n))) return toast("That status is already there.");
+      saveSt({...statusRules(), [n.charAt(0).toUpperCase() + n.slice(1)]: "in"}); };
+  }
   box.querySelectorAll("[data-accent]").forEach(b => b.onclick = () => { saveLook({accent: b.dataset.accent === ACCENTS[0][0] ? "" : b.dataset.accent}); redo(); });
   $("#acc-own").onchange = e => { saveLook({accent: e.target.value}); redo(); };
   $("#acc-own").oninput = e => applyLook({...look(), accent: e.target.value});  // see it while picking

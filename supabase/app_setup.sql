@@ -623,6 +623,55 @@ grant execute on function app_db_size() to authenticated;
 revoke all on function app_rename_church(text, text) from public, anon;
 grant execute on function app_rename_church(text, text) to authenticated;
 
+-- Check-in: someone with a status (Away, Inactive, Moved, Left…) who is ticked in is Active again. Anyone who may tick them can do it (ushers and
+-- pastors too); never a status set to "Off for good" (Deceased unless changed), and nothing else about the person.
+create or replace function app_back_active(mid text) returns boolean language plpgsql security definer set search_path = public as $$
+declare n int; who text;
+begin
+  if app_role() is null or app_role() not in ('admin', 'lead', 'team', 'pastor') then return false; end if;
+  update members m set status = '', version = m.version + 1
+   where m.id = mid and trim(coalesce(m.status, '')) <> ''
+     and coalesce((select r.value from settings s, json_each_text(s.value::json) r  -- the church's own rule for this status (Settings → Statuses)
+                   where s.key = 'status_rules:' || coalesce(nullif(trim(m.church), ''), app_home_church()) and lower(r.key) = lower(trim(m.status)) limit 1),
+                  case when lower(trim(m.status)) = 'deceased' then 'gone' else 'in' end) <> 'gone'
+     and (app_can_see(m.church) or app_is_mine(m.church, m.pastor, m.shepherd))
+  returning m.full_name into who;
+  get diagnostics n = row_count;
+  if n > 0 then
+    insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+    values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF'), 'edit', null, mid,
+            'back: set to Active when ticked in', app_who(), 'done');
+  end if;
+  return n > 0;
+end $$;
+revoke all on function app_back_active(text) from public, anon;
+grant execute on function app_back_active(text) to authenticated;
+
+-- Statuses (Settings → Statuses): what each status does at each church, kept as {"Away": "in", "Left": "out", "Deceased": "gone", ...}.
+-- Anyone who ticks people in can change their own church's (an admin any church's).
+create or replace function app_status_rules() returns json language sql stable security definer set search_path = public as $$
+  select coalesce(json_object_agg(substr(key, 14), value::json), '{}'::json) from settings where key like 'status_rules:%' and app_role() is not null
+$$;
+revoke all on function app_status_rules() from public, anon;
+grant execute on function app_status_rules() to authenticated;
+create or replace function app_set_status_rules(ch text, rules json) returns boolean language plpgsql security definer set search_path = public as $$
+declare c text := coalesce(nullif(trim(ch), ''), app_home_church()); k text; v text; n int := 0;
+begin
+  if app_role() is null or app_role() not in ('admin', 'lead', 'team', 'pastor') then raise exception 'not allowed'; end if;
+  if app_role() <> 'admin' and c <> coalesce(nullif(trim(app_church()), ''), app_home_church()) then raise exception 'not allowed'; end if;
+  if json_typeof(rules) <> 'object' then raise exception 'not a list of statuses'; end if;
+  for k, v in select key, value from json_each_text(rules) loop
+    n := n + 1;
+    if n > 40 or length(trim(k)) not between 1 and 40 or v not in ('in', 'out', 'gone') then raise exception 'not a valid status: %', k; end if;
+  end loop;
+  insert into settings (key, value) values ('status_rules:' || c, rules::text) on conflict (key) do update set value = excluded.value;
+  insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+  values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF'), 'edit', null, null, 'statuses changed · ' || c, app_who(), 'done');
+  return true;
+end $$;
+revoke all on function app_set_status_rules(text, json) from public, anon;
+grant execute on function app_set_status_rules(text, json) to authenticated;
+
 -- ---------------------------------------------------------------- Backups: a Google Sheet that copies everything each night
 -- Admin → Backups makes a backup key (only its fingerprint is kept here) and the script for a Google Sheet; the sheet's
 -- script sends the key each night and gets back every church, person, service and check-in, the pastor and shepherd lists
