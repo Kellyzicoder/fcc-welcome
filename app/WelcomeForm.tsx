@@ -1,11 +1,15 @@
 "use client";
 
-import { useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { LIMITS, SubmitError, newRequestId, submitSignUp, validate, type FieldErrors, type SignUp, type SupabaseConfig } from "./registration";
 
 const EMPTY: SignUp = { fullName: "", phone: "", email: "", invitedBy: "", notes: "", wantsContact: true };
 
 type Props = { config: SupabaseConfig | null };
+
+// Shared device mode (?shared=1): for a church iPad or phone that many people use.
+// After someone sends the form, it clears itself and starts again for the next person.
+const RESET_AFTER = 10; // seconds
 
 export default function WelcomeForm({ config }: Props) {
   const [values, setValues] = useState<SignUp>(EMPTY);
@@ -17,6 +21,29 @@ export default function WelcomeForm({ config }: Props) {
   const [sentWantsContact, setSentWantsContact] = useState(true);
   // One id per sign-up, kept across retries so a resend after a dropped connection can't create a duplicate.
   const requestId = useRef<string>("");
+  const [shared, setShared] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(RESET_AFTER);
+
+  useEffect(() => {
+    setShared(new URLSearchParams(window.location.search).get("shared") === "1");
+  }, []);
+
+  useEffect(() => {
+    if (!shared || status !== "done") return;
+    setSecondsLeft(RESET_AFTER);
+    const timer = setInterval(() => {
+      setSecondsLeft((s) => {
+        if (s <= 1) {
+          clearInterval(timer);
+          setStatus("idle");
+          window.scrollTo({ top: 0 });
+          return RESET_AFTER;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [shared, status]);
 
   const set = (field: keyof SignUp) => (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const raw = e.target.type === "checkbox" ? (e.target as HTMLInputElement).checked : e.target.value;
@@ -64,6 +91,7 @@ export default function WelcomeForm({ config }: Props) {
             ? "We're so glad you came. Someone from our welcome team will be in touch this week."
             : "We're so glad you came — we hope to see you again soon."}
         </p>
+        {shared && <p>Getting the form ready for the next person in {secondsLeft} seconds…</p>}
         <button type="button" className="secondary" onClick={() => setStatus("idle")}>
           Fill in for someone else
         </button>
