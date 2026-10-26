@@ -4,7 +4,13 @@
 
 const RED_AT = 5, YELLOW_AT = 3, ARCHIVE_DAYS = 730;
 const AWAY = new Set(["inactive", "moved", "left", "deceased", "transferred", "away"]);
-const GONE = new Set(["moved", "left", "deceased", "transferred"]);  // off the Check-in list; Away and Inactive stay on it, marked
+const GONE = new Set(["moved", "left", "deceased", "transferred"]);
+// Statuses and what each does, per church (Settings → Statuses): "in" stays on Check-in and Follow-up (a tick makes them Active);
+// "out" is off those lists but found by searching Check-in (a tick brings them back); "gone" is off for good (Congregation only)
+const STATUS0 = {Away: "in", Inactive: "in", Moved: "in", Left: "out", Transferred: "out", Deceased: "gone"};
+const statusRules = (ch = S.church) => ({...STATUS0, ...(S.statusRules?.[ch] || {})});
+const ruleOf = m => { const st = String(m.status || "").trim(); if (!st) return "in";
+  const r = statusRules(churchOf(m)), k = Object.keys(r).find(x => norm(x) === norm(st)); return k ? r[k] : "in"; };
 const ROLE = {admin: "Admin", bishop: "Bishop", lead: "Church admin", team: "Team", pastor: "Pastor"};
 const ROLE_OPTS = [["team", "Team (ushers)"], ["pastor", "Pastor (only their own people)"], ["reverend", "Reverend (like a Pastor: only their own people)"], ["shepherd", "Shepherd (like a Pastor: only the people assigned to them)"],
   ["lead", "Church admin (whole church, follow-up)"],
@@ -994,6 +1000,7 @@ async function load() {
     all(`service_parts?select=service_date,part,name&church=eq.${encodeURIComponent(S.church)}&service_date=gte.${since}&order=service_date,part`).catch(() => null),
     all(`service_ticks?select=service_date,part,member_id&service_date=gte.${since}`).catch(() => [])]);
   S.pastorList = Object.fromEntries(lists.map(r => [r.key.slice(8), (r.value || "").split("\n").map(x => x.trim()).filter(Boolean)]));
+  S.statusRules = await api("rpc/app_status_rules", {method: "POST", body: {}}).catch(() => S.statusRules || {});  // Settings → Statuses, per church
   S.shepherdList = await api("settings?select=key,value&key=like.shepherds:*")
     .then(r => Object.fromEntries(r.map(x => [x.key.slice(10), (x.value || "").split("\n").map(y => y.trim()).filter(Boolean)]))).catch(() => ({}));
   S.seen = seen && Object.fromEntries(seen.map(r => [r.member_id, r.last_seen]));
@@ -1046,7 +1053,7 @@ function picture(upTo = today()) {  // everything the pages show, as things stoo
   const dates = Object.keys(byDate).sort(), cutoff = new Date(Date.now() - ARCHIVE_DAYS * 864e5).toISOString().slice(0, 10);
   const people = [], archived = [];
   for (const m of mine) {
-    if (GONE.has(norm(m.status)) && norm(m.status) !== "moved") continue;  // Away, Inactive and Moved stay in Follow-up; only Left, Transferred and Deceased drop out
+    if (ruleOf(m) !== "in") continue;  // only statuses set to stay on the lists are in Follow-up (Settings → Statuses)
     const start = [m.date_joined, m.first_visit].filter(Boolean).sort()[0] || "0000";
     let missed = 0, seen = null;
     // only Sunday services count as missed; coming to any service (midweek too) counts as being seen
@@ -2116,7 +2123,7 @@ async function setPresent(id, on, seen, at = isoLocal(), part = 0) {
     if (part) await api("service_ticks?on_conflict=service_date,part,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, part, member_id: id, checked_at: at}});
     log("tick", id, "done", part ? partName(S.date, part) : "");
     const m = S.members.find(x => x.id === id);  // someone marked Away or Inactive who comes back is Active again (whoever ticks them)
-    if (m && /^(away|inactive|moved|left|transferred)$/i.test(String(m.status || "").trim()))
+    if (m && String(m.status || "").trim() && ruleOf(m) !== "gone")
       api("rpc/app_back_active", {method: "POST", body: {mid: id}})
         .then(ok => { if (ok) { Object.assign(m, {status: "", version: (Number(m.version) || 1) + 1}); toast(`${m.full_name} is back, so they're Active again.`); } }).catch(() => {});
     return "done";
@@ -2134,8 +2141,8 @@ async function setPresent(id, on, seen, at = isoLocal(), part = 0) {
   log("untick", id, result); return result;
 }
 function checkin(el) {
-  const mine = S.members.filter(m => churchOf(m) === S.church && !GONE.has(norm(m.status))).sort((a, b) => norm(a.full_name).localeCompare(norm(b.full_name)));
-  const back = S.members.filter(m => churchOf(m) === S.church && GONE.has(norm(m.status)) && norm(m.status) !== "deceased");  // moved, left or transferred: found by searching; ticking brings them back
+  const mine = S.members.filter(m => churchOf(m) === S.church && ruleOf(m) === "in").sort((a, b) => norm(a.full_name).localeCompare(norm(b.full_name)));
+  const back = S.members.filter(m => churchOf(m) === S.church && ruleOf(m) === "out");  // off the lists: found by searching; ticking brings them back
   let here = {};
   const pastor = S.me.role === "pastor";  // a pastor ticks their own people only (locks work as for ushers): no adding or renaming
   // Laid out like Admin → Sign-ins: numbers on top, then pills to filter, team and search on the right, a table of names, 25 a page
@@ -2274,7 +2281,7 @@ function checkin(el) {
     const page = shown.slice((S.ciPage - 1) * PER, S.ciPage * PER);
     const nums = [...new Set([1, S.ciPage - 1, S.ciPage, S.ciPage + 1, pages])].filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
     box.innerHTML = shown.length ? `<div class="names">${page.map(m => `<label class="name ${here[m.id] ? "on" : ""}"><input type="checkbox" data-id="${esc(m.id)}" ${here[m.id] ? "checked" : ""} ${lock ? "disabled" : ""}>
-        <span class="nava" ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span><span class="nn">${esc(m.full_name)}</span><small>${[m.type === "first_timer" ? "first-timer" : m.type === "visitor" ? "visitor" : "", isKid(m) ? "child" : "", AWAY.has(norm(m.status)) ? m.status.toLowerCase() : ""].filter(Boolean).map(esc).join(" · ")}</small></label>`).join("")}</div>`
+        <span class="nava" ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span><span class="nn">${esc(m.full_name)}</span><small>${[m.type === "first_timer" ? "first-timer" : m.type === "visitor" ? "visitor" : "", isKid(m) ? "child" : "", m.status ? String(m.status).toLowerCase() : ""].filter(Boolean).map(esc).join(" · ")}</small></label>`).join("")}</div>`
       : `<p class="empty">${norm(S.q) ? "Nobody matches that search." : "Nobody here. Try another filter or team."}</p>`;
     el.querySelector("#ci-pager").innerHTML = pages > 1 ? `<div class="pager"><span class="muted">Page ${S.ciPage} of ${pages} · ${shown.length} people</span><span class="gap"></span>
         <button class="pg" data-cpg="${S.ciPage - 1}" ${S.ciPage === 1 ? "disabled" : ""} aria-label="Previous page">${svg("prev")}</button>
@@ -2895,7 +2902,7 @@ function people(el) {
   const mine = S.selOnly ? everyone.filter(m => S.sel.has(m.id)).sort((a, b) => SORT[S.sortBy][1](a, b) || byName(a, b)) : (q ? inRole.filter(m => [m.full_name, m.phone, m.role, m.pastor, m.status].some(x => norm(x).includes(q))) : inRole)
     .filter(SHOW[S.showF][1]).sort((a, b) => SORT[S.sortBy][1](a, b) || byName(a, b));
   const plist = S.pastorList[S.church] || [], admin = S.me.role === "admin";
-  const edit = S.me.role !== "team", statuses = ["", "Away", "Inactive", "Moved", "Left", "Transferred", "Deceased"];
+  const edit = S.me.role !== "team", statuses = ["", ...Object.keys(statusRules())];
   const roleNames = roleKeys.map(k => counts[k].label);
   const picked = everyone.filter(m => S.sel.has(m.id)), shownPicked = mine.filter(m => S.sel.has(m.id)).length;
   const typeOf = typeName, ageOf = m => isKid(m) ? "Child" : "Adult";
@@ -3081,7 +3088,7 @@ function people(el) {
 // The Edit popup for one person; used on Congregation and on the Pastors page.
 function editPerson(m) {
     if (!m) return;
-    const plist = S.pastorList[churchOf(m)] || [], admin = S.me.role === "admin", statuses = ["", "Away", "Inactive", "Moved", "Left", "Transferred", "Deceased"];
+    const plist = S.pastorList[churchOf(m)] || [], admin = S.me.role === "admin", statuses = ["", ...Object.keys(statusRules(churchOf(m)))];
     const ageOf = m => isKid(m) ? "Child" : "Adult";
     const roleNames = [...new Map(S.members.filter(x => churchOf(x) === churchOf(m)).flatMap(rolesOf).map(r => [norm(r), r])).values()].sort();
     const cur = pastorsOf(m), slist = (S.shepherdList || {})[churchOf(m)] || [], scur = shepherdsOf(m);
@@ -4399,7 +4406,23 @@ function settings(box) {
       ${row("Send to", "Extra places to send a summary, next to WhatsApp and Copy.", `<div class="chips" role="group" aria-label="Send to">${SHARE.map(([k, t]) =>
         `<button type="button" class="chip" data-share-pick="${k}" aria-pressed="${shareTo().includes(k)}">${t}</button>`).join("")}</div>`)}
       ${["admin", "lead"].includes(S.me.role) ? flip("set-livefill", "Fill in livestream numbers", "In the service summary, fill YouTube, Facebook and Zoom from the livestream's peaks for today.", !!v.liveFill) : ""}</div>`;
+  // Statuses: what each one does at this church, set by anyone who ticks people in (admins, church admins, ushers, pastors, shepherds)
+  const canStatus = ["admin", "lead", "team", "pastor"].includes(S.me.role) && !S.preview;
+  if (canStatus) box.insertAdjacentHTML("beforeend", `<div class="card set-card"><div class="card-head"><h2>Statuses</h2></div>
+    <p class="note" style="margin:0 2px 6px">What each status does at ${esc(S.church)}.</p>
+    ${Object.entries(statusRules()).map(([k, v]) => row(esc(k), "", `<select class="in" data-st="${esc(k)}" aria-label="${esc(k)}">${[["in", "Stays on the lists"], ["out", "Off the lists (back if ticked)"], ["gone", "Off for good"]]
+      .map(([a, t]) => `<option value="${a}" ${v === a ? "selected" : ""}>${t}</option>`).join("")}</select>${STATUS0[k] ? "" : `<button type="button" class="link-btn" data-st-del="${esc(k)}">Remove</button>`}`)).join("")}
+    <div class="set-row st-add" style="display:flex;gap:8px;align-items:center"><input class="in" id="st-new" style="flex:1;min-width:0" maxlength="30" placeholder="Add a status, e.g. Studying abroad" aria-label="New status"><button type="button" class="pill-btn" id="st-add">Add</button></div></div>`);
   const redo = () => settings(box), $ = q => box.querySelector(q);
+  if (canStatus) {
+    const saveSt = async rules => { try { await api("rpc/app_set_status_rules", {method: "POST", body: {ch: S.church, rules}}); (S.statusRules ??= {})[S.church] = rules; toast("Saved."); redo(); }
+      catch (e) { toast(/app_set_status_rules|function/i.test(e.message) ? "Run the latest setup SQL in Supabase once, then try again." : "Not saved: " + e.message); } };
+    box.querySelectorAll("[data-st]").forEach(x => x.onchange = () => saveSt({...statusRules(), [x.dataset.st]: x.value}));
+    box.querySelectorAll("[data-st-del]").forEach(b => b.onclick = () => { const r = {...statusRules()}; delete r[b.dataset.stDel]; saveSt(r); });
+    $("#st-add").onclick = () => { const n = $("#st-new").value.trim().replace(/\s+/g, " ").slice(0, 30); if (!n) return;
+      if (norm(n) === "active" || Object.keys(statusRules()).some(k => norm(k) === norm(n))) return toast("That status is already there.");
+      saveSt({...statusRules(), [n.charAt(0).toUpperCase() + n.slice(1)]: "in"}); };
+  }
   box.querySelectorAll("[data-accent]").forEach(b => b.onclick = () => { saveLook({accent: b.dataset.accent === ACCENTS[0][0] ? "" : b.dataset.accent}); redo(); });
   $("#acc-own").onchange = e => { saveLook({accent: e.target.value}); redo(); };
   $("#acc-own").oninput = e => applyLook({...look(), accent: e.target.value});  // see it while picking
