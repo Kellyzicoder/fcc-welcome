@@ -2612,10 +2612,9 @@ function oldRegister() {
   d.innerHTML = `<form class="sheet" role="dialog" aria-modal="true" aria-label="Load an old register">
     <div class="card-head"><h2>Load an old register</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
     <div class="fields">
-      <p class="note" style="margin:0 2px">For a register kept in Google Sheets or Excel: names down the side, Sundays across the top, and a <b style="color:#188038">green</b> square or a mark (✓, P, Y, 1) for each Sunday someone came.
-        In Google Sheets: <b>File → Download → Microsoft Excel (.xlsx)</b>, or CSV if it uses marks, then pick that file here. The check-ins go on <b>${esc(S.church)}</b>.</p>
+      <p class="note" style="margin:0 2px">Names down the side, Sundays across the top. A green square or a mark (✓, P, 1) means they came. From Google Sheets: <b>File → Download → .xlsx</b>.</p>
       <label class="bk-drop"><input type="file" id="or-file" accept=".xlsx,.csv,.tsv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
-        <span class="bk-drop-btn">${svg("upload")}<span>Choose the file</span></span><small>Nothing is saved until you check the names and press Add.</small></label>
+        <span class="bk-drop-btn">${svg("upload")}<span>Choose the file</span></span><small>Nothing is saved until you press Add.</small></label>
       <div id="or-opts"></div><div id="or-list"></div>
     </div>
     <div class="msg bad" id="or-err" hidden></div>
@@ -2682,7 +2681,7 @@ function oldRegister() {
   const draw = () => {
     const use = rows.filter(x => x.pick && x.came.length), n = use.reduce((a, x) => a + x.came.length, 0), check = rows.filter(x => !x.sure && x.came.length).length;
     const notFound = rows.filter(x => !x.pick && !x.likely?.length && x.came.length);
-    $("or-list").innerHTML = rows.length ? `${notFound.length ? `<div class="or-sum"><button type="button" class="link-btn" id="or-new">+ Add ${notFound.length} as new</button></div>` : ""}
+    $("or-list").innerHTML = rows.length ? `${notFound.length ? `<div class="or-sum"><button type="button" class="pill-btn sm" id="or-new">${svg("plus")}<span>Add ${notFound.length} as new</span></button></div>` : ""}
       <div class="scroll or-scroll"><table class="utable"><thead><tr><th>On the sheet</th><th>Who it is in the app</th><th>Sundays</th></tr></thead><tbody>
       ${rows.map((x, i) => `<tr class="${x.sure || !x.came.length ? "" : "or-check"}"><td>${esc(x.name)}${!x.sure && x.came.length ? ` <span class="badge">Check</span>` : ""}</td>
         <td><select class="in sm" data-or="${i}" aria-label="Who ${esc(x.name)} is"><option value="">${x.sure ? "Leave out" : "Choose who this is…"}</option><option value="+new">+ Add as a new person (${esc(newName(x.name))})</option>
@@ -2722,7 +2721,7 @@ function oldRegister() {
         n += ids.length;
       }
       log("edit", "", "done", `loaded an old register: ${n} check-ins over ${dates.length} Sundays · ${S.church}`);
-      close(); toast(`Added ${n} check-ins from the old register. Anyone already ticked was left as they were.`); await load(); render();
+      close(); toast(`Added ${n} check-ins.`); await load(); render();
     } catch (err) { fail("Stopped part-way (" + n + " added): " + err.message + ". Press Add again to carry on: nothing is added twice."); go.disabled = false; go.textContent = "Add the check-ins"; }
   };
 }
