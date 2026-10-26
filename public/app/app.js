@@ -2667,7 +2667,7 @@ function oldRegister() {
     const SKIP = /^(adults?|children|kids|names?|dates?|attendance|total.*|first timers?|visitors?|h\s*&\s*n.*|here\s*&\s*now.*|members?)$/i;
     rows = []; let sect = "member";  // the heading a name sits under: first-timers and visitors are added as such if they're new
     for (const r of grid.slice(head + 1)) {
-      const name = r[nameCol]?.text || ""; if (/^total/i.test(name)) break;
+      const name = r[nameCol]?.text || ""; if (/^totals?\b/i.test(name)) break;  // the totals row ends the names (but not "Totally…")
       if (name && SKIP.test(clean(name))) { const h = norm(clean(name)); sect = /first/.test(h) ? "first_timer" : /visitor/.test(h) ? "visitor" : /child|kid/.test(h) ? "child" : "member"; continue; }
       if (!name || !/\p{L}/u.test(name)) continue;
       const xIs = $("or-x")?.value || "came", hit = c => kind(c?.fill) === "came" || mark(c?.text) === "came" || (mark(c?.text) === "x" && xIs === "came");
