@@ -2682,11 +2682,11 @@ function oldRegister() {
   const draw = () => {
     const use = rows.filter(x => x.pick && x.came.length), n = use.reduce((a, x) => a + x.came.length, 0), check = rows.filter(x => !x.sure && x.came.length).length;
     const notFound = rows.filter(x => !x.pick && !x.likely?.length && x.came.length);
-    $("or-list").innerHTML = rows.length ? `<div class="or-sum"><b>${rows.length} names</b> · ${rows.filter(x => x.sure).length} matched${check ? ` · <span class="bad-t">${check} to check</span>` : ""}
-        · <b>${n} check-ins</b> over ${dates.length} ${dates.length === 1 ? "Sunday" : "Sundays"}${dates.length ? ` (${esc(nice(dates[0]))} to ${esc(nice(dates[dates.length - 1]))})` : ""}
-        ${rows.some(x => x.mid) ? `<br><small>Orange squares (came midweek) aren't added: the sheet doesn't say which day.</small>` : ""}
-        ${notFound.length ? `<br><button type="button" class="link-btn" id="or-new">+ Add the ${notFound.length} not in the app as new people</button>` : ""}
-        ${rows.some(x => x.pick === "+new") ? `<br><small>${rows.filter(x => x.pick === "+new").length} new ${rows.filter(x => x.pick === "+new").length === 1 ? "person goes" : "people go"} on ${esc(S.church)}'s register first (first-timers and visitors as such), then their check-ins.</small>` : ""}</div>
+    const nNew = rows.filter(x => x.pick === "+new").length;
+    $("or-list").innerHTML = rows.length ? `<div class="or-sum"><b>${n} check-ins</b>${dates.length ? ` · ${esc(nice(dates[0]))} – ${esc(nice(dates[dates.length - 1]))}` : ""}
+        <br>${rows.filter(x => x.sure && x.pick !== "+new").length} matched${nNew ? ` · ${nNew} new` : ""}${check ? ` · <span class="bad-t">${check} to check</span>` : ""}
+        ${rows.some(x => x.mid) ? `<br><small>Orange (midweek) isn't added.</small>` : ""}
+        ${notFound.length ? `<br><button type="button" class="link-btn" id="or-new">+ Add ${notFound.length} as new</button>` : ""}</div>
       <div class="scroll or-scroll"><table class="utable"><thead><tr><th>On the sheet</th><th>Who it is in the app</th><th>Sundays</th></tr></thead><tbody>
       ${rows.map((x, i) => `<tr class="${x.sure || !x.came.length ? "" : "or-check"}"><td>${esc(x.name)}${!x.sure && x.came.length ? ` <span class="badge">Check</span>` : ""}</td>
         <td><select class="in sm" data-or="${i}" aria-label="Who ${esc(x.name)} is"><option value="">${x.sure ? "Leave out" : "Choose who this is…"}</option><option value="+new">+ Add as a new person (${esc(newName(x.name))})</option>
