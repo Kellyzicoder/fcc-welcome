@@ -114,8 +114,9 @@ function backup() {
   const nice = s => s ? +s.slice(8, 10) + " " + MON[+s.slice(5, 7) - 1].charAt(0) + MON[+s.slice(5, 7) - 1].slice(1).toLowerCase() + (+s.slice(0, 4) === yr ? "" : " " + s.slice(0, 4)) : "";
   const churchOf = x => String(x.church || "").trim() || home;
   const came = {}; for (const t of d.attendance || []) (came[t.member_id] = came[t.member_id] || new Set()).add(t.service_date);
-  // each person's group on the tab, in this order
-  const GROUPS = [["Members", x => !x.status && x.type !== "first_timer" && x.type !== "visitor" && !/child/i.test(x.age_group || "")],
+  // each person's group on the tab, in this order. Here & Now: members who don't come around much (worked out each night, below)
+  const GROUPS = [["Members", (x, hn) => !x.status && x.type !== "first_timer" && x.type !== "visitor" && !/child/i.test(x.age_group || "") && !hn],
+    ["Here & Now", (x, hn) => !x.status && x.type !== "first_timer" && x.type !== "visitor" && !/child/i.test(x.age_group || "") && hn],
     ["Children", x => !x.status && /child/i.test(x.age_group || "")], ["First-timers", x => !x.status && x.type === "first_timer"],
     ["Visitors", x => !x.status && x.type === "visitor"], ["Away, moved or left", x => !!x.status]];
   // one tab per church: a title and key, then each group (numbered), every Sunday of the year in colour, and the totals
@@ -126,9 +127,13 @@ function backup() {
     // before someone joined (or, for a first-timer or visitor, first came), their Sundays stay blank and aren't counted as missed
     const startOf = x => [x.first_visit, x.date_joined, ...(x.type === "first_timer" || x.type === "visitor" ? [...(came[x.id] || [])] : [])].filter(Boolean).sort()[0] || "";
     const status = (x, s) => { const mine = came[x.id] || new Set(), start = startOf(x);
-      if (s > today || (start && day(s, 0) < day(start, -6))) return WHITE; if (mine.has(s)) return CAME;
+      if (s > today || (start && s < start)) return WHITE; if (mine.has(s)) return CAME;
       for (let k = -6; k < 0; k++) if (mine.has(day(s, k))) return MIDWEEK;  // came to a service that week, just not on the Sunday
       return held.has(s) ? MISSED : NONE; };
+    // Here & Now: came (on the Sunday or midweek) to fewer than 1 in 4 of the Sundays held in the last 3 months (counted from when they joined)
+    const recent = [...held].filter(s => new Date(s + "T00:00:00Z").getUTCDay() === 0 && s > day(today, -91));
+    const hereNow = x => { const ss2 = recent.map(s => status(x, s)).filter(k => k !== WHITE && k !== NONE);
+      return ss2.length >= 4 && ss2.filter(k => k === CAME || k === MIDWEEK).length / ss2.length < .25; };
     const FIXED = ["#", "NAME", "PHONE", "PASTOR", "LAST CAME", "MISSED THIS YEAR", "NOTE"], n = FIXED.length, cols = n + sundays.length;
     const sh = tab(c); order.push(sh); churchTabs.push(c); done.push(c + " " + people.length);
     const blank = () => Array(cols).fill(""), vals = [], bg = [], kinds = [];
@@ -143,7 +148,7 @@ function backup() {
     const headAt = vals.length + 1; add(months, Array(cols).fill(HEAD_BG), "head"); add(days, Array(cols).fill(HEAD_BG), "head");
     const totals = sundays.map(() => [0, 0]);
     for (const [label, test] of GROUPS) {
-      const list = people.filter(test); if (!list.length) continue;
+      const list = people.filter(x => test(x, hereNow(x))); if (!list.length) continue;
       add(Object.assign(blank(), {0: label.toUpperCase() + " · " + list.length}), Array(cols).fill(SECTION), "section");
       list.forEach((x, i) => {
         const mine = came[x.id] || new Set(), last = [...mine].filter(t => t <= today).sort().pop(), colours = sundays.map(s => status(x, s));
