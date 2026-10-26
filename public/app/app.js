@@ -841,7 +841,7 @@ async function start() {
 function tour() {
   const r = S.me.role, phone = matchMedia("(max-width: 1080px)").matches, Q = q => document.querySelector(q);
   // the menu item for a page: in the side menu on laptops; on phones the bottom bar, or More when it isn't there
-  const nav = v => () => phone ? Q(`.dock [data-view="${v}"]`) || Q(".dock [data-menu]") : Q(`.side .nav[data-view="${v}"]`);
+  const nav = v => () => phone ? Q(`.dock [data-view="${v}"]`) || Q(".top [data-menu]") : Q(`.side .nav[data-view="${v}"]`);
   const more = v => phone && !Q(`.dock [data-view="${v}"]`) ? " Tap More to find it." : "";
   const steps = [[null, "dashboard", 1, "Welcome to FCC Attendance", `Here's a quick look at where things are. It takes under a minute, and you can see it again any time from Help.`],
     ...(r === "bishop" ? [[nav("overview"), "overview", 1, "All churches", "Every church's numbers in one place. Tap a church for its own dashboard, or a day in the calendar to look back."],
@@ -1142,7 +1142,7 @@ function render() {
   const short = {dashboard: "Home", overview: "Churches", people: "People", followup: "Follow-up"};  // the bottom bar on phones: the four most-used pages, then More
   // pages someone turned off in Settings → Pages you see: left out of their menu and bottom bar (the first page always stays)
   const hid = new Set(look().hide || []), menuGroups = groups.map(([h, items]) => [h, items.filter(([k]) => !hid.has(k) || k === allowed[0])]).filter(g => g[1].length);
-  const dock = menuGroups.flatMap(g => g[1]).filter(x => ["mine", "dashboard", "checkin", "followup", "people", "overview"].includes(x[0])).slice(0, 4).map(([k, t]) => [k, short[k] || t]);
+  const dock = menuGroups.flatMap(g => g[1]).filter(x => ["mine", "dashboard", "checkin", "followup", "people", "overview"].includes(x[0])).slice(0, 5).map(([k, t]) => [k, short[k] || t]);
   const go = to => {  // a page opens straight away from what's already loaded; the latest is fetched behind it, and only if
     // something changed is the page redrawn, in place (same scroll, and not while a box is open or someone is typing)
     const me = S.goTok = (S.goTok || 0) + 1; S.view = to; render();
@@ -1165,7 +1165,7 @@ function render() {
       <div class="side-foot">${S.me.base === "admin" ? (S.preview ? `<button class="nav" data-unpreview title="Back to Admin">${svg("back")}<span class="nl">Back to Admin</span></button>`
           : `<button class="nav" data-viewas title="View as another role">${svg("eye")}<span class="nl">View as another role</span></button>`) : ""}${S.canSwitch ? `<button class="nav" data-switch title="${switchLabel()}">${svg("pastors")}<span class="nl">${switchLabel()}</span></button>` : ""}<button class="nav out" data-out title="Log out">${svg("out")}<span class="nl">Log out</span></button></div></aside>
     <main class="main">${S.preview ? `<div class="preview-bar">${svg("eye")}<span>Viewing as <b>${esc(previewName())}</b>. View only: nothing you do here is saved.</span>
-        <button class="pill-btn sm" data-unpreview>Back to Admin</button></div>` : ""}<div class="top">${S.hist?.length && S.view !== allowed[0] ? `<button class="back" data-back>${svg("back")}Back</button>` : ""}<span class="gap"></span>
+        <button class="pill-btn sm" data-unpreview>Back to Admin</button></div>` : ""}<div class="top"><button type="button" class="menu-tg" data-menu aria-label="Menu" aria-controls="menu" aria-expanded="false">${svg("menu")}</button>${S.hist?.length && S.view !== allowed[0] ? `<button class="back" data-back>${svg("back")}Back</button>` : ""}<span class="gap"></span>
         ${fsOk() ? `<button class="refresh-btn fs-btn" data-fs title="${document.fullscreenElement ? "Show the browser again" : "Full screen: hide the browser"}" aria-label="${document.fullscreenElement ? "Exit full screen" : "Full screen"}">${svg(document.fullscreenElement ? "shrink" : "expand")}</button>` : ""}
         ${S.me.role === "bishop" ? "" : `<button class="refresh-btn" data-refresh title="Load the latest check-ins and changes" aria-label="Refresh">${svg("refresh")}<span>Refresh</span></button>`}
         <div class="mode" role="group" aria-label="Colour mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button></div>
@@ -1173,9 +1173,10 @@ function render() {
         <button class="out-btn" data-out title="Log out">${svg("out")}<span>Log out</span></button></div>
       <div class="body" id="view"></div></main>
     <nav class="dock" aria-label="Main">${dock.map(([k, t]) => `<button class="${S.view === k ? "on" : ""} ${t.length > 9 ? "long" : ""}" data-view="${k}" aria-label="${t}">${svg(k)}<span>${t}</span></button>`).join("")}
-      <button class="${dock.some(x => x[0] === S.view) ? "" : "on"}" data-menu aria-label="More" aria-controls="menu" aria-expanded="false">${svg("more")}<span>More</span></button></nav></div>`;
+</nav></div>`;  // everything else: the ☰ menu at the top left
   const shell = root.querySelector(".shell"), menuBtn = root.querySelector("[data-menu]");
   const menu = open => { shell.classList.toggle("open", open); menuBtn.setAttribute("aria-expanded", open); };
+  S.menu = menu;  // the phone swipe below opens and closes it too
   menuBtn.onclick = () => menu(!shell.classList.contains("open"));
   root.querySelector("[data-mini]").onclick = e => {  // laptop menu: icons only, or icons with names; remembered on this device
     S.mini = !S.mini; try { localStorage.setItem("fcc-mini", S.mini ? "1" : "0"); } catch {}
@@ -1269,6 +1270,38 @@ function pageIn(el) {
   addEventListener("scroll", check, {passive: true}); addEventListener("resize", check);
 }
 // The phone's back gesture (and the Back button, which uses it) returns to the page you came from.
+// Phones: swipe right across the page to pull the menu open (the page slides over with your finger, as in Threads),
+// and swipe left to close it. Up-and-down scrolling, and anything that scrolls sideways itself, are left alone.
+(() => {
+  let st = null;
+  addEventListener("touchstart", e => {
+    st = null;
+    if (innerWidth > 1080 || e.touches.length !== 1 || document.querySelector(".modal, .tour-pop")) return;
+    const sh = document.querySelector(".shell"), side = document.querySelector(".side"); if (!sh || !side) return;
+    if (e.target.closest?.("input, textarea, select, .chart, .dock")) return;
+    for (let n = e.target; n && n !== document.body; n = n.parentElement) {  // something that scrolls sideways keeps its own swipe
+      if (n === side) break;
+      if (/(auto|scroll)/.test(getComputedStyle(n).overflowX) && n.scrollWidth > n.clientWidth + 2) return; }
+    const t = e.touches[0]; st = {x: t.clientX, y: t.clientY, open: sh.classList.contains("open"), drag: false, w: side.offsetWidth, sh, p: 0};
+  }, {passive: true});
+  addEventListener("touchmove", e => {
+    if (!st) return;
+    const t = e.touches[0], dx = t.clientX - st.x, dy = t.clientY - st.y;
+    if (!st.drag) {
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { st = null; return; }  // scrolling up or down
+      if (Math.abs(dx) < 14) return;
+      if (st.open ? dx > 0 : dx < 0) { st = null; return; }
+      st.drag = true; st.sh.classList.add("dragging");
+    }
+    st.p = Math.min(st.w, Math.max(0, (st.open ? st.w : 0) + dx)); st.sh.style.setProperty("--pull", st.p + "px");
+  }, {passive: true});
+  const end = () => {
+    if (!st) return; const s = st; st = null; if (!s.drag) return;
+    s.sh.classList.remove("dragging"); s.sh.style.removeProperty("--pull");
+    S.menu?.(s.p > s.w * (s.open ? .7 : .3));  // past a third of the way: it opens; back under two thirds: it closes
+  };
+  addEventListener("touchend", end); addEventListener("touchcancel", end);
+})();
 addEventListener("popstate", () => {
   if (!S.me || !S.hist?.length) return;
   S.view = S.hist.pop(); S.goingBack = true; document.querySelectorAll(".modal").forEach(m => m.remove()); render();
