@@ -2725,9 +2725,9 @@ function bulkAdd() {
     <div class="fields">
       <label class="bk-drop" id="bk-drop"><input type="file" id="bk-file" accept=".csv,.txt,.tsv,text/csv,text/plain">
         <span class="bk-drop-btn">${svg("upload")}<span>Import a CSV file</span></span>
-        <small><b>To add people:</b> a list of names and phone numbers. Any layout works, or drop the file here.</small></label>
+        <small>Adds people from a list.</small></label>
       ${["admin", "lead"].includes(S.me.role) && !S.preview ? `<div style="display:grid;gap:6px;justify-items:center;text-align:center"><button type="button" class="pill-btn sm" id="bk-old">${svg("upload")}<span>Load an old register</span></button>
-        <small style="color:var(--ink-2);font-size:12.5px;margin:0 2px"><b>To add past check-ins:</b> a register with Sundays across the top and green squares for who came.</small></div>` : ""}
+        <small style="color:var(--ink-2);font-size:12.5px;margin:0 2px">Adds past Sundays' check-ins.</small></div>` : ""}
       <div class="bk-or"><span>or type the names</span></div>
       <div><label class="f" for="bk-text">Names, one per line</label>
         <textarea class="in" id="bk-text" rows="6" placeholder="Ama Mensah, 021 555 0101&#10;Kofi Boateng&#10;Efua Owusu, 022 555 0123, child"></textarea>
