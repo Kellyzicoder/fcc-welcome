@@ -4,6 +4,7 @@
 
 const RED_AT = 5, YELLOW_AT = 3, ARCHIVE_DAYS = 730;
 const AWAY = new Set(["inactive", "moved", "left", "deceased", "transferred", "away"]);
+const GONE = new Set(["moved", "left", "deceased", "transferred"]);  // off the Check-in list; Away and Inactive stay on it, marked
 const ROLE = {admin: "Admin", bishop: "Bishop", lead: "Church admin", team: "Team", pastor: "Pastor"};
 const ROLE_OPTS = [["team", "Team (ushers)"], ["pastor", "Pastor (only their own people)"], ["reverend", "Reverend (like a Pastor: only their own people)"], ["shepherd", "Shepherd (like a Pastor: only the people assigned to them)"],
   ["lead", "Church admin (whole church, follow-up)"],
@@ -2113,7 +2114,12 @@ async function setPresent(id, on, seen, at = isoLocal(), part = 0) {
     }
     await api("attendance?on_conflict=service_date,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, member_id: id, checked_at: at}});
     if (part) await api("service_ticks?on_conflict=service_date,part,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, part, member_id: id, checked_at: at}});
-    log("tick", id, "done", part ? partName(S.date, part) : ""); return "done";
+    log("tick", id, "done", part ? partName(S.date, part) : "");
+    const m = S.members.find(x => x.id === id);  // someone marked Away or Inactive who comes back is Active again
+    if (m && /^(away|inactive)$/i.test(String(m.status || "").trim()) && ["admin", "lead"].includes(S.me.role)) { const ver = Number(m.version) || 1;
+      api(`members?id=eq.${encodeURIComponent(id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {status: "", version: ver + 1}})
+        .then(r => { if (r?.length) { Object.assign(m, {status: "", version: ver + 1}); toast(`${m.full_name} is back, so they're Active again.`); } }).catch(() => {}); }
+    return "done";
   }
   if (part) {  // off one of the day's services; off the day too once they're at none of them
     await api(`service_ticks?service_date=eq.${S.date}&part=eq.${part}&member_id=eq.${encodeURIComponent(id)}`, {method: "DELETE", prefer: "return=minimal"});
@@ -2128,7 +2134,7 @@ async function setPresent(id, on, seen, at = isoLocal(), part = 0) {
   log("untick", id, result); return result;
 }
 function checkin(el) {
-  const mine = S.members.filter(m => churchOf(m) === S.church && !AWAY.has(norm(m.status))).sort((a, b) => norm(a.full_name).localeCompare(norm(b.full_name)));
+  const mine = S.members.filter(m => churchOf(m) === S.church && !GONE.has(norm(m.status))).sort((a, b) => norm(a.full_name).localeCompare(norm(b.full_name)));
   let here = {};
   const pastor = S.me.role === "pastor";  // a pastor ticks their own people only (locks work as for ushers): no adding or renaming
   // Laid out like Admin → Sign-ins: numbers on top, then pills to filter, team and search on the right, a table of names, 25 a page
@@ -2267,7 +2273,7 @@ function checkin(el) {
     const page = shown.slice((S.ciPage - 1) * PER, S.ciPage * PER);
     const nums = [...new Set([1, S.ciPage - 1, S.ciPage, S.ciPage + 1, pages])].filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
     box.innerHTML = shown.length ? `<div class="names">${page.map(m => `<label class="name ${here[m.id] ? "on" : ""}"><input type="checkbox" data-id="${esc(m.id)}" ${here[m.id] ? "checked" : ""} ${lock ? "disabled" : ""}>
-        <span class="nava" ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span><span class="nn">${esc(m.full_name)}</span><small>${[m.type === "first_timer" ? "first-timer" : m.type === "visitor" ? "visitor" : "", isKid(m) ? "child" : ""].filter(Boolean).map(esc).join(" · ")}</small></label>`).join("")}</div>`
+        <span class="nava" ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span><span class="nn">${esc(m.full_name)}</span><small>${[m.type === "first_timer" ? "first-timer" : m.type === "visitor" ? "visitor" : "", isKid(m) ? "child" : "", AWAY.has(norm(m.status)) ? m.status.toLowerCase() : ""].filter(Boolean).map(esc).join(" · ")}</small></label>`).join("")}</div>`
       : `<p class="empty">${norm(S.q) ? "Nobody matches that search." : "Nobody here. Try another filter or team."}</p>`;
     el.querySelector("#ci-pager").innerHTML = pages > 1 ? `<div class="pager"><span class="muted">Page ${S.ciPage} of ${pages} · ${shown.length} people</span><span class="gap"></span>
         <button class="pg" data-cpg="${S.ciPage - 1}" ${S.ciPage === 1 ? "disabled" : ""} aria-label="Previous page">${svg("prev")}</button>
