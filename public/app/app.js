@@ -2696,7 +2696,7 @@ function bulkAdd() {
       <label class="bk-drop" id="bk-drop"><input type="file" id="bk-file" accept=".csv,.txt,.tsv,text/csv,text/plain">
         <span class="bk-drop-btn">${svg("upload")}<span>Import a CSV file</span></span>
         <small>Or drop it here. Any layout works: you'll match the columns next, and the names and numbers are tidied for you.</small></label>
-      ${["admin", "lead"].includes(S.me.role) && !S.preview ? `<button type="button" class="link-btn" id="bk-old" style="justify-self:start">Have an old attendance register (Google Sheets or Excel)? Load its check-ins</button>` : ""}
+      ${["admin", "lead"].includes(S.me.role) && !S.preview ? `<button type="button" class="link-btn" id="bk-old" style="justify-self:start">Load an old register</button>` : ""}
       <div class="bk-or"><span>or type the names</span></div>
       <div><label class="f" for="bk-text">Names, one per line</label>
         <textarea class="in" id="bk-text" rows="6" placeholder="Ama Mensah, 021 555 0101&#10;Kofi Boateng&#10;Efua Owusu, 022 555 0123, child"></textarea>
