@@ -1046,7 +1046,7 @@ function picture(upTo = today()) {  // everything the pages show, as things stoo
   const dates = Object.keys(byDate).sort(), cutoff = new Date(Date.now() - ARCHIVE_DAYS * 864e5).toISOString().slice(0, 10);
   const people = [], archived = [];
   for (const m of mine) {
-    if (GONE.has(norm(m.status))) continue;  // Away and Inactive stay in Follow-up; only Moved, Left, Transferred and Deceased drop out
+    if (GONE.has(norm(m.status)) && norm(m.status) !== "moved") continue;  // Away, Inactive and Moved stay in Follow-up; only Left, Transferred and Deceased drop out
     const start = [m.date_joined, m.first_visit].filter(Boolean).sort()[0] || "0000";
     let missed = 0, seen = null;
     // only Sunday services count as missed; coming to any service (midweek too) counts as being seen
