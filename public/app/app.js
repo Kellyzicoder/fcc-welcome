@@ -1046,7 +1046,7 @@ function picture(upTo = today()) {  // everything the pages show, as things stoo
   const dates = Object.keys(byDate).sort(), cutoff = new Date(Date.now() - ARCHIVE_DAYS * 864e5).toISOString().slice(0, 10);
   const people = [], archived = [];
   for (const m of mine) {
-    if (AWAY.has(norm(m.status))) continue;
+    if (GONE.has(norm(m.status))) continue;  // Away and Inactive stay in Follow-up; only Moved, Left, Transferred and Deceased drop out
     const start = [m.date_joined, m.first_visit].filter(Boolean).sort()[0] || "0000";
     let missed = 0, seen = null;
     // only Sunday services count as missed; coming to any service (midweek too) counts as being seen
@@ -2116,7 +2116,7 @@ async function setPresent(id, on, seen, at = isoLocal(), part = 0) {
     if (part) await api("service_ticks?on_conflict=service_date,part,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, part, member_id: id, checked_at: at}});
     log("tick", id, "done", part ? partName(S.date, part) : "");
     const m = S.members.find(x => x.id === id);  // someone marked Away or Inactive who comes back is Active again (whoever ticks them)
-    if (m && /^(away|inactive)$/i.test(String(m.status || "").trim()))
+    if (m && /^(away|inactive|moved|left|transferred)$/i.test(String(m.status || "").trim()))
       api("rpc/app_back_active", {method: "POST", body: {mid: id}})
         .then(ok => { if (ok) { Object.assign(m, {status: "", version: (Number(m.version) || 1) + 1}); toast(`${m.full_name} is back, so they're Active again.`); } }).catch(() => {});
     return "done";
@@ -2135,6 +2135,7 @@ async function setPresent(id, on, seen, at = isoLocal(), part = 0) {
 }
 function checkin(el) {
   const mine = S.members.filter(m => churchOf(m) === S.church && !GONE.has(norm(m.status))).sort((a, b) => norm(a.full_name).localeCompare(norm(b.full_name)));
+  const back = S.members.filter(m => churchOf(m) === S.church && GONE.has(norm(m.status)) && norm(m.status) !== "deceased");  // moved, left or transferred: found by searching; ticking brings them back
   let here = {};
   const pastor = S.me.role === "pastor";  // a pastor ticks their own people only (locks work as for ushers): no adding or renaming
   // Laid out like Admin → Sign-ins: numbers on top, then pills to filter, team and search on the right, a table of names, 25 a page
@@ -2265,7 +2266,7 @@ function checkin(el) {
   const PER = 60;  // three columns of 20
   let armed = false, armedAll = false, busy = false;
   const narrowedTo = () => { const q = norm(S.q);  // team and search; the pills then pick within these
-    return mine.filter(m => (!S.ciRole || rolesOf(m).some(r => norm(r) === S.ciRole)) && (!q || norm(m.full_name).includes(q) || norm(m.phone).includes(q) || rolesOf(m).some(r => norm(r).includes(q)))); };
+    return (q ? [...mine, ...back] : mine).filter(m => (!S.ciRole || rolesOf(m).some(r => norm(r) === S.ciRole)) && (!q || norm(m.full_name).includes(q) || norm(m.phone).includes(q) || rolesOf(m).some(r => norm(r).includes(q)))); };
   const showing = () => narrowedTo();
   const draw = () => {
     const shown = narrowedTo(), narrowed = !!(S.ciRole || norm(S.q)), ticked = shown.filter(m => here[m.id]).length;
