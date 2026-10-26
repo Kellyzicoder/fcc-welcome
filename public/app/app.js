@@ -2612,10 +2612,10 @@ function oldRegister() {
   d.innerHTML = `<form class="sheet" role="dialog" aria-modal="true" aria-label="Load an old register">
     <div class="card-head"><h2>Load an old register</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
     <div class="fields">
-      <p class="note" style="margin:0 2px">For a register kept in Google Sheets or Excel: names down the side, Sundays across the top, and a <b style="color:#188038">green</b> square for each Sunday someone came.
-        In Google Sheets: <b>File → Download → Microsoft Excel (.xlsx)</b>, then pick that file here. The check-ins go on <b>${esc(S.church)}</b>.</p>
-      <label class="bk-drop"><input type="file" id="or-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
-        <span class="bk-drop-btn">${svg("upload")}<span>Choose the Excel file</span></span><small>Nothing is saved until you check the names and press Add.</small></label>
+      <p class="note" style="margin:0 2px">For a register kept in Google Sheets or Excel: names down the side, Sundays across the top, and a <b style="color:#188038">green</b> square or a mark (✓, P, Y, 1) for each Sunday someone came.
+        In Google Sheets: <b>File → Download → Microsoft Excel (.xlsx)</b>, or CSV if it uses marks, then pick that file here. The check-ins go on <b>${esc(S.church)}</b>.</p>
+      <label class="bk-drop"><input type="file" id="or-file" accept=".xlsx,.csv,.tsv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
+        <span class="bk-drop-btn">${svg("upload")}<span>Choose the file</span></span><small>Nothing is saved until you check the names and press Add.</small></label>
       <div id="or-opts"></div><div id="or-list"></div>
     </div>
     <div class="msg bad" id="or-err" hidden></div>
@@ -2628,12 +2628,23 @@ function oldRegister() {
   const MON = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
   const asDay = (t, yr) => { const m = String(t).toLowerCase().match(/^(\d{1,2})(?:st|nd|rd|th)?[\s\-\/.]*([a-z]{3})/) || null;
     if (m && MON.includes(m[2])) return `${yr}-${pad(MON.indexOf(m[2]) + 1)}-${pad(+m[1])}`;
+    const k = String(t).toLowerCase().match(/^([a-z]{3})[a-z]*\.?[\s\-\/]*(\d{1,2})(?:st|nd|rd|th)?$/); if (k && MON.includes(k[1])) return `${yr}-${pad(MON.indexOf(k[1]) + 1)}-${pad(+k[2])}`;  // "Jan 4"
     const n = String(t).match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/); if (n) return `${+n[3] < 100 ? 2000 + +n[3] : n[3]}-${pad(+n[2])}-${pad(+n[1])}`;
     if (/^\d{5}$/.test(t)) return new Date(Date.UTC(1899, 11, 30) + t * 864e5).toISOString().slice(0, 10);  // an Excel date number
     return ""; };
   // the colour of a square: green came, orange came midweek (no date to tick), anything else not counted
   const kind = hex => { if (!hex) return ""; const n = parseInt(hex.slice(1), 16), r = n >> 16, g = n >> 8 & 255, b = n & 255;
     return g > 120 && g > r + 40 && g > b + 40 ? "came" : r > 180 && g > 90 && g < 200 && b < 90 ? "midweek" : ""; };
+  // or a mark typed in the square: ✓, P, Y, yes, 1, present, L (late) count as came; A, N, 0 and blanks don't; X is whatever the sheet says it means
+  const CAME = /^(✓|✔|☑|√|v|p|y|yes|1|present|came|here|l|late)$/i;
+  const mark = t => { t = String(t ?? "").trim().replace(/\.$/, ""); return CAME.test(t) ? "came" : /^[x×]$/i.test(t) ? "x" : ""; };
+  // a CSV (or tab-separated) register: no colours, just the marks
+  const readCsv = text => { text = text.replace(/^\uFEFF/, ""); const l0 = text.split(/\r?\n/)[0], sep = [",", ";", "\t"].sort((a, b) => l0.split(b).length - l0.split(a).length)[0];
+    const rows = [[]]; let cell = "", q = false; const put = () => { rows[rows.length - 1].push({text: cell.trim(), fill: ""}); cell = ""; };
+    for (let i = 0; i < text.length; i++) { const ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+      else if (ch === '"') q = true; else if (ch === sep) put(); else if (ch === "\n") { put(); rows.push([]); } else if (ch !== "\r") cell += ch; }
+    put(); return [{name: "CSV", rows}]; };
   // names: numbering, titles and notes in brackets come off, so "23. Aunty Cha" looks for Cha
   const TITLES = /^(aunty|auntie|aunt|uncle|unlce|ps|pst|pastor|lp|lady|bishop|bp|brother|bro|sister|sis|mama|papa|mr|mrs|ms|miss|dr|rev|reverend|elder|deacon|deaconess|prophet|apostle|evangelist)\.?$/i;
   const clean = raw => String(raw).replace(/^\s*\d+\s*[.)\-:]\s*/, "").replace(/\(.*?\)?$/s, "").replace(/\(.*?\)/g, "").replace(/\s+\d+\s*$/, "").replace(/\s+/g, " ").trim();
@@ -2659,7 +2670,8 @@ function oldRegister() {
       const name = r[nameCol]?.text || ""; if (/^total/i.test(name)) break;
       if (name && SKIP.test(clean(name))) { const h = norm(clean(name)); sect = /first/.test(h) ? "first_timer" : /visitor/.test(h) ? "visitor" : /child|kid/.test(h) ? "child" : "member"; continue; }
       if (!name || !/\p{L}/u.test(name)) continue;
-      const came = cols.filter(([j]) => kind(r[j]?.fill) === "came").map(([, day]) => day), mid = cols.filter(([j]) => kind(r[j]?.fill) === "midweek").length;
+      const xIs = $("or-x")?.value || "came", hit = c => kind(c?.fill) === "came" || mark(c?.text) === "came" || (mark(c?.text) === "x" && xIs === "came");
+      const came = cols.filter(([j]) => hit(r[j])).map(([, day]) => day), mid = cols.filter(([j]) => kind(r[j]?.fill) === "midweek").length;
       const [m, likely] = guess(name); rows.push({name, came, mid, pick: m?.id || "", sure: !!m, likely, sect});
     }
     const taken = {}; rows.forEach(x => { if (x.pick) (taken[x.pick] ??= []).push(x); });
@@ -2686,10 +2698,11 @@ function oldRegister() {
   };
   $("or-file").onchange = async e => {
     const f = e.target.files[0]; if (!f) return; fail("");
-    try { tabs = await readXlsx(f); } catch (err) { return fail(/DecompressionStream/.test(err.message) ? "This browser can't open Excel files: try Chrome or Safari." : err.message); }
+    try { tabs = /\.(csv|tsv|txt)$/i.test(f.name) ? readCsv(await f.text()) : await readXlsx(f); } catch (err) { return fail(/DecompressionStream/.test(err.message) ? "This browser can't open Excel files: try Chrome or Safari." : err.message); }
     const yr = (f.name.match(/'?(\d{2})\b(?!.*\d)/) || [])[1];
     $("or-opts").innerHTML = `<div class="bk-two">${tabs.length > 1 ? `<div><label class="f" for="or-tab">Tab</label><select class="in" id="or-tab">${tabs.map((t, i) => `<option value="${i}">${esc(t.name)}</option>`).join("")}</select></div>` : ""}
-      <div><label class="f" for="or-year">Year of the dates</label><input class="in" id="or-year" inputmode="numeric" maxlength="4" value="${yr ? 2000 + +yr : new Date().getFullYear()}"></div></div>`;
+      <div><label class="f" for="or-year">Year of the dates</label><input class="in" id="or-year" inputmode="numeric" maxlength="4" value="${yr ? 2000 + +yr : new Date().getFullYear()}"></div>
+      ${tabs.some(t => t.rows.some(r => r?.some(c => mark(c?.text) === "x"))) ? `<div><label class="f" for="or-x">An X means</label><select class="in" id="or-x"><option value="came">Came</option><option value="missed">Missed</option></select></div>` : ""}</div>`;
     $("or-opts").querySelectorAll("select, input").forEach(x => x.onchange = read); read();
   };
   d.querySelector("form").onsubmit = async e => {
