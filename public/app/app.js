@@ -2555,6 +2555,138 @@ function followup(el) {
 // A phone number typed into the name, e.g. "Ama Mensah 0211234567" or "Ama Mensah – 021 123 4567": gives [name, phone]
 const NAME_PHONE = /^(.*?\p{L}.*?)[\s,;:–—-]+(\+?\d[\d\s().-]{6,}\d)\s*$/u;
 const splitNamePhone = s => { const m = String(s || "").match(NAME_PHONE); return m && m[2].replace(/\D/g, "").length >= 8 ? [m[1].replace(/[\s,;:–—-]+$/, "").trim(), m[2].replace(/[^\d+]/g, "")] : null; };
+// An Excel file (.xlsx), read in the browser with nothing to install: each tab's cells, with their text and fill colour.
+async function readXlsx(file) {
+  const buf = new Uint8Array(await file.arrayBuffer()), dv = new DataView(buf.buffer), files = {};
+  let e = buf.length - 22; while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error("That isn't an Excel file. In Google Sheets use File → Download → Microsoft Excel (.xlsx).");
+  for (let i = 0, p = dv.getUint32(e + 16, true); i < dv.getUint16(e + 10, true); i++) {  // the zip's list of files
+    const nl = dv.getUint16(p + 28, true);
+    files[new TextDecoder().decode(buf.subarray(p + 46, p + 46 + nl))] = {method: dv.getUint16(p + 10, true), size: dv.getUint32(p + 20, true), at: dv.getUint32(p + 42, true)};
+    p += 46 + nl + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
+  }
+  const xml = async name => { const f = files[name]; if (!f) return null;
+    const start = f.at + 30 + dv.getUint16(f.at + 26, true) + dv.getUint16(f.at + 28, true), data = buf.subarray(start, start + f.size);
+    const text = f.method === 8 ? await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).text() : new TextDecoder().decode(data);
+    return new DOMParser().parseFromString(text, "application/xml"); };
+  const all = (doc, tag) => doc ? [...doc.getElementsByTagNameNS("*", tag)] : [];
+  const strings = all(await xml("xl/sharedStrings.xml"), "si").map(si => all(si, "t").map(t => t.textContent).join(""));
+  const styles = await xml("xl/styles.xml"), fills = all(all(styles, "fills")[0], "fill").map(f => {
+    const pf = all(f, "patternFill")[0], fg = pf && pf.getAttribute("patternType") === "solid" ? all(pf, "fgColor")[0] : null, rgb = fg?.getAttribute("rgb");
+    return rgb ? "#" + rgb.slice(-6).toLowerCase() : ""; });
+  const fillOf = all(all(styles, "cellXfs")[0], "xf").map(x => fills[+x.getAttribute("fillId") || 0] || "");
+  const book = await xml("xl/workbook.xml"), rels = all(await xml("xl/_rels/workbook.xml.rels"), "Relationship");
+  const tabs = [];
+  for (const s of all(book, "sheet")) {
+    const id = s.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || s.getAttribute("r:id");
+    const target = rels.find(r => r.getAttribute("Id") === id)?.getAttribute("Target") || ""; const doc = await xml("xl/" + target.replace(/^\/?xl\//, ""));
+    const rows = [];
+    for (const c of all(doc, "c")) {
+      const [, col, row] = c.getAttribute("r").match(/^([A-Z]+)(\d+)$/), j = [...col].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1, t = c.getAttribute("t");
+      const v = all(c, "v")[0]?.textContent ?? "", text = t === "s" ? strings[+v] ?? "" : t === "inlineStr" ? all(c, "t").map(x => x.textContent).join("") : v;
+      ((rows[+row - 1] ??= [])[j] = {text: String(text).trim(), fill: fillOf[+c.getAttribute("s") || 0] || ""});
+    }
+    tabs.push({name: s.getAttribute("name"), rows});
+  }
+  return tabs;
+}
+// Old register → the app: an admin or church admin picks the Excel file of a paper-style register (names down the side, Sundays across,
+// green = came), checks who each name is, and the green squares become check-ins. Nothing is saved until "Add the check-ins".
+function oldRegister() {
+  document.querySelectorAll(".modal").forEach(m => m.remove());
+  const d = document.createElement("div"); d.className = "modal";
+  d.innerHTML = `<form class="sheet" role="dialog" aria-modal="true" aria-label="Load an old register">
+    <div class="card-head"><h2>Load an old register</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+    <div class="fields">
+      <p class="note" style="margin:0 2px">For a register kept in Google Sheets or Excel: names down the side, Sundays across the top, and a <b style="color:#188038">green</b> square for each Sunday someone came.
+        In Google Sheets: <b>File → Download → Microsoft Excel (.xlsx)</b>, then pick that file here. The check-ins go on <b>${esc(S.church)}</b>.</p>
+      <label class="bk-drop"><input type="file" id="or-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+        <span class="bk-drop-btn">${svg("upload")}<span>Choose the Excel file</span></span><small>Nothing is saved until you check the names and press Add.</small></label>
+      <div id="or-opts"></div><div id="or-list"></div>
+    </div>
+    <div class="msg bad" id="or-err" hidden></div>
+    <div class="modal-foot"><button type="button" class="pill-btn" data-x>Cancel</button><button class="pill-btn primary" id="or-go" disabled>Add the check-ins</button></div></form>`;
+  document.body.append(d);
+  const $ = id => d.querySelector("#" + id), close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
+  d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
+  document.addEventListener("keydown", onKey);
+  const fail = t => { $("or-err").textContent = t; $("or-err").hidden = !t; };
+  const MON = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  const asDay = (t, yr) => { const m = String(t).toLowerCase().match(/^(\d{1,2})(?:st|nd|rd|th)?[\s\-\/.]*([a-z]{3})/) || null;
+    if (m && MON.includes(m[2])) return `${yr}-${pad(MON.indexOf(m[2]) + 1)}-${pad(+m[1])}`;
+    const n = String(t).match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/); if (n) return `${+n[3] < 100 ? 2000 + +n[3] : n[3]}-${pad(+n[2])}-${pad(+n[1])}`;
+    if (/^\d{5}$/.test(t)) return new Date(Date.UTC(1899, 11, 30) + t * 864e5).toISOString().slice(0, 10);  // an Excel date number
+    return ""; };
+  // the colour of a square: green came, orange came midweek (no date to tick), anything else not counted
+  const kind = hex => { if (!hex) return ""; const n = parseInt(hex.slice(1), 16), r = n >> 16, g = n >> 8 & 255, b = n & 255;
+    return g > 120 && g > r + 40 && g > b + 40 ? "came" : r > 180 && g > 90 && g < 200 && b < 90 ? "midweek" : ""; };
+  // names: numbering, titles and notes in brackets come off, so "23. Aunty Cha" looks for Cha
+  const TITLES = /^(aunty|auntie|aunt|uncle|unlce|ps|pst|pastor|lp|lady|bishop|bp|brother|bro|sister|sis|mama|papa|mr|mrs|ms|miss|dr|rev|reverend|elder|deacon|deaconess|prophet|apostle|evangelist)\.?$/i;
+  const clean = raw => String(raw).replace(/^\s*\d+\s*[.)\-:]\s*/, "").replace(/\(.*?\)?$/s, "").replace(/\(.*?\)/g, "").replace(/\s+\d+\s*$/, "").replace(/\s+/g, " ").trim();
+  const words = n => norm(n).replace(/[^\p{L}\s'-]/gu, " ").split(/\s+/).filter(w => w && !TITLES.test(w));
+  const people = S.members.filter(m => churchOf(m) === S.church).sort(byName), ws = new Map(people.map(m => [m.id, words(m.full_name)]));
+  const guess = raw => {  // [the person, if it's clear who; the likely people otherwise]
+    const w = words(clean(raw)); if (!w.length) return [null, []];
+    const full = people.filter(m => ws.get(m.id).join(" ") === w.join(" ")); if (full.length === 1) return [full[0], full];
+    const both = w.length > 1 ? people.filter(m => ws.get(m.id)[0] === w[0] && ws.get(m.id).includes(w[w.length - 1])) : []; if (both.length === 1) return [both[0], both];
+    const first = people.filter(m => ws.get(m.id)[0] === w[0]); if (first.length === 1 && w.length === 1) return [first[0], first];
+    return [null, [...new Set([...both, ...first, ...people.filter(m => ws.get(m.id).includes(w[0]))])].slice(0, 8)]; };
+  let tabs = [], rows = [], dates = [];
+  const read = () => {  // find the row of dates, then everyone below it with their green squares
+    fail(""); const tab = tabs[+($("or-tab")?.value || 0)], yr = +$("or-year").value || new Date().getFullYear();
+    const grid = Array.from(tab.rows, r => r || []), head = grid.findIndex(r => r.filter(c => c && asDay(c.text, yr)).length >= 4);
+    if (head < 0) { rows = []; dates = []; $("or-list").innerHTML = ""; $("or-go").disabled = true; return fail("Couldn't find a row of Sunday dates (like 4th Jan, 11th Jan…) on this tab."); }
+    const cols = grid[head].map((c, j) => c && asDay(c.text, yr) ? [j, asDay(c.text, yr)] : null).filter(Boolean), first = cols[0][0];
+    const nameCol = [...Array(first).keys()].reverse().find(j => grid.slice(head + 1).filter(r => r[j]?.text).length) ?? 0;
+    const SKIP = /^(adults?|children|kids|names?|dates?|attendance|total.*|first timers?|visitors?|h\s*&\s*n.*|here\s*&\s*now.*|members?)$/i;
+    rows = [];
+    for (const r of grid.slice(head + 1)) {
+      const name = r[nameCol]?.text || ""; if (/^total/i.test(name)) break; if (!name || SKIP.test(clean(name)) || !/\p{L}/u.test(name)) continue;
+      const came = cols.filter(([j]) => kind(r[j]?.fill) === "came").map(([, day]) => day), mid = cols.filter(([j]) => kind(r[j]?.fill) === "midweek").length;
+      const [m, likely] = guess(name); rows.push({name, came, mid, pick: m?.id || "", sure: !!m, likely});
+    }
+    const taken = {}; rows.forEach(x => { if (x.pick) (taken[x.pick] ??= []).push(x); });
+    for (const list of Object.values(taken)) if (list.length > 1) list.forEach(x => { x.sure = false; x.pick = ""; });  // two names on one person: both need a look
+    dates = [...new Set(rows.flatMap(x => x.came))].sort(); draw();
+  };
+  const opts = people.map(m => `<option value="${esc(m.id)}">${esc(m.full_name)}</option>`).join("");
+  const draw = () => {
+    const use = rows.filter(x => x.pick && x.came.length), n = use.reduce((a, x) => a + x.came.length, 0), check = rows.filter(x => !x.sure && x.came.length).length;
+    $("or-list").innerHTML = rows.length ? `<div class="or-sum"><b>${rows.length} names</b> · ${rows.filter(x => x.sure).length} matched${check ? ` · <span class="bad-t">${check} to check</span>` : ""}
+        · <b>${n} check-ins</b> over ${dates.length} ${dates.length === 1 ? "Sunday" : "Sundays"}${dates.length ? ` (${esc(nice(dates[0]))} to ${esc(nice(dates[dates.length - 1]))})` : ""}
+        ${rows.some(x => x.mid) ? `<br><small>Orange squares (came midweek) aren't added: the sheet doesn't say which day.</small>` : ""}</div>
+      <div class="scroll or-scroll"><table class="utable"><thead><tr><th>On the sheet</th><th>Who it is in the app</th><th>Sundays</th></tr></thead><tbody>
+      ${rows.map((x, i) => `<tr class="${x.sure || !x.came.length ? "" : "or-check"}"><td>${esc(x.name)}${!x.sure && x.came.length ? ` <span class="badge">Check</span>` : ""}</td>
+        <td><select class="in sm" data-or="${i}" aria-label="Who ${esc(x.name)} is"><option value="">${x.sure ? "Leave out" : "Choose who this is…"}</option>
+          ${x.likely?.length && !x.sure ? `<optgroup label="Likely">${x.likely.map(m => `<option value="${esc(m.id)}">${esc(m.full_name)}</option>`).join("")}</optgroup><optgroup label="Everyone">${opts}</optgroup>` : opts}</select></td><td class="muted">${x.came.length}</td></tr>`).join("")}</tbody></table></div>` : "";
+    $("or-list").querySelectorAll("[data-or]").forEach(s => { s.value = rows[+s.dataset.or].pick;
+      s.onchange = () => { const x = rows[+s.dataset.or]; x.pick = s.value; x.sure = !!s.value; draw(); }; });
+    $("or-go").disabled = !n; $("or-go").textContent = n ? `Add ${n} check-ins` : "Add the check-ins";
+  };
+  $("or-file").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return; fail("");
+    try { tabs = await readXlsx(f); } catch (err) { return fail(/DecompressionStream/.test(err.message) ? "This browser can't open Excel files: try Chrome or Safari." : err.message); }
+    const yr = (f.name.match(/'?(\d{2})\b(?!.*\d)/) || [])[1];
+    $("or-opts").innerHTML = `<div class="bk-two">${tabs.length > 1 ? `<div><label class="f" for="or-tab">Tab</label><select class="in" id="or-tab">${tabs.map((t, i) => `<option value="${i}">${esc(t.name)}</option>`).join("")}</select></div>` : ""}
+      <div><label class="f" for="or-year">Year of the dates</label><input class="in" id="or-year" inputmode="numeric" maxlength="4" value="${yr ? 2000 + +yr : new Date().getFullYear()}"></div></div>`;
+    $("or-opts").querySelectorAll("select, input").forEach(x => x.onchange = read); read();
+  };
+  d.querySelector("form").onsubmit = async e => {
+    e.preventDefault(); const go = $("or-go"), use = rows.filter(x => x.pick && x.came.length); if (!use.length) return;
+    go.disabled = true; go.textContent = "Adding…"; let n = 0;
+    try {
+      for (const day of dates) {
+        const ids = [...new Set(use.filter(x => x.came.includes(day)).map(x => x.pick))]; if (!ids.length) continue;
+        const t = new Date(day + "T10:00:00"), o = -t.getTimezoneOffset(), at = `${day}T10:00:00${o >= 0 ? "+" : "-"}${pad(Math.floor(Math.abs(o) / 60))}:${pad(Math.abs(o) % 60)}`;
+        await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: day, name: svcName(day)}});
+        await api("attendance?on_conflict=service_date,member_id", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: ids.map(id => ({service_date: day, member_id: id, checked_at: at}))});
+        n += ids.length;
+      }
+      log("edit", "", "done", `loaded an old register: ${n} check-ins over ${dates.length} Sundays · ${S.church}`);
+      close(); toast(`Added ${n} check-ins from the old register. Anyone already ticked was left as they were.`); await load(); render();
+    } catch (err) { fail("Stopped part-way (" + n + " added): " + err.message + ". Press Add again to carry on: nothing is added twice."); go.disabled = false; go.textContent = "Add the check-ins"; }
+  };
+}
 function bulkAdd() {
   document.querySelectorAll(".modal").forEach(m => m.remove());
   const d = document.createElement("div"); d.className = "modal";
@@ -2564,6 +2696,7 @@ function bulkAdd() {
       <label class="bk-drop" id="bk-drop"><input type="file" id="bk-file" accept=".csv,.txt,.tsv,text/csv,text/plain">
         <span class="bk-drop-btn">${svg("upload")}<span>Import a CSV file</span></span>
         <small>Or drop it here. Any layout works: you'll match the columns next, and the names and numbers are tidied for you.</small></label>
+      ${["admin", "lead"].includes(S.me.role) && !S.preview ? `<button type="button" class="link-btn" id="bk-old" style="justify-self:start">Have an old attendance register (Google Sheets or Excel)? Load its check-ins</button>` : ""}
       <div class="bk-or"><span>or type the names</span></div>
       <div><label class="f" for="bk-text">Names, one per line</label>
         <textarea class="in" id="bk-text" rows="6" placeholder="Ama Mensah, 021 555 0101&#10;Kofi Boateng&#10;Efua Owusu, 022 555 0123, child"></textarea>
@@ -2698,6 +2831,7 @@ function bulkAdd() {
     drop.querySelector(".bk-drop-btn span").textContent = f.name;
     $("bk-text").value = await f.text(); fromFile = true; err.hidden = true; read(); };
   $("bk-text").focus();
+  $("bk-old")?.addEventListener("click", oldRegister);
   d.querySelector("form").onsubmit = async e => {
     e.preventDefault();
     const ok = rows.filter(r => !r.why), go = $("bk-go"), err = $("bk-err"); if (!ok.length) return;
