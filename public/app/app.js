@@ -1132,6 +1132,15 @@ const svg = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 // letters of a one-word name ("Auckland" -> AUC)
 const churchAbbr = c => { const w = String(c || "").trim().split(/\s+/).filter(Boolean);
   return (w.length > 1 ? w.slice(0, 3).map(x => x[0]) .join("") : (w[0] || "").slice(0, 3)).toUpperCase(); };
+// The menu's groups open and close like dropdowns; the one with the page you're on is open. A group of one is just its page.
+const GICON = {ATTENDANCE: "checkin", PEOPLE: "people", SHARE: "reports", CHURCHES: "overview", ADMIN: "admin", RECORDS: "activity"};
+function menuOpen() { try { return JSON.parse(localStorage.getItem("fcc-menu-open:" + (S.me?.email || "")) || "[]"); } catch { return []; } }
+function navGroup(h, items, btns) {
+  if (!h || items.length < 2) return btns;
+  const here = items.some(([k]) => k === S.view), open = here || menuOpen().includes(h), name = h.charAt(0) + h.slice(1).toLowerCase();
+  const n = items.reduce((t, [k]) => t + (k === "signups" ? S.pending || 0 : k === "teamforms" ? S.teamPending || 0 : 0), 0);
+  return `<div class="ngrp${open ? " open" : ""}"><button type="button" class="nav ngrp-h" data-grp="${h}" aria-expanded="${open}" title="${name}">${svg(GICON[h] || items[0][0])}<span class="nl">${name}</span>${n ? `<span class="count">${n}</span>` : ""}<span class="ngrp-c">${svg("caret")}</span></button><div class="ngrp-b">${btns}</div></div>`;
+}
 function pages() {  // the menu, in groups; what each role can actually load is decided by the database
   const r = S.me.role;
   if (r === "bishop") return [["", [["overview", "All churches"], ["help", "Help"]]]];
@@ -1217,8 +1226,8 @@ function render() {
       ${S.me.role === "bishop" ? "" : `<div class="side-church">${S.me.role === "admin"  // the church being worked in, at the top; only an admin can change it
         ? `<button type="button" class="church on" data-chpick aria-haspopup="listbox" aria-expanded="false" title="Working in ${esc(S.church)}: tap to switch church"><i></i><b class="ch-ab" aria-hidden="true">${esc(churchAbbr(S.church))}</b><span>${esc(S.church)}</span><em>Change</em></button>`
         : `<div class="church on" title="Your church"><i></i><b class="ch-ab" aria-hidden="true">${esc(churchAbbr(S.church))}</b><span>${esc(S.church)}</span></div>`}</div>`}
-      ${menuGroups.map(([h, items]) => (h ? `<h6>${h}</h6>` : "") + items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" title="${t}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}<span class="nl">${t}</span>${
-        k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : k === "teamforms" && S.teamPending ? `<span class="count">${S.teamPending}</span>` : ""}</button>`).join("")).join("")}
+      ${menuGroups.map(([h, items]) => navGroup(h, items, items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" title="${t}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}<span class="nl">${t}</span>${
+        k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : k === "teamforms" && S.teamPending ? `<span class="count">${S.teamPending}</span>` : ""}</button>`).join(""))).join("")}
       <div class="side-foot">${S.me.base === "admin" ? (S.preview ? `<button class="nav" data-unpreview title="Back to Admin">${svg("back")}<span class="nl">Back to Admin</span></button>`
           : `<button class="nav" data-viewas title="View as another role">${svg("eye")}<span class="nl">View as another role</span></button>`) : ""}${S.canSwitch ? `<button class="nav" data-switch title="${switchLabel()}">${svg("pastors")}<span class="nl">${switchLabel()}</span></button>` : ""}<button class="nav out" data-out title="Log out">${svg("out")}<span class="nl">Log out</span></button></div></aside>
     <main class="main">${S.preview ? `<div class="preview-bar">${svg("eye")}<span>Viewing as <b>${esc(previewName())}</b>. View only: nothing you do here is saved.</span>
@@ -1244,6 +1253,10 @@ function render() {
   document.onkeydown = e => { if (e.key === "Escape") menu(false); };
   applyLook();
   root.querySelectorAll("[data-view]").forEach(b => b.onclick = () => go(b.dataset.view));
+  root.querySelectorAll("[data-grp]").forEach(b => b.onclick = () => {  // open or close a menu group in place; remembered on this device
+    const g = b.closest(".ngrp"), on = !g.classList.contains("open"); g.classList.toggle("open", on); b.setAttribute("aria-expanded", on);
+    const list = new Set(menuOpen()); if (on) list.add(b.dataset.grp); else list.delete(b.dataset.grp);
+    try { localStorage.setItem("fcc-menu-open:" + (S.me?.email || ""), JSON.stringify([...list])); } catch {} });
   // Change church: a short list opens right there; picking one switches church and stays on the same page
   root.querySelectorAll("[data-chpick]").forEach(b => b.onclick = e => {
     e.stopPropagation();
