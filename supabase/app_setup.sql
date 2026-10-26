@@ -623,6 +623,27 @@ grant execute on function app_db_size() to authenticated;
 revoke all on function app_rename_church(text, text) from public, anon;
 grant execute on function app_rename_church(text, text) to authenticated;
 
+-- Check-in: someone marked Away or Inactive who is ticked in is Active again. Anyone who may tick them can do it (ushers and
+-- pastors too); it only ever clears Away or Inactive, nothing else about the person.
+create or replace function app_back_active(mid text) returns boolean language plpgsql security definer set search_path = public as $$
+declare n int; who text;
+begin
+  if app_role() is null or app_role() not in ('admin', 'lead', 'team', 'pastor') then return false; end if;
+  update members m set status = '', version = m.version + 1
+   where m.id = mid and lower(trim(coalesce(m.status, ''))) in ('away', 'inactive')
+     and (app_can_see(m.church) or app_is_mine(m.church, m.pastor, m.shepherd))
+  returning m.full_name into who;
+  get diagnostics n = row_count;
+  if n > 0 then
+    insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+    values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF'), 'edit', null, mid,
+            'back: set to Active when ticked in', app_who(), 'done');
+  end if;
+  return n > 0;
+end $$;
+revoke all on function app_back_active(text) from public, anon;
+grant execute on function app_back_active(text) to authenticated;
+
 -- ---------------------------------------------------------------- Backups: a Google Sheet that copies everything each night
 -- Admin → Backups makes a backup key (only its fingerprint is kept here) and the script for a Google Sheet; the sheet's
 -- script sends the key each night and gets back every church, person, service and check-in, the pastor and shepherd lists
