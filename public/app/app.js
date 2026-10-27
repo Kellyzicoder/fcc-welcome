@@ -193,7 +193,7 @@ function backup() {
   const raw = (name, list) => { const sh = tab(name), keys = [...new Set((list || []).flatMap(x => Object.keys(x)))]; sh.hideSheet(); done.push(name + " " + (list || []).length);
     if (keys.length) sh.getRange(1, 1, list.length + 1, keys.length).setNumberFormat("@").setValues(text([keys, ...list.map(x => keys.map(k => x[k]))])); };
   for (const [name, key] of [["data: people", "members"], ["data: attendance", "attendance"], ["data: churches", "churches"], ["data: services", "services"],
-    ["data: service parts", "service_parts"], ["data: service ticks", "service_ticks"], ["data: bacentas", "bacentas"], ["data: bacenta attendance", "bacenta_ticks"],
+    ["data: service parts", "service_parts"], ["data: service ticks", "service_ticks"], ["data: bacentas", "bacentas"], ["data: bacenta attendance", "bacenta_ticks"], ["data: bacenta weeks off", "bacenta_skips"],
     ["data: pastor lists", "lists"], ["data: sign-ins", "signins"]]) raw(name, d[key]);
   // A church that's gone (deleted or renamed in the app) keeps its last copy: renamed "… (removed date)", moved to the end, never deleted.
   // Older layouts' tabs go. Any tab of your own stays.
@@ -3742,12 +3742,14 @@ async function bacentas(el) {
   const canEdit = ["admin", "lead"].includes(S.me.role) && !S.preview, shep = S.me.base === "pastor";  // a pastor or shepherd sign-in
   const since = new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10), recent = new Date(Date.now() - 91 * 864e5).toISOString().slice(0, 10);
   el.innerHTML = head("Bacentas", esc(S.church)) + `<p class="empty">Loading…</p>`;
-  let list, ticks, people;
+  let list, ticks, skips, people;
   try {
-    [list, ticks, people] = await Promise.all([
-      all(`bacentas?select=id,church,name,shepherd,pastor,active&church=eq.${encodeURIComponent(S.church)}&order=name`),
+    [list, ticks, skips, people] = await Promise.all([
+      all(`bacentas?select=id,church,name,shepherd,pastor,meet_day,active,created_at&church=eq.${encodeURIComponent(S.church)}&order=name`),
       all(`bacenta_ticks?select=bacenta,meeting_date,member_id&meeting_date=gte.${since}&order=meeting_date`),
-      // a shepherd gets only names (and type) for their church; everyone else already has the church's people loaded
+      all(`bacenta_skips?select=bacenta,meeting_date,reason&meeting_date=gte.${since}`),
+      // a shepherd or pastor gets only names (and type) for their church, plus details for their Bacentas' own people;
+      // everyone else already has the church's people loaded
       shep ? api("rpc/app_bacenta_people", {method: "POST", body: {}}) : Promise.resolve(S.members.filter(m => churchOf(m) === S.church && ruleOf(m) !== "gone"))]);
   } catch (e) { if (S.view === "bacentas") el.innerHTML = head("Bacentas", esc(S.church)) + `<div class="msg bad">${esc(bacentaSetup(e))}</div>`; return; }
   if (S.view !== "bacentas") return;  // moved to another page while loading
@@ -3755,53 +3757,78 @@ async function bacentas(el) {
   const shown = list.filter(b => b.active || S.bcHidden), hidden = list.filter(b => !b.active).length;
   const ids = new Set(list.map(b => b.id)); ticks = ticks.filter(t => ids.has(t.bacenta));
   const of = id => ticks.filter(t => t.bacenta === id), byId = Object.fromEntries(people.map(m => [m.id, m]));
+  const skipOf = (id, d) => skips.find(s => s.bacenta === id && s.meeting_date === d);
   const meetings = id => { const o = {}; for (const t of of(id)) o[t.meeting_date] = (o[t.meeting_date] || 0) + 1; return Object.entries(o).sort((a, b) => b[0].localeCompare(a[0])); };
+  // Bacentas meet every week on their day, unless marked "Didn't meet". A week counts as filled in when there are ticks or
+  // a "Didn't meet" within 3 days of the meeting day (a meeting moved a day still counts). The last 8 weeks are checked.
+  const shift = (d, k) => { const x = new Date(d + "T12:00:00"); x.setDate(x.getDate() + k); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
+  const lastDay = x => { if (x.meet_day == null) return ""; const t = today(); return shift(t, -((new Date(t + "T12:00:00").getDay() - x.meet_day + 7) % 7)); };
+  const near = (d, e) => d >= shift(e, -3) && d <= shift(e, 3);
+  const weeks = x => { const end = lastDay(x); if (!end || !x.active) return [];
+    const from = String(x.created_at || "").slice(0, 10), out = [];
+    for (let i = 0; i < 8; i++) { const d = shift(end, -7 * i); if (from && d < from) break;
+      const skip = skips.find(s => s.bacenta === x.id && near(s.meeting_date, d));
+      out.push({d, state: of(x.id).some(t => near(t.meeting_date, d)) ? "met" : skip ? "none" : d === today() ? "today" : "missing", reason: skip?.reason || ""}); }
+    return out; };
+  const missing = x => weeks(x).filter(w => w.state === "missing");
+  const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   if (!shown.some(b => b.id === S.bacenta)) S.bacenta = (shep && shown.find(mineB) || shown[0])?.id || "";
   const b = list.find(x => x.id === S.bacenta), canTick = !!b && b.active && !S.preview && (!shep || mineB(b));
+  if (b && S.bcDateFor !== b.id) { S.bcDate = lastDay(b) || today(); S.bcDateFor = b.id; }  // opens on its latest meeting day
   S.bcDate ||= today();
   const pastorOpts = () => { const names = [...new Set([...(S.pastorList?.[S.church] || []), ...list.map(x => x.pastor).filter(Boolean)])].sort();
     return [["", "Not set yet"], ...names.map(n => [n, shortTitle(n)])]; };
   const shepherdOpts = () => { const names = [...new Set([...(S.shepherdList?.[S.church] || []), ...list.map(x => x.shepherd).filter(Boolean)])].sort();
     return [["", "Not set yet"], ...names.map(n => [n, n])]; };
+  const dayOpts = [["", "Not set yet"], ...DAYS.map((d, i) => [String(i), d])];
   const clean = v => String(v || "").replace(/\s+/g, " ").trim().slice(0, 60);
+  const short = d => nice(d);
   el.innerHTML = head("Bacentas", esc(S.church), canEdit ? `<button class="pill-btn primary" id="bc-add">${svg("plus")}Add a Bacenta</button>` : "") + `
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>${esc(S.church)} Bacentas</h2><span class="gap"></span>
       ${hidden ? `<label class="check" style="font-size:13px"><input type="checkbox" id="bc-hid" ${S.bcHidden ? "checked" : ""}> Show hidden (${hidden})</label>` : ""}</div>
-      ${shown.length ? `<div class="scroll"><table><thead><tr><th>Bacenta</th><th>Shepherd</th><th>Pastor</th><th>Last met</th><th>Came</th><th>People in 3 months</th>${canEdit ? "<th></th>" : ""}</tr></thead><tbody>
-        ${shown.map(x => { const ms = meetings(x.id), last = ms[0], ppl = new Set(of(x.id).filter(t => t.meeting_date >= recent).map(t => t.member_id)).size;
+      ${shown.length ? `<div class="scroll"><table><thead><tr><th>Bacenta</th><th>Meets</th><th>Shepherd</th><th>Pastor</th><th>Last met</th><th>Came</th><th>People in 3 months</th><th>Not filled in</th>${canEdit ? "<th></th>" : ""}</tr></thead><tbody>
+        ${shown.map(x => { const ms = meetings(x.id), last = ms[0], ppl = new Set(of(x.id).filter(t => t.meeting_date >= recent).map(t => t.member_id)).size, miss = missing(x).length;
           return `<tr><td><button class="who ${x.id === S.bacenta ? "sel" : ""}" data-bc="${esc(x.id)}"><span>${esc(initials(x.name))}</span>${esc(x.name)}</button>${x.active ? "" : ` <small class="muted">Hidden</small>`}</td>
-            <td>${x.shepherd ? esc(shortTitle(x.shepherd)) : `<span class="muted">Not set</span>`}</td><td>${x.pastor ? esc(shortTitle(x.pastor)) : `<span class="muted">Not set</span>`}</td><td>${last ? esc(nice(last[0])) : `<span class="muted">Not yet</span>`}</td><td>${last ? last[1] : ""}</td><td>${ppl}</td>
+            <td>${x.meet_day != null ? esc(DAYS[x.meet_day] + "s") : `<span class="muted">Not set</span>`}</td>
+            <td>${x.shepherd ? esc(shortTitle(x.shepherd)) : `<span class="muted">Not set</span>`}</td><td>${x.pastor ? esc(shortTitle(x.pastor)) : `<span class="muted">Not set</span>`}</td><td>${last ? esc(short(last[0])) : `<span class="muted">Not yet</span>`}</td><td>${last ? last[1] : ""}</td><td>${ppl}</td>
+            <td>${x.meet_day == null ? `<span class="muted">Set its day</span>` : miss ? `<span class="badge yellow" title="Weeks in the last 8 with no attendance and not marked Didn't meet">${miss} ${miss === 1 ? "week" : "weeks"}</span>` : `<span class="badge ok">Up to date</span>`}</td>
             ${canEdit ? `<td><button class="pill-btn sm" data-bcedit="${esc(x.id)}" aria-label="Edit ${esc(x.name)}">${svg("edit")}Edit</button></td>` : ""}</tr>`; }).join("")}</tbody></table></div>`
         : `<p class="empty">${list.length ? "All this church's Bacentas are hidden." : `No Bacentas in ${esc(S.church)} yet.${canEdit ? " Tap Add a Bacenta." : ""}`}</p>`}</div>
-    ${b ? `<div class="card" id="bc-take" style="margin-bottom:14px;scroll-margin-top:12px"><div class="card-head"><h2>${esc(b.name)}</h2><span class="gap"></span><span class="muted" style="font-size:13px">${[b.shepherd ? esc(shortTitle(b.shepherd)) : "No shepherd set", b.pastor ? esc(shortTitle(b.pastor)) : ""].filter(Boolean).join(" · ")}</span></div>
+    ${b ? `<div class="card" id="bc-take" style="margin-bottom:14px;scroll-margin-top:12px"><div class="card-head"><h2>${esc(b.name)}</h2><span class="gap"></span><span class="muted" style="font-size:13px">${[b.meet_day != null ? "Meets " + DAYS[b.meet_day] + "s" : "", b.shepherd ? esc(shortTitle(b.shepherd)) : "No shepherd set", b.pastor ? esc(shortTitle(b.pastor)) : ""].filter(Boolean).join(" · ")}</span></div>
+      <div id="bc-miss"></div>
       <div class="row"><div style="flex:0 0 170px"><label class="f" for="bc-d">Meeting date</label><input class="in" id="bc-d" type="date" value="${esc(S.bcDate)}" max="${today()}"></div>
         <div class="card tile" style="flex:0 0 140px;margin:0"><div class="label">Came</div><div class="num" id="bc-n">0</div></div></div>
+      <div id="bc-skip"></div>
       ${canTick ? "" : `<p class="note" style="margin:10px 2px">${S.preview ? esc(viewOnly()) : !b.active ? "This Bacenta is hidden. Show it again to take attendance." : "Only this Bacenta's shepherd, its pastor and the church's leaders can take its attendance."}</p>`}
       <label class="find-bar" style="margin-top:12px">${svg("search")}<input id="bc-q" type="search" placeholder="Search ${esc(S.church)} by name to add someone" value="${esc(S.bcQ || "")}" autocomplete="off" aria-label="Search by name"></label>
       <div id="bc-names"></div></div>
+    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Follow-up</h2><span class="gap"></span><span class="muted" style="font-size:13px">Missed the last meetings in a row</span></div><div id="bc-follow"></div></div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>People in ${esc(b.name)}</h2><span class="gap"></span><span class="muted" style="font-size:13px">Came in the last 3 months</span></div><div id="bc-people"></div></div>
     <div class="card"><div class="card-head"><h2>Past meetings</h2></div><div id="bc-past"></div></div>` : ""}`;
-  // add, rename, set the shepherd, hide or show again
+  // add, rename, set the shepherd, pastor and day, hide or show again
   const saveB = async (id, body) => {
     const name = clean(body.name);
     if (body.name !== undefined && !name) throw new Error("Type the Bacenta's name.");
     if (name && list.some(x => x.id !== id && norm(x.name) === norm(name))) throw new Error(`${name} is already a Bacenta in ${S.church}.`);
     try {
       if (id) await api(`bacentas?id=eq.${id}`, {method: "PATCH", prefer: "return=minimal", body: {...body, ...(body.name !== undefined ? {name} : {})}});
-      else { const nid = crypto.randomUUID(); await api("bacentas", {method: "POST", prefer: "return=minimal", body: {id: nid, church: S.church, name, shepherd: body.shepherd || null, pastor: body.pastor || null, active: true}}); S.bacenta = nid; S.bcQ = ""; }
+      else { const nid = crypto.randomUUID(); await api("bacentas", {method: "POST", prefer: "return=minimal", body: {id: nid, church: S.church, name, shepherd: body.shepherd || null, pastor: body.pastor || null, meet_day: body.meet_day ?? null, active: true, created_at: new Date().toISOString()}}); S.bacenta = nid; S.bcQ = ""; }
     } catch (e) { throw new Error(/duplicate|unique/i.test(e.message) ? `${name} is already a Bacenta in ${S.church}.` : bacentaSetup(e)); }
-    render();
+    S.bcDateFor = ""; render();
   };
+  const dayOf = v => v === "" ? null : Number(v);
   el.querySelector("#bc-add")?.addEventListener("click", () => formDialog("Add a Bacenta", [
     {k: "name", label: "Bacenta name", value: "", required: true, hint: "The name its shepherd picked, e.g. Saved - City Bacenta"},
+    {k: "meet_day", label: "Meets every", type: "select", value: "", options: dayOpts, hint: "It's expected every week on this day, unless marked Didn't meet."},
     {k: "shepherd", label: "Shepherd", type: "select", value: "", options: shepherdOpts(), hint: "Names come from the Shepherds list. Add a new shepherd there first."},
     {k: "pastor", label: "Pastor overseeing it", type: "select", value: "", options: pastorOpts(), hint: "Names come from the Pastors list. One pastor can oversee several Bacentas."}],
-    async v => { await saveB(null, {name: v.name, shepherd: v.shepherd || null, pastor: v.pastor || null}); toast(`${clean(v.name)} added.`); }, "Add"));
+    async v => { await saveB(null, {name: v.name, meet_day: dayOf(v.meet_day), shepherd: v.shepherd || null, pastor: v.pastor || null}); toast(`${clean(v.name)} added.`); }, "Add"));
   el.querySelectorAll("[data-bcedit]").forEach(btn => btn.onclick = () => { const x = list.find(y => y.id === btn.dataset.bcedit);
     formDialog(`Change ${x.name}`, [{k: "name", label: "Bacenta name", value: x.name, required: true},
+      {k: "meet_day", label: "Meets every", type: "select", value: x.meet_day == null ? "" : String(x.meet_day), options: dayOpts},
       {k: "shepherd", label: "Shepherd", type: "select", value: x.shepherd || "", options: shepherdOpts()},
       {k: "pastor", label: "Pastor overseeing it", type: "select", value: x.pastor || "", options: pastorOpts()}],
-      async v => { await saveB(x.id, {name: v.name, shepherd: v.shepherd || null, pastor: v.pastor || null}); toast("Saved."); }, "Save",
+      async v => { await saveB(x.id, {name: v.name, meet_day: dayOf(v.meet_day), shepherd: v.shepherd || null, pastor: v.pastor || null}); toast("Saved."); }, "Save",
       x.active ? {label: "Hide Bacenta", confirm: "Tap again to hide", run: async () => { await saveB(x.id, {active: false}); toast(`${x.name} is hidden. Its past attendance is kept.`); }}
         : {label: "Show again", confirm: "Tap again to show", run: async () => { await saveB(x.id, {active: true}); toast(`${x.name} is back.`); }}); });
   el.querySelector("#bc-hid")?.addEventListener("change", e => { S.bcHidden = e.target.checked; render(); });
@@ -3811,27 +3838,55 @@ async function bacentas(el) {
   // taking attendance: the people who came to this Bacenta lately come first; anyone else in the church is found by searching
   const regular = new Set(of(b.id).filter(t => t.meeting_date >= recent).map(t => t.member_id));
   const here = () => new Set(of(b.id).filter(t => t.meeting_date === S.bcDate).map(t => t.member_id));
+  const bday = v => { const d = new Date(String(v).slice(0, 10) + "T12:00:00"); return isNaN(d) ? String(v) : d.toLocaleDateString("en-NZ", {day: "numeric", month: "short"}); };
+  const tel = m => m.phone ? `<a href="tel:${esc(String(m.phone).replace(/[^0-9+]/g, ""))}">${esc(m.phone)}</a>` : `<span class="muted">Not given</span>`;
+  const goDay = d => { S.bcDate = d; el.querySelector("#bc-d").value = d; S.bcQ = ""; el.querySelector("#bc-q").value = ""; draw(); };
   const draw = () => {
-    const now = here(), q = norm(S.bcQ || "");
+    const now = here(), q = norm(S.bcQ || ""), skip = skipOf(b.id, S.bcDate);
+    // weeks with nothing taken, each one tap away
+    const miss = missing(b);
+    el.querySelector("#bc-miss").innerHTML = miss.length ? `<div class="msg" style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center"><b style="margin-right:4px">No attendance taken for</b>${miss.map(w =>
+      `<button type="button" class="pill-btn sm" data-bcday="${w.d}">${esc(short(w.d))}</button>`).join("")}</div>` : "";
+    // a week it didn't meet (holiday, combined service…): marked, so it isn't counted as missing
+    el.querySelector("#bc-skip").innerHTML = skip ? `<div class="msg" style="margin-top:12px;display:flex;align-items:center;gap:10px"><span><b>Didn't meet</b> on ${esc(nice(S.bcDate, true))}${skip.reason ? ": " + esc(skip.reason) : ""}</span><span class="gap" style="flex:1"></span>${canTick ? `<button type="button" class="pill-btn sm" id="bc-unskip">Undo</button>` : ""}</div>`
+      : canTick && !now.size ? `<div style="margin-top:12px"><button type="button" class="pill-btn sm" id="bc-skipbtn">Didn't meet this week</button></div>` : "";
     const names = q ? people.filter(m => norm(m.full_name).includes(q)).slice(0, 40)
       : people.filter(m => regular.has(m.id) || now.has(m.id));
     names.sort((x, y) => (now.has(y.id) - now.has(x.id)) || norm(x.full_name).localeCompare(norm(y.full_name)));
     el.querySelector("#bc-n").textContent = now.size;
-    el.querySelector("#bc-names").innerHTML = names.length ? `<div class="names" style="margin-top:12px">${names.map(m => `<label class="name ${now.has(m.id) ? "on" : ""}"><input type="checkbox" data-bt="${esc(m.id)}" ${now.has(m.id) ? "checked" : ""} ${canTick ? "" : "disabled"}>
+    el.querySelector("#bc-names").innerHTML = skip && !now.size ? "" : names.length ? `<div class="names" style="margin-top:12px">${names.map(m => `<label class="name ${now.has(m.id) ? "on" : ""}"><input type="checkbox" data-bt="${esc(m.id)}" ${now.has(m.id) ? "checked" : ""} ${canTick ? "" : "disabled"}>
         <span class="nava" ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span><span class="nn">${esc(m.full_name)}</span><small>${[m.type === "first_timer" ? "first-timer" : m.type === "visitor" ? "visitor" : "", isKid(m) ? "child" : ""].filter(Boolean).join(" · ")}</small></label>`).join("")}</div>`
       : `<p class="empty">${q ? "Nobody in " + esc(S.church) + " matches that." : "Nobody yet. Search for a name above to tick the first people in."}</p>`;
+    // follow-up: the Bacenta's people who missed its last meetings in a row (only weeks it met count)
+    const held = meetings(b.id).map(([d]) => d), own = people.filter(m => regular.has(m.id)).sort(byName);
+    const fu = own.map(m => { const lastCame = of(b.id).filter(t => t.member_id === m.id).map(t => t.meeting_date).sort().pop() || "";
+      return {...m, lastCame, row: held.filter(d => d > lastCame).length}; }).filter(m => m.row > 0).sort((x, y) => y.row - x.row || byName(x, y));
+    const flag = n => n >= 3 ? `<span class="badge red">Needs a call</span>` : n === 2 ? `<span class="badge yellow">Check in</span>` : `<span class="badge blue">Missed the last one</span>`;
+    el.querySelector("#bc-follow").innerHTML = fu.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th></th><th>Missed in a row</th><th>Last came</th><th>Phone</th></tr></thead><tbody>${fu.map(m =>
+      `<tr><td><span class="who"><span ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</span></td><td>${flag(m.row)}</td><td>${m.row}</td><td>${esc(short(m.lastCame))}</td><td>${tel(m)}</td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="empty">${own.length ? "Everyone came to the last meeting." : "Nobody to follow up yet."}</p>`;
     // the Bacenta's own people with their phone, birthday and address
-    const own = people.filter(m => regular.has(m.id)).sort(byName);
-    const bday = v => { const d = new Date(String(v).slice(0, 10) + "T12:00:00"); return isNaN(d) ? String(v) : d.toLocaleDateString("en-NZ", {day: "numeric", month: "short"}); };
     el.querySelector("#bc-people").innerHTML = own.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Phone</th><th>Birthday</th><th>Address</th></tr></thead><tbody>${own.map(m =>
-      `<tr><td><span class="who"><span ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</span></td><td>${m.phone ? `<a href="tel:${esc(String(m.phone).replace(/[^0-9+]/g, ""))}">${esc(m.phone)}</a>` : `<span class="muted">Not given</span>`}</td>
+      `<tr><td><span class="who"><span ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</span></td><td>${tel(m)}</td>
         <td>${m.birthday ? esc(bday(m.birthday)) : `<span class="muted">Not given</span>`}</td><td>${m.address ? esc(m.address) : `<span class="muted">Not given</span>`}</td></tr>`).join("")}</tbody></table></div>`
       : `<p class="empty">Nobody has come to ${esc(b.name)} in the last 3 months yet.</p>`;
-    const ms = meetings(b.id);
-    el.querySelector("#bc-past").innerHTML = ms.length ? `<div class="scroll"><table><thead><tr><th>Date</th><th>Came</th><th></th></tr></thead><tbody>${ms.slice(0, 26).map(([d, n]) =>
-      `<tr><td>${esc(nice(d, true))}</td><td>${n}</td><td><button class="pill-btn sm" data-bcday="${d}">${d === S.bcDate ? "Showing" : "Open"}</button></td></tr>`).join("")}</tbody></table></div>`
+    // past meetings, and the weeks it didn't meet
+    const rows = [...meetings(b.id).map(([d, n]) => [d, String(n)]), ...skips.filter(s => s.bacenta === b.id).map(s => [s.meeting_date, "Didn't meet" + (s.reason ? ": " + s.reason : "")])]
+      .sort((x, y) => y[0].localeCompare(x[0]));
+    el.querySelector("#bc-past").innerHTML = rows.length ? `<div class="scroll"><table><thead><tr><th>Date</th><th>Came</th><th></th></tr></thead><tbody>${rows.slice(0, 26).map(([d, n]) =>
+      `<tr><td>${esc(nice(d, true))}</td><td>${/^\d+$/.test(n) ? n : `<span class="muted">${esc(n)}</span>`}</td><td><button class="pill-btn sm" data-bcday="${d}">${d === S.bcDate ? "Showing" : "Open"}</button></td></tr>`).join("")}</tbody></table></div>`
       : `<p class="empty">No meetings recorded yet.</p>`;
-    el.querySelectorAll("[data-bcday]").forEach(x => x.onclick = () => { S.bcDate = x.dataset.bcday; el.querySelector("#bc-d").value = S.bcDate; S.bcQ = ""; el.querySelector("#bc-q").value = ""; draw(); });
+    el.querySelectorAll("[data-bcday]").forEach(x => x.onclick = () => goDay(x.dataset.bcday));
+    el.querySelector("#bc-skipbtn")?.addEventListener("click", () => formDialog(`Didn't meet on ${nice(S.bcDate, true)}`, [
+      {k: "reason", label: "Why (optional)", value: "", hint: "e.g. School holidays, or joined the Sunday service"}], async v => {
+        const d = S.bcDate, reason = v.reason.slice(0, 120) || null;
+        try { await api("bacenta_skips?on_conflict=bacenta,meeting_date", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {bacenta: b.id, meeting_date: d, reason}}); }
+        catch (err) { throw new Error(bacentaSetup(err)); }
+        skips = skips.filter(s => !(s.bacenta === b.id && s.meeting_date === d)).concat({bacenta: b.id, meeting_date: d, reason}); draw(); toast("Marked as didn't meet."); }, "Save"));
+    el.querySelector("#bc-unskip")?.addEventListener("click", async e => { e.target.disabled = true; const d = S.bcDate;
+      try { await api(`bacenta_skips?bacenta=eq.${b.id}&meeting_date=eq.${d}`, {method: "DELETE", prefer: "return=minimal"});
+        skips = skips.filter(s => !(s.bacenta === b.id && s.meeting_date === d)); draw(); }
+      catch (err) { e.target.disabled = false; toast("Not saved: " + bacentaSetup(err)); } });
   };
   el.querySelector("#bc-d").onchange = e => { S.bcDate = e.target.value > today() ? today() : e.target.value || today(); draw(); };
   el.querySelector("#bc-q").oninput = e => { S.bcQ = e.target.value; draw(); };

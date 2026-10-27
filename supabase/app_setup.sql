@@ -688,6 +688,7 @@ create table if not exists bacentas (
   active boolean not null default true,
   created_at timestamptz not null default now());
 alter table bacentas add column if not exists pastor text check (length(pastor) <= 80);  -- the pastor who oversees it (a pastor can oversee several)
+alter table bacentas add column if not exists meet_day smallint check (meet_day between 0 and 6);  -- the day it meets each week (0 = Sunday)
 create unique index if not exists bacentas_church_name on bacentas (church, lower(trim(name)));
 create table if not exists bacenta_ticks (
   bacenta uuid not null references bacentas(id) on delete cascade,
@@ -698,6 +699,16 @@ create table if not exists bacenta_ticks (
 create index if not exists bacenta_ticks_member on bacenta_ticks (member_id);
 alter table bacentas enable row level security;
 alter table bacenta_ticks enable row level security;
+
+-- A Bacenta meets every week on its day unless marked "Didn't meet" for that week (holidays, a combined service…),
+-- so the app can tell a week it didn't meet from a week nobody took attendance.
+create table if not exists bacenta_skips (
+  bacenta uuid not null references bacentas(id) on delete cascade,
+  meeting_date date not null,
+  reason text check (length(reason) <= 120),
+  created_at timestamptz not null default now(),
+  primary key (bacenta, meeting_date));
+alter table bacenta_skips enable row level security;
 
 -- may the signed-in person take attendance for this Bacenta? Admins, church admins and the team for their church;
 -- a shepherd for the Bacenta that has their name on it, and a pastor for the Bacentas they oversee
@@ -734,6 +745,15 @@ create policy "app: tick at a bacenta" on bacenta_ticks for insert to authentica
 drop policy if exists "app: untick at a bacenta" on bacenta_ticks;
 create policy "app: untick at a bacenta" on bacenta_ticks for delete to authenticated using (app_bacenta_ok(bacenta));
 grant select, insert, delete on bacenta_ticks to authenticated;
+drop policy if exists "app: see bacenta weeks off" on bacenta_skips;
+create policy "app: see bacenta weeks off" on bacenta_skips for select to authenticated using (app_bacenta_ok(bacenta));
+drop policy if exists "app: mark a bacenta week off" on bacenta_skips;
+create policy "app: mark a bacenta week off" on bacenta_skips for insert to authenticated with check (app_bacenta_ok(bacenta));
+drop policy if exists "app: change a bacenta week off" on bacenta_skips;
+create policy "app: change a bacenta week off" on bacenta_skips for update to authenticated using (app_bacenta_ok(bacenta)) with check (app_bacenta_ok(bacenta));
+drop policy if exists "app: undo a bacenta week off" on bacenta_skips;
+create policy "app: undo a bacenta week off" on bacenta_skips for delete to authenticated using (app_bacenta_ok(bacenta));
+grant select, insert, update, delete on bacenta_skips to authenticated;
 
 -- A shepherd ticks anyone of their church at their Bacenta (not only people assigned to them), so they need the names:
 -- the name and type for the people of their own church (a pastor too, for the Bacentas they oversee). Phone, birthday
@@ -788,6 +808,8 @@ create or replace function app_backup_data() returns json language sql stable se
     'bacenta_ticks', (select coalesce(json_agg(t order by t.meeting_date, t.bacenta_name, t.full_name), '[]') from (  -- each Bacenta check-in with the Bacenta's and the person's names
       select k.*, b.name as bacenta_name, b.church, m.full_name
       from bacenta_ticks k join bacentas b on b.id = k.bacenta left join members m on m.id = k.member_id) t),
+    'bacenta_skips', (select coalesce(json_agg(t order by t.meeting_date), '[]') from (  -- weeks a Bacenta didn't meet
+      select k.*, b.name as bacenta_name, b.church from bacenta_skips k join bacentas b on b.id = k.bacenta) t),
     'lists', (select coalesce(json_agg(json_build_object('key', t.key, 'names', t.value) order by t.key), '[]') from settings t
               where t.key like 'pastors:%' or t.key like 'shepherds:%'),
     'signins', (select coalesce(json_agg(json_build_object('email', u.email, 'role', u.role, 'title', u.title, 'role3', u.role3, 'church', u.church,

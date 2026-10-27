@@ -62,15 +62,15 @@
     });
   }
   // Bacentas: two in the home church, meeting on Tuesdays, each with a few regulars
-  const bacentas = [{id: "b1", church: HOME, name: "City Bacenta", shepherd: "Shepherd Kofi Asante", pastor: "Pastor John Asante", active: true},
-    {id: "b2", church: HOME, name: "West Bacenta", shepherd: "Shepherd Abena Ofori", pastor: "Pastor John Asante", active: true}], bacenta_ticks = [];
+  const bacentas = [{id: "b1", church: HOME, name: "City Bacenta", shepherd: "Shepherd Kofi Asante", pastor: "Pastor John Asante", meet_day: 2, active: true, created_at: "2024-01-01T00:00:00Z"},
+    {id: "b2", church: HOME, name: "West Bacenta", shepherd: "Shepherd Abena Ofori", pastor: "Pastor John Asante", meet_day: 4, active: true, created_at: "2024-01-01T00:00:00Z"}], bacenta_skips = [], bacenta_ticks = [];
   const homeIds = members.filter(m => !m.church && m.age_group !== "Child").map(m => m.id);
-  for (let i = 1; i < 90; i++) { const d = dayAgo(i); if (d.getDay() !== 2) continue;
-    bacentas.forEach((b, j) => homeIds.slice(j * 9, j * 9 + 9).forEach(id => { if (rnd() < .7) bacenta_ticks.push({bacenta: b.id, meeting_date: iso(d), member_id: id, checked_at: iso(d) + "T19:10:00+13:00"}); })); }
+  for (let i = 1; i < 90; i++) { const d = dayAgo(i);
+    bacentas.forEach((b, j) => d.getDay() === b.meet_day && i !== 8 && i !== 15 && homeIds.slice(j * 9, j * 9 + 9).forEach(id => { if (rnd() < .7) bacenta_ticks.push({bacenta: b.id, meeting_date: iso(d), member_id: id, checked_at: iso(d) + "T19:10:00+13:00"}); })); }
   const services = [...sundays.map(d => ({service_date: d, name: "Sunday Service"})), ...weds.map(d => ({service_date: d, name: "Midweek Service"}))];
   const T = {
     churches: CH.map(name => ({name, livestream: null, created_at: "2024-01-01T00:00:00Z"})),
-    members, attendance, services, service_parts: [], service_ticks: [], bacentas, bacenta_ticks,
+    members, attendance, services, service_parts: [], service_ticks: [], bacentas, bacenta_ticks, bacenta_skips,
     app_users: [{email: "demo@example.com", role: "admin", church: null, name: "Demo Admin", pastor: null, title: null},
       {email: "lead.north@example.com", role: "lead", church: "Grace North", name: "Ruth Mensah", pastor: "Pastor Ruth Mensah", title: "Lead pastor"},
       {email: "usher@example.com", role: "team", church: HOME, name: "Kojo Appiah", pastor: null, title: null},
@@ -107,7 +107,7 @@
     return true;
   };
   const KEYS = {churches: ["name"], members: ["id"], attendance: ["service_date", "member_id"], services: ["service_date"], service_parts: ["church", "service_date", "part"],
-    service_ticks: ["service_date", "part", "member_id"], bacentas: ["id"], bacenta_ticks: ["bacenta", "meeting_date", "member_id"], app_users: ["email"], settings: ["key"], app_prefs: ["email"], registrations: ["id"], help_messages: ["id"]};
+    service_ticks: ["service_date", "part", "member_id"], bacentas: ["id"], bacenta_ticks: ["bacenta", "meeting_date", "member_id"], bacenta_skips: ["bacenta", "meeting_date"], app_users: ["email"], settings: ["key"], app_prefs: ["email"], registrations: ["id"], help_messages: ["id"]};
   const homeOf = m => (m.church || "").trim() || HOME;
   const live = m => !["inactive", "moved", "left", "deceased", "transferred", "away"].includes((m.status || "").toLowerCase());
   const kid = m => ["child", "kid", "kids", "children"].includes((m.age_group || "").toLowerCase());
