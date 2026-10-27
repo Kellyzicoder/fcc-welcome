@@ -775,6 +775,30 @@ language sql stable security definer set search_path = public as $$
 revoke all on function app_bacenta_people() from public, anon;
 grant execute on function app_bacenta_people() to authenticated;
 
+-- All churches page (Bishop and admin): Bacentas as numbers only, no names. For each church: how many Bacentas,
+-- how many people came to them last week (Monday to Sunday, the last finished week), people each week for the last
+-- 8 finished weeks (oldest first), and how many Bacentas didn't fill in last week (no ticks and not marked Didn't meet).
+create or replace function bacenta_numbers(upto date default null) returns table (church text, bacentas int, came int, weeks int[], behind int)
+language plpgsql stable security definer set search_path = public as $$
+declare mon date := date_trunc('week', coalesce(upto, current_date))::date - 7;  -- Monday of the last finished week
+begin
+  if app_role() is null or app_role() not in ('admin', 'bishop') then raise exception 'not allowed'; end if;
+  return query
+  select c.name,
+    (select count(*)::int from bacentas b where b.church = c.name and b.active),
+    (select count(distinct t.member_id)::int from bacenta_ticks t join bacentas b on b.id = t.bacenta
+       where b.church = c.name and t.meeting_date between mon and mon + 6),
+    array(select (select count(distinct t.member_id)::int from bacenta_ticks t join bacentas b on b.id = t.bacenta
+                    where b.church = c.name and t.meeting_date between mon - 7 * k and mon - 7 * k + 6)
+          from generate_series(7, 0, -1) k),
+    (select count(*)::int from bacentas b where b.church = c.name and b.active and b.created_at::date <= mon + 6
+       and not exists (select 1 from bacenta_ticks t where t.bacenta = b.id and t.meeting_date between mon and mon + 6)
+       and not exists (select 1 from bacenta_skips k where k.bacenta = b.id and k.meeting_date between mon and mon + 6))
+  from churches c order by c.name;
+end $$;
+revoke all on function bacenta_numbers(date) from public, anon;
+grant execute on function bacenta_numbers(date) to authenticated;
+
 -- The first Bacenta: Saved - City Bacenta, in Auckland (only when the Auckland church is there; never added twice)
 insert into bacentas (church, name)
   select 'Auckland', 'Saved - City Bacenta' where exists (select 1 from churches where name = 'Auckland')

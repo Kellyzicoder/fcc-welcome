@@ -136,6 +136,15 @@
         register: mine.length, red: ms.filter(x => x >= 5).length, yellow: ms.filter(x => x >= 3 && x <= 4).length, missed_this: ms.filter(x => x >= 1 && x <= 2).length,
         trend: days.slice(-12).map(d => t.filter(a => a.service_date === d).length)};
     });
+    if (name === "bacenta_numbers") {  // numbers only, like the real one: last finished week Monday to Sunday, and 8 weeks of totals
+      const d0 = new Date((body?.upto || iso(now)) + "T12:00:00"); d0.setDate(d0.getDate() - ((d0.getDay() + 6) % 7) - 7);
+      const wk = k => { const a = new Date(d0); a.setDate(a.getDate() - 7 * k); const z = new Date(a); z.setDate(z.getDate() + 6); return [iso(a), iso(z)]; };
+      return CH.map(c => { const bs = T.bacentas.filter(b => b.church === c && b.active), idsB = new Set(bs.map(b => b.id));
+        const ppl = ([a, z]) => new Set(T.bacenta_ticks.filter(t => idsB.has(t.bacenta) && t.meeting_date >= a && t.meeting_date <= z).map(t => t.member_id)).size;
+        const [a, z] = wk(0);
+        return {church: c, bacentas: bs.length, came: ppl(wk(0)), weeks: [7, 6, 5, 4, 3, 2, 1, 0].map(k => ppl(wk(k))),
+          behind: bs.filter(b => !T.bacenta_ticks.some(t => t.bacenta === b.id && t.meeting_date >= a && t.meeting_date <= z) && !T.bacenta_skips.some(s => s.bacenta === b.id && s.meeting_date >= a && s.meeting_date <= z)).length}; });
+    }
     if (name === "app_db_size") return {total: 31457280, tables: [{name: "attendance", bytes: 9437184}, {name: "members", bytes: 2097152}]};
     if (name === "app_set_my_name") return body?.new_name || "";
     if (name === "app_rename_church") return body?.new_name || body?.n || "";
