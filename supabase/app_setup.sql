@@ -673,8 +673,85 @@ revoke all on function app_set_status_rules(text, json) from public, anon;
 grant execute on function app_set_status_rules(text, json) to authenticated;
 
 -- ---------------------------------------------------------------- Backups: a Google Sheet that copies everything each night
+-- ---------------------------------------------------------------- Bacentas (cell groups)
+-- A Bacenta is a small group that meets during the week. Each one belongs to a church (its area, e.g. Auckland), has a
+-- name its shepherd picks, and the shepherd's name from the church's Shepherds list. A Bacenta that stops meeting is
+-- hidden, not deleted, so its past attendance stays.
+-- Bacenta check-ins are kept apart from service attendance: they never change a service's numbers, the Sunday
+-- follow-up flags, reports or the Streamlit tracker.
+create table if not exists bacentas (
+  id uuid primary key default gen_random_uuid(),
+  church text not null references churches(name) on update cascade on delete cascade,
+  name text not null check (length(trim(name)) between 1 and 60),
+  shepherd text check (length(shepherd) <= 80),
+  active boolean not null default true,
+  created_at timestamptz not null default now());
+create unique index if not exists bacentas_church_name on bacentas (church, lower(trim(name)));
+create table if not exists bacenta_ticks (
+  bacenta uuid not null references bacentas(id) on delete cascade,
+  meeting_date date not null,
+  member_id text not null references members(id) on delete cascade,
+  checked_at text,
+  primary key (bacenta, meeting_date, member_id));
+create index if not exists bacenta_ticks_member on bacenta_ticks (member_id);
+alter table bacentas enable row level security;
+alter table bacenta_ticks enable row level security;
+
+-- may the signed-in person take attendance for this Bacenta? Admins, church admins and the team for their church;
+-- a shepherd for the Bacenta that has their name on it
+create or replace function app_bacenta_ok(b uuid) returns boolean language sql stable security definer set search_path = public as
+$$ select coalesce((select app_can_see(x.church)
+     or (app_role() = 'pastor' and x.church = app_church() and lower(regexp_replace(trim(x.shepherd), '\s+', ' ', 'g')) = app_pastor_name())
+     from bacentas x where x.id = b), false) $$;
+-- …and may they tick this person there? Someone of the Bacenta's own church (checked here, not through the people
+-- rules, because a shepherd ticks people who aren't assigned to them too)
+create or replace function app_bacenta_tick_ok(b uuid, mid text) returns boolean language sql stable security definer set search_path = public as
+$$ select app_bacenta_ok(b) and exists (select 1 from bacentas x join members m on m.id = mid
+     where x.id = b and coalesce(nullif(trim(m.church), ''), app_home_church()) = x.church) $$;
+revoke all on function app_bacenta_ok(uuid), app_bacenta_tick_ok(uuid, text) from public, anon;
+grant execute on function app_bacenta_ok(uuid), app_bacenta_tick_ok(uuid, text) to authenticated;
+
+drop policy if exists "app: see bacentas" on bacentas;
+create policy "app: see bacentas" on bacentas for select to authenticated
+  using (app_can_see(church) or (app_role() = 'pastor' and church = app_church()));
+drop policy if exists "app: add bacentas" on bacentas;
+create policy "app: add bacentas" on bacentas for insert to authenticated
+  with check (app_role() in ('admin', 'lead') and app_can_see(church));
+drop policy if exists "app: change bacentas" on bacentas;
+create policy "app: change bacentas" on bacentas for update to authenticated
+  using (app_role() in ('admin', 'lead') and app_can_see(church))
+  with check (app_role() in ('admin', 'lead') and app_can_see(church));
+grant select, insert, update on bacentas to authenticated;
+
+drop policy if exists "app: see bacenta ticks" on bacenta_ticks;
+create policy "app: see bacenta ticks" on bacenta_ticks for select to authenticated using (app_bacenta_ok(bacenta));
+drop policy if exists "app: tick at a bacenta" on bacenta_ticks;
+create policy "app: tick at a bacenta" on bacenta_ticks for insert to authenticated
+  with check (app_bacenta_tick_ok(bacenta, member_id));
+drop policy if exists "app: untick at a bacenta" on bacenta_ticks;
+create policy "app: untick at a bacenta" on bacenta_ticks for delete to authenticated using (app_bacenta_ok(bacenta));
+grant select, insert, delete on bacenta_ticks to authenticated;
+
+-- A shepherd ticks anyone of their church at their Bacenta (not only people assigned to them), so they need the names:
+-- just the name and type, nothing else (no phone, no email), for the people of their own church.
+create or replace function app_bacenta_people() returns table (id text, full_name text, type text, age_group text)
+language sql stable security definer set search_path = public as $$
+  select m.id, m.full_name, m.type, m.age_group from members m
+  where app_role() = 'pastor' and exists (select 1 from bacentas b where b.church = app_church() and b.active
+          and lower(regexp_replace(trim(b.shepherd), '\s+', ' ', 'g')) = app_pastor_name())
+    and coalesce(nullif(trim(m.church), ''), app_home_church()) = app_church()
+  order by m.full_name $$;
+revoke all on function app_bacenta_people() from public, anon;
+grant execute on function app_bacenta_people() to authenticated;
+
+-- The first Bacenta: Saved - City Bacenta, in Auckland (only when the Auckland church is there; never added twice)
+insert into bacentas (church, name)
+  select 'Auckland', 'Saved - City Bacenta' where exists (select 1 from churches where name = 'Auckland')
+  on conflict do nothing;
+
 -- Admin → Backups makes a backup key (only its fingerprint is kept here) and the script for a Google Sheet; the sheet's
--- script sends the key each night and gets back every church, person, service and check-in, the pastor and shepherd lists
+-- script sends the key each night and gets back every church, person, service and check-in, the Bacentas and their check-ins,
+-- the pastor and shepherd lists
 -- and the sign-ins. The key only reads; making a new one stops the old one working. Safe to run again.
 create table if not exists backup_keys (
   id int primary key default 1 check (id = 1),
@@ -696,6 +773,10 @@ create or replace function app_backup_data() returns json language sql stable se
     'services', (select coalesce(json_agg(t order by t.service_date), '[]') from services t),
     'service_parts', (select coalesce(json_agg(t order by t.service_date), '[]') from service_parts t),
     'service_ticks', (select coalesce(json_agg(t order by t.service_date), '[]') from service_ticks t),
+    'bacentas', (select coalesce(json_agg(t order by t.church, t.name), '[]') from bacentas t),
+    'bacenta_ticks', (select coalesce(json_agg(t order by t.meeting_date, t.bacenta_name, t.full_name), '[]') from (  -- each Bacenta check-in with the Bacenta's and the person's names
+      select k.*, b.name as bacenta_name, b.church, m.full_name
+      from bacenta_ticks k join bacentas b on b.id = k.bacenta left join members m on m.id = k.member_id) t),
     'lists', (select coalesce(json_agg(json_build_object('key', t.key, 'names', t.value) order by t.key), '[]') from settings t
               where t.key like 'pastors:%' or t.key like 'shepherds:%'),
     'signins', (select coalesce(json_agg(json_build_object('email', u.email, 'role', u.role, 'title', u.title, 'role3', u.role3, 'church', u.church,

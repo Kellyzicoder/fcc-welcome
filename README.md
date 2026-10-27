@@ -40,6 +40,7 @@ in `supabase/app_setup.sql` decides what comes back.
 - Congregation list with bulk edits, visitor / first-timer / member types and assigned pastors
 - Follow-up: yellow and red flags for people missing services in a row (visitors are never flagged)
 - Pastor home page with their own people only
+- Bacentas (cell groups): each church's Bacentas with their shepherd; take each meeting's attendance. Kept apart from services, so it never changes Sunday numbers, follow-up or reports. A shepherd sign-in takes attendance for the Bacenta with their name on it
 - All-churches dashboard: month calendar, church list, charts, *No service was recorded* when a day is empty
 - WhatsApp summaries (phones only) and CSV downloads
 - Help page with questions by role, and a contact form that emails the admin and lands in the Admin inbox
