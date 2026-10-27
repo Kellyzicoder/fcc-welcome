@@ -151,6 +151,7 @@ grant select, insert, update, delete on churches, app_users to authenticated;
 -- Gender (Female / Male / blank) for the Congregation's Show and Sort. Someone's pastors are kept comma-separated in "pastor".
 alter table members add column if not exists gender text;
 alter table members add column if not exists address text;  -- home address (Congregation → Import people, and Edit)
+alter table members add column if not exists birthday date;  -- Edit, shown on the Bacentas page
 grant select, insert, update on members to authenticated;
 -- Deleting someone from the register (their ticks go with them): the admin, or that church's admin.
 drop policy if exists "app: church admins delete people" on members;
@@ -733,12 +734,19 @@ create policy "app: untick at a bacenta" on bacenta_ticks for delete to authenti
 grant select, insert, delete on bacenta_ticks to authenticated;
 
 -- A shepherd ticks anyone of their church at their Bacenta (not only people assigned to them), so they need the names:
--- just the name and type, nothing else (no phone, no email), for the people of their own church.
-create or replace function app_bacenta_people() returns table (id text, full_name text, type text, age_group text)
+-- the name and type for the people of their own church. Phone, birthday and address only for their Bacenta's own
+-- people (anyone ticked at it in the last 3 months); blank for everyone else.
+drop function if exists app_bacenta_people();
+create or replace function app_bacenta_people() returns table (id text, full_name text, type text, age_group text, phone text, birthday date, address text)
 language sql stable security definer set search_path = public as $$
-  select m.id, m.full_name, m.type, m.age_group from members m
-  where app_role() = 'pastor' and exists (select 1 from bacentas b where b.church = app_church() and b.active
-          and lower(regexp_replace(trim(b.shepherd), '\s+', ' ', 'g')) = app_pastor_name())
+  with mine as (select b.id from bacentas b where b.church = app_church() and b.active
+                  and lower(regexp_replace(trim(b.shepherd), '\s+', ' ', 'g')) = app_pastor_name()),
+       near as (select distinct t.member_id from bacenta_ticks t join mine on mine.id = t.bacenta where t.meeting_date >= current_date - 91)
+  select m.id, m.full_name, m.type, m.age_group,
+         case when n.member_id is not null then m.phone end, case when n.member_id is not null then m.birthday end,
+         case when n.member_id is not null then m.address end
+  from members m left join near n on n.member_id = m.id
+  where app_role() = 'pastor' and exists (select 1 from mine)
     and coalesce(nullif(trim(m.church), ''), app_home_church()) = app_church()
   order by m.full_name $$;
 revoke all on function app_bacenta_people() from public, anon;

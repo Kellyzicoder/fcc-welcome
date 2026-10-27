@@ -49,7 +49,8 @@
       status: rnd() < .03 ? "Away" : "", age_group: kid ? "Child" : "Adult", gender: rnd() < .52 ? "Female" : "Male",
       pastor: rnd() < .8 ? pastors[ch][Math.floor(rnd() * pastors[ch].length)] : "", shepherd: ch === HOME ? ["Shepherd Kofi Asante", "Shepherd Abena Ofori", "", ""][n % 4] : "", church: ch === HOME ? null : ch,
       role: kid ? "" : roles[Math.floor(rnd() * roles.length)], date_joined: ft || vis ? null : "2023-0" + (1 + Math.floor(rnd() * 9)) + "-1" + Math.floor(rnd() * 9),
-      first_visit: ft || vis ? sundays[sundays.length - 1 - Math.floor(rnd() * 6)] : null, created_at: "2024-01-07T10:00:00+13:00", version: 1});
+      first_visit: ft || vis ? sundays[sundays.length - 1 - Math.floor(rnd() * 6)] : null,
+      birthday: kid ? null : `${1970 + Math.floor(rnd() * 35)}-${pad(1 + Math.floor(rnd() * 12))}-${pad(1 + Math.floor(rnd() * 28))}`, address: kid ? null : `${1 + Math.floor(rnd() * 90)} ${["Queen St", "Great North Rd", "Dominion Rd", "Hobsonville Rd"][Math.floor(rnd() * 4)]}, Auckland`, created_at: "2024-01-07T10:00:00+13:00", version: 1});
   }
   const attendance = [];
   const habit = members.map(m => m.type === "first_timer" ? .5 : m.type === "visitor" ? .3 : rnd() < .12 ? .15 : .55 + rnd() * .4);

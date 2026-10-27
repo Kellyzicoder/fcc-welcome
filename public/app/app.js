@@ -994,7 +994,8 @@ async function signOut() { try { await auth("logout", {}, S.session?.access_toke
 async function load() {
   const since = new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10);
   const [members, ticks, services, seen, lists, parts, pticks] = await Promise.all([
-    all("members?select=id,full_name,phone,email,address,type,status,age_group,gender,pastor,shepherd,church,role,group_name,date_joined,first_visit,created_at,version&order=full_name")
+    all("members?select=id,full_name,phone,email,address,birthday,type,status,age_group,gender,pastor,shepherd,church,role,group_name,date_joined,first_visit,created_at,version&order=full_name")
+      .catch(() => all("members?select=id,full_name,phone,email,address,type,status,age_group,gender,pastor,shepherd,church,role,group_name,date_joined,first_visit,created_at,version&order=full_name"))  // before the birthday column is added
       .catch(() => all("members?select=id,full_name,phone,type,status,age_group,gender,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name"))  // before the address column is added
       .catch(() => all("members?select=id,full_name,phone,type,status,age_group,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name")),
     all(`attendance?select=service_date,member_id,checked_at&service_date=gte.${since}&order=service_date`),
@@ -1021,7 +1022,8 @@ async function freshen() {
   if (Date.now() - freshAt < 15000) return false;  // just done
   const since = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10);
   const [members, ticks, services, parts, pticks, pending, teamPending] = await Promise.all([
-    all("members?select=id,full_name,phone,email,address,type,status,age_group,gender,pastor,shepherd,church,role,group_name,date_joined,first_visit,created_at,version&order=full_name")
+    all("members?select=id,full_name,phone,email,address,birthday,type,status,age_group,gender,pastor,shepherd,church,role,group_name,date_joined,first_visit,created_at,version&order=full_name")
+      .catch(() => all("members?select=id,full_name,phone,email,address,type,status,age_group,gender,pastor,shepherd,church,role,group_name,date_joined,first_visit,created_at,version&order=full_name"))  // before the birthday column is added
       .catch(() => all("members?select=id,full_name,phone,type,status,age_group,gender,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name"))
       .catch(() => all("members?select=id,full_name,phone,type,status,age_group,pastor,church,role,date_joined,first_visit,created_at,version&order=full_name")),
     all(`attendance?select=service_date,member_id,checked_at&service_date=gte.${since}&order=service_date`),
@@ -3127,6 +3129,7 @@ function editPerson(m) {
       {k: "phone", label: "Phone", value: m.phone || "", type: "tel"},
       {k: "email", label: "Email", value: m.email || "", type: "email"},
       {k: "address", label: "Address", value: m.address || ""},
+      ...("birthday" in m ? [{k: "birthday", label: "Birthday", value: m.birthday || "", type: "date"}] : []),
       {k: "role", label: "Roles", value: rolesOf(m).join(", "), suggest: roleNames, many: true, hint: "Separate several with commas."},
       {k: "type", label: "Attendance Type", value: typeKey(m), type: "select", options: typeOpts},
       {k: "age_group", label: "Age group", value: ageOf(m), type: "select", options: [["Adult", "Adult"], ["Child", "Child"]]},
@@ -3148,7 +3151,7 @@ function editPerson(m) {
       // only save over the version this screen loaded: if someone else edited the person meanwhile, nothing is overwritten
       const ver = Number(m.version) || 1;
       const rows = await api(`members?id=eq.${encodeURIComponent(m.id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {...changed, version: ver + 1}})
-        .catch(err => { throw new Error(/gender|address|shepherd/.test(err.message) ? "Run the latest setup SQL in Supabase once to save this, then try again." : err.message); });
+        .catch(err => { throw new Error(/gender|address|shepherd|birthday/.test(err.message) ? "Run the latest setup SQL in Supabase once to save this, then try again." : err.message); });
       if (!rows?.length) { await load(); render(); throw new Error("Someone else changed this person a moment ago, so nothing was saved. The list now shows the latest details: please make your change again."); }
       Object.assign(m, changed, {version: ver + 1});
       log("edit", m.id, "done", Object.keys(changed).join(", "));
@@ -3774,6 +3777,7 @@ async function bacentas(el) {
       ${canTick ? "" : `<p class="note" style="margin:10px 2px">${S.preview ? esc(viewOnly()) : !b.active ? "This Bacenta is hidden. Show it again to take attendance." : "Only this Bacenta's shepherd and the church's leaders can take its attendance."}</p>`}
       <label class="find-bar" style="margin-top:12px">${svg("search")}<input id="bc-q" type="search" placeholder="Search ${esc(S.church)} by name to add someone" value="${esc(S.bcQ || "")}" autocomplete="off" aria-label="Search by name"></label>
       <div id="bc-names"></div></div>
+    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>People in ${esc(b.name)}</h2><span class="gap"></span><span class="muted" style="font-size:13px">Came in the last 3 months</span></div><div id="bc-people"></div></div>
     <div class="card"><div class="card-head"><h2>Past meetings</h2></div><div id="bc-past"></div></div>` : ""}`;
   // add, rename, set the shepherd, hide or show again
   const saveB = async (id, body) => {
@@ -3812,6 +3816,13 @@ async function bacentas(el) {
     el.querySelector("#bc-names").innerHTML = names.length ? `<div class="names" style="margin-top:12px">${names.map(m => `<label class="name ${now.has(m.id) ? "on" : ""}"><input type="checkbox" data-bt="${esc(m.id)}" ${now.has(m.id) ? "checked" : ""} ${canTick ? "" : "disabled"}>
         <span class="nava" ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span><span class="nn">${esc(m.full_name)}</span><small>${[m.type === "first_timer" ? "first-timer" : m.type === "visitor" ? "visitor" : "", isKid(m) ? "child" : ""].filter(Boolean).join(" · ")}</small></label>`).join("")}</div>`
       : `<p class="empty">${q ? "Nobody in " + esc(S.church) + " matches that." : "Nobody yet. Search for a name above to tick the first people in."}</p>`;
+    // the Bacenta's own people with their phone, birthday and address
+    const own = people.filter(m => regular.has(m.id)).sort(byName);
+    const bday = v => { const d = new Date(String(v).slice(0, 10) + "T12:00:00"); return isNaN(d) ? String(v) : d.toLocaleDateString("en-NZ", {day: "numeric", month: "short"}); };
+    el.querySelector("#bc-people").innerHTML = own.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Phone</th><th>Birthday</th><th>Address</th></tr></thead><tbody>${own.map(m =>
+      `<tr><td><span class="who"><span ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</span></td><td>${m.phone ? `<a href="tel:${esc(String(m.phone).replace(/[^0-9+]/g, ""))}">${esc(m.phone)}</a>` : `<span class="muted">Not given</span>`}</td>
+        <td>${m.birthday ? esc(bday(m.birthday)) : `<span class="muted">Not given</span>`}</td><td>${m.address ? esc(m.address) : `<span class="muted">Not given</span>`}</td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="empty">Nobody has come to ${esc(b.name)} in the last 3 months yet.</p>`;
     const ms = meetings(b.id);
     el.querySelector("#bc-past").innerHTML = ms.length ? `<div class="scroll"><table><thead><tr><th>Date</th><th>Came</th><th></th></tr></thead><tbody>${ms.slice(0, 26).map(([d, n]) =>
       `<tr><td>${esc(nice(d, true))}</td><td>${n}</td><td><button class="pill-btn sm" data-bcday="${d}">${d === S.bcDate ? "Showing" : "Open"}</button></td></tr>`).join("")}</tbody></table></div>`
