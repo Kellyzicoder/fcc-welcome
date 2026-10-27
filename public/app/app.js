@@ -3759,16 +3759,19 @@ async function bacentas(el) {
   const of = id => ticks.filter(t => t.bacenta === id), byId = Object.fromEntries(people.map(m => [m.id, m]));
   const skipOf = (id, d) => skips.find(s => s.bacenta === id && s.meeting_date === d);
   const meetings = id => { const o = {}; for (const t of of(id)) o[t.meeting_date] = (o[t.meeting_date] || 0) + 1; return Object.entries(o).sort((a, b) => b[0].localeCompare(a[0])); };
-  // Bacentas meet every week on their day, unless marked "Didn't meet". A week counts as filled in when there are ticks or
-  // a "Didn't meet" within 3 days of the meeting day (a meeting moved a day still counts). The last 8 weeks are checked.
+  // Bacentas meet every week, usually on their day, unless marked "Didn't meet". The day isn't fixed: a leader can move a
+  // week's meeting to any day that week. So a week (Monday to Sunday) counts as filled in when it has ticks or a "Didn't meet"
+  // on any of its days. A week is only called missing once it's over. The last 8 weeks are checked.
   const shift = (d, k) => { const x = new Date(d + "T12:00:00"); x.setDate(x.getDate() + k); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
   const lastDay = x => { if (x.meet_day == null) return ""; const t = today(); return shift(t, -((new Date(t + "T12:00:00").getDay() - x.meet_day + 7) % 7)); };
-  const near = (d, e) => d >= shift(e, -3) && d <= shift(e, 3);
-  const weeks = x => { const end = lastDay(x); if (!end || !x.active) return [];
-    const from = String(x.created_at || "").slice(0, 10), out = [];
-    for (let i = 0; i < 8; i++) { const d = shift(end, -7 * i); if (from && d < from) break;
-      const skip = skips.find(s => s.bacenta === x.id && near(s.meeting_date, d));
-      out.push({d, state: of(x.id).some(t => near(t.meeting_date, d)) ? "met" : skip ? "none" : d === today() ? "today" : "missing", reason: skip?.reason || ""}); }
+  const monday = d => shift(d, -((new Date(d + "T12:00:00").getDay() + 6) % 7));
+  const inWeek = (d, mon) => d >= mon && d <= shift(mon, 6);
+  const weeks = x => { if (x.meet_day == null || !x.active) return [];
+    const from = String(x.created_at || "").slice(0, 10), out = [], thisMon = monday(today());
+    for (let i = 1; i <= 8; i++) { const mon = shift(thisMon, -7 * i), d = shift(mon, (x.meet_day + 6) % 7);  // its usual day that week
+      if (from && shift(mon, 6) < from) break;
+      const skip = skips.find(s => s.bacenta === x.id && inWeek(s.meeting_date, mon));
+      out.push({d, state: of(x.id).some(t => inWeek(t.meeting_date, mon)) ? "met" : skip ? "none" : "missing", reason: skip?.reason || ""}); }
     return out; };
   const missing = x => weeks(x).filter(w => w.state === "missing");
   const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -3791,7 +3794,7 @@ async function bacentas(el) {
           return `<tr><td><button class="who ${x.id === S.bacenta ? "sel" : ""}" data-bc="${esc(x.id)}"><span>${esc(initials(x.name))}</span>${esc(x.name)}</button>${x.active ? "" : ` <small class="muted">Hidden</small>`}</td>
             <td>${x.meet_day != null ? esc(DAYS[x.meet_day] + "s") : `<span class="muted">Not set</span>`}</td>
             <td>${x.shepherd ? esc(shortTitle(x.shepherd)) : `<span class="muted">Not set</span>`}</td><td>${x.pastor ? esc(shortTitle(x.pastor)) : `<span class="muted">Not set</span>`}</td><td>${last ? esc(short(last[0])) : `<span class="muted">Not yet</span>`}</td><td>${last ? last[1] : ""}</td><td>${ppl}</td>
-            <td>${x.meet_day == null ? `<span class="muted">Set its day</span>` : miss ? `<span class="badge yellow" title="Weeks in the last 8 with no attendance and not marked Didn't meet">${miss} ${miss === 1 ? "week" : "weeks"}</span>` : `<span class="badge ok">Up to date</span>`}</td>
+            <td>${x.meet_day == null ? `<span class="muted">Set its day</span>` : miss ? `<span class="badge yellow" title="Weeks in the last 8 (Monday to Sunday) with no attendance on any day and not marked Didn't meet">${miss} ${miss === 1 ? "week" : "weeks"}</span>` : `<span class="badge ok">Up to date</span>`}</td>
             ${canEdit ? `<td><button class="pill-btn sm" data-bcedit="${esc(x.id)}" aria-label="Edit ${esc(x.name)}">${svg("edit")}Edit</button></td>` : ""}</tr>`; }).join("")}</tbody></table></div>`
         : `<p class="empty">${list.length ? "All this church's Bacentas are hidden." : `No Bacentas in ${esc(S.church)} yet.${canEdit ? " Tap Add a Bacenta." : ""}`}</p>`}</div>
     ${b ? `<div class="card" id="bc-take" style="margin-bottom:14px;scroll-margin-top:12px"><div class="card-head"><h2>${esc(b.name)}</h2><span class="gap"></span><span class="muted" style="font-size:13px">${[b.meet_day != null ? "Meets " + DAYS[b.meet_day] + "s" : "", b.shepherd ? esc(shortTitle(b.shepherd)) : "No shepherd set", b.pastor ? esc(shortTitle(b.pastor)) : ""].filter(Boolean).join(" · ")}</span></div>
@@ -3819,7 +3822,7 @@ async function bacentas(el) {
   const dayOf = v => v === "" ? null : Number(v);
   el.querySelector("#bc-add")?.addEventListener("click", () => formDialog("Add a Bacenta", [
     {k: "name", label: "Bacenta name", value: "", required: true, hint: "The name its shepherd picked, e.g. Saved - City Bacenta"},
-    {k: "meet_day", label: "Meets every", type: "select", value: "", options: dayOpts, hint: "It's expected every week on this day, unless marked Didn't meet."},
+    {k: "meet_day", label: "Meets every", type: "select", value: "", options: dayOpts, hint: "Its usual day. A week's meeting can still be moved to any other day that week."},
     {k: "shepherd", label: "Shepherd", type: "select", value: "", options: shepherdOpts(), hint: "Names come from the Shepherds list. Add a new shepherd there first."},
     {k: "pastor", label: "Pastor overseeing it", type: "select", value: "", options: pastorOpts(), hint: "Names come from the Pastors list. One pastor can oversee several Bacentas."}],
     async v => { await saveB(null, {name: v.name, meet_day: dayOf(v.meet_day), shepherd: v.shepherd || null, pastor: v.pastor || null}); toast(`${clean(v.name)} added.`); }, "Add"));
@@ -3845,11 +3848,11 @@ async function bacentas(el) {
     const now = here(), q = norm(S.bcQ || ""), skip = skipOf(b.id, S.bcDate);
     // weeks with nothing taken, each one tap away
     const miss = missing(b);
-    el.querySelector("#bc-miss").innerHTML = miss.length ? `<div class="msg" style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center"><b style="margin-right:4px">No attendance taken for</b>${miss.map(w =>
-      `<button type="button" class="pill-btn sm" data-bcday="${w.d}">${esc(short(w.d))}</button>`).join("")}</div>` : "";
+    el.querySelector("#bc-miss").innerHTML = miss.length ? `<div class="msg" style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center"><b style="margin-right:4px">No attendance taken for the week of</b>${miss.map(w =>
+      `<button type="button" class="pill-btn sm" data-bcday="${w.d}" title="Opens its usual day. If it met on another day that week, change the date.">${esc(short(w.d))}</button>`).join("")}</div>` : "";
     // a week it didn't meet (holiday, combined service…): marked, so it isn't counted as missing
     el.querySelector("#bc-skip").innerHTML = skip ? `<div class="msg" style="margin-top:12px;display:flex;align-items:center;gap:10px"><span><b>Didn't meet</b> on ${esc(nice(S.bcDate, true))}${skip.reason ? ": " + esc(skip.reason) : ""}</span><span class="gap" style="flex:1"></span>${canTick ? `<button type="button" class="pill-btn sm" id="bc-unskip">Undo</button>` : ""}</div>`
-      : canTick && !now.size ? `<div style="margin-top:12px"><button type="button" class="pill-btn sm" id="bc-skipbtn">Didn't meet this week</button></div>` : "";
+      : canTick && !now.size ? `<div style="margin-top:12px"><button type="button" class="pill-btn sm" id="bc-skipbtn">Didn't meet this week</button><p class="note" style="margin:8px 2px 0">Met on a different day this week? Change the date above, then tick people.</p></div>` : "";
     const names = q ? people.filter(m => norm(m.full_name).includes(q)).slice(0, 40)
       : people.filter(m => regular.has(m.id) || now.has(m.id));
     names.sort((x, y) => (now.has(y.id) - now.has(x.id)) || norm(x.full_name).localeCompare(norm(y.full_name)));
