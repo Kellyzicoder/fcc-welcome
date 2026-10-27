@@ -687,6 +687,7 @@ create table if not exists bacentas (
   shepherd text check (length(shepherd) <= 80),
   active boolean not null default true,
   created_at timestamptz not null default now());
+alter table bacentas add column if not exists pastor text check (length(pastor) <= 80);  -- the pastor who oversees it (a pastor can oversee several)
 create unique index if not exists bacentas_church_name on bacentas (church, lower(trim(name)));
 create table if not exists bacenta_ticks (
   bacenta uuid not null references bacentas(id) on delete cascade,
@@ -699,10 +700,11 @@ alter table bacentas enable row level security;
 alter table bacenta_ticks enable row level security;
 
 -- may the signed-in person take attendance for this Bacenta? Admins, church admins and the team for their church;
--- a shepherd for the Bacenta that has their name on it
+-- a shepherd for the Bacenta that has their name on it, and a pastor for the Bacentas they oversee
 create or replace function app_bacenta_ok(b uuid) returns boolean language sql stable security definer set search_path = public as
 $$ select coalesce((select app_can_see(x.church)
-     or (app_role() = 'pastor' and x.church = app_church() and lower(regexp_replace(trim(x.shepherd), '\s+', ' ', 'g')) = app_pastor_name())
+     or (app_role() = 'pastor' and x.church = app_church() and app_pastor_name() in
+           (lower(regexp_replace(trim(x.shepherd), '\s+', ' ', 'g')), lower(regexp_replace(trim(x.pastor), '\s+', ' ', 'g'))))
      from bacentas x where x.id = b), false) $$;
 -- …and may they tick this person there? Someone of the Bacenta's own church (checked here, not through the people
 -- rules, because a shepherd ticks people who aren't assigned to them too)
@@ -734,13 +736,14 @@ create policy "app: untick at a bacenta" on bacenta_ticks for delete to authenti
 grant select, insert, delete on bacenta_ticks to authenticated;
 
 -- A shepherd ticks anyone of their church at their Bacenta (not only people assigned to them), so they need the names:
--- the name and type for the people of their own church. Phone, birthday and address only for their Bacenta's own
+-- the name and type for the people of their own church (a pastor too, for the Bacentas they oversee). Phone, birthday
+-- and address only for their Bacentas' own
 -- people (anyone ticked at it in the last 3 months); blank for everyone else.
 drop function if exists app_bacenta_people();
 create or replace function app_bacenta_people() returns table (id text, full_name text, type text, age_group text, phone text, birthday date, address text)
 language sql stable security definer set search_path = public as $$
   with mine as (select b.id from bacentas b where b.church = app_church() and b.active
-                  and lower(regexp_replace(trim(b.shepherd), '\s+', ' ', 'g')) = app_pastor_name()),
+                  and app_pastor_name() in (lower(regexp_replace(trim(b.shepherd), '\s+', ' ', 'g')), lower(regexp_replace(trim(b.pastor), '\s+', ' ', 'g')))),
        near as (select distinct t.member_id from bacenta_ticks t join mine on mine.id = t.bacenta where t.meeting_date >= current_date - 91)
   select m.id, m.full_name, m.type, m.age_group,
          case when n.member_id is not null then m.phone end, case when n.member_id is not null then m.birthday end,

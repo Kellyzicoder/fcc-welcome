@@ -1152,7 +1152,7 @@ function navGroup(h, items, btns) {
 function pages() {  // the menu, in groups; what each role can actually load is decided by the database
   const r = S.me.role;
   if (r === "bishop") return [["", [["overview", "All churches"], ["help", "Help"]]]];
-  if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ...(S.me.title === "Shepherd" ? [["bacentas", "Bacentas"]] : []), ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people (a shepherd: their Bacenta too)
+  if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ["bacentas", "Bacentas"], ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people (and the Bacentas they oversee or shepherd)
   // Grouped by what people come to do: take attendance, look after people, share the numbers, run the churches, settings
   return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["bacentas", "Bacentas"], ["followup", "Follow-up"]]],
           ["PEOPLE", [["people", "Congregation"], ["pastors", "Pastors"], ["shepherds", "Shepherds"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ...(canTeam() ? [["teamforms", "Team forms"]] : []), ["archive", "Archive"]]],
@@ -3739,19 +3739,19 @@ const pastors = el => careGroups(el, CARE.pastors), shepherds = el => careGroups
 // A shepherd sees their church's Bacentas and takes attendance for the one with their name on it.
 const bacentaSetup = e => /bacenta|relation|schema cache|function/i.test(e?.message || "") ? "Bacentas need the latest setup SQL: run it in Supabase once, then tap Refresh." : e?.message || "Something went wrong.";
 async function bacentas(el) {
-  const canEdit = ["admin", "lead"].includes(S.me.role) && !S.preview, shep = S.me.role === "pastor";
+  const canEdit = ["admin", "lead"].includes(S.me.role) && !S.preview, shep = S.me.base === "pastor";  // a pastor or shepherd sign-in
   const since = new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10), recent = new Date(Date.now() - 91 * 864e5).toISOString().slice(0, 10);
   el.innerHTML = head("Bacentas", esc(S.church)) + `<p class="empty">Loading…</p>`;
   let list, ticks, people;
   try {
     [list, ticks, people] = await Promise.all([
-      all(`bacentas?select=id,church,name,shepherd,active&church=eq.${encodeURIComponent(S.church)}&order=name`),
+      all(`bacentas?select=id,church,name,shepherd,pastor,active&church=eq.${encodeURIComponent(S.church)}&order=name`),
       all(`bacenta_ticks?select=bacenta,meeting_date,member_id&meeting_date=gte.${since}&order=meeting_date`),
       // a shepherd gets only names (and type) for their church; everyone else already has the church's people loaded
       shep ? api("rpc/app_bacenta_people", {method: "POST", body: {}}) : Promise.resolve(S.members.filter(m => churchOf(m) === S.church && ruleOf(m) !== "gone"))]);
   } catch (e) { if (S.view === "bacentas") el.innerHTML = head("Bacentas", esc(S.church)) + `<div class="msg bad">${esc(bacentaSetup(e))}</div>`; return; }
   if (S.view !== "bacentas") return;  // moved to another page while loading
-  const mineB = b => norm(b.shepherd) === norm(S.me.pastor);  // the Bacenta with this shepherd's name on it
+  const mineB = b => [b.shepherd, b.pastor].some(n => n && norm(n) === norm(S.me.pastor));  // a Bacenta they shepherd or oversee
   const shown = list.filter(b => b.active || S.bcHidden), hidden = list.filter(b => !b.active).length;
   const ids = new Set(list.map(b => b.id)); ticks = ticks.filter(t => ids.has(t.bacenta));
   const of = id => ticks.filter(t => t.bacenta === id), byId = Object.fromEntries(people.map(m => [m.id, m]));
@@ -3759,22 +3759,24 @@ async function bacentas(el) {
   if (!shown.some(b => b.id === S.bacenta)) S.bacenta = (shep && shown.find(mineB) || shown[0])?.id || "";
   const b = list.find(x => x.id === S.bacenta), canTick = !!b && b.active && !S.preview && (!shep || mineB(b));
   S.bcDate ||= today();
+  const pastorOpts = () => { const names = [...new Set([...(S.pastorList?.[S.church] || []), ...list.map(x => x.pastor).filter(Boolean)])].sort();
+    return [["", "Not set yet"], ...names.map(n => [n, shortTitle(n)])]; };
   const shepherdOpts = () => { const names = [...new Set([...(S.shepherdList?.[S.church] || []), ...list.map(x => x.shepherd).filter(Boolean)])].sort();
     return [["", "Not set yet"], ...names.map(n => [n, n])]; };
   const clean = v => String(v || "").replace(/\s+/g, " ").trim().slice(0, 60);
   el.innerHTML = head("Bacentas", esc(S.church), canEdit ? `<button class="pill-btn primary" id="bc-add">${svg("plus")}Add a Bacenta</button>` : "") + `
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>${esc(S.church)} Bacentas</h2><span class="gap"></span>
       ${hidden ? `<label class="check" style="font-size:13px"><input type="checkbox" id="bc-hid" ${S.bcHidden ? "checked" : ""}> Show hidden (${hidden})</label>` : ""}</div>
-      ${shown.length ? `<div class="scroll"><table><thead><tr><th>Bacenta</th><th>Shepherd</th><th>Last met</th><th>Came</th><th>People in 3 months</th>${canEdit ? "<th></th>" : ""}</tr></thead><tbody>
+      ${shown.length ? `<div class="scroll"><table><thead><tr><th>Bacenta</th><th>Shepherd</th><th>Pastor</th><th>Last met</th><th>Came</th><th>People in 3 months</th>${canEdit ? "<th></th>" : ""}</tr></thead><tbody>
         ${shown.map(x => { const ms = meetings(x.id), last = ms[0], ppl = new Set(of(x.id).filter(t => t.meeting_date >= recent).map(t => t.member_id)).size;
           return `<tr><td><button class="who ${x.id === S.bacenta ? "sel" : ""}" data-bc="${esc(x.id)}"><span>${esc(initials(x.name))}</span>${esc(x.name)}</button>${x.active ? "" : ` <small class="muted">Hidden</small>`}</td>
-            <td>${x.shepherd ? esc(shortTitle(x.shepherd)) : `<span class="muted">Not set</span>`}</td><td>${last ? esc(nice(last[0])) : `<span class="muted">Not yet</span>`}</td><td>${last ? last[1] : ""}</td><td>${ppl}</td>
+            <td>${x.shepherd ? esc(shortTitle(x.shepherd)) : `<span class="muted">Not set</span>`}</td><td>${x.pastor ? esc(shortTitle(x.pastor)) : `<span class="muted">Not set</span>`}</td><td>${last ? esc(nice(last[0])) : `<span class="muted">Not yet</span>`}</td><td>${last ? last[1] : ""}</td><td>${ppl}</td>
             ${canEdit ? `<td><button class="pill-btn sm" data-bcedit="${esc(x.id)}" aria-label="Edit ${esc(x.name)}">${svg("edit")}Edit</button></td>` : ""}</tr>`; }).join("")}</tbody></table></div>`
         : `<p class="empty">${list.length ? "All this church's Bacentas are hidden." : `No Bacentas in ${esc(S.church)} yet.${canEdit ? " Tap Add a Bacenta." : ""}`}</p>`}</div>
-    ${b ? `<div class="card" id="bc-take" style="margin-bottom:14px;scroll-margin-top:12px"><div class="card-head"><h2>${esc(b.name)}</h2><span class="gap"></span><span class="muted" style="font-size:13px">${b.shepherd ? esc(shortTitle(b.shepherd)) : "No shepherd set"}</span></div>
+    ${b ? `<div class="card" id="bc-take" style="margin-bottom:14px;scroll-margin-top:12px"><div class="card-head"><h2>${esc(b.name)}</h2><span class="gap"></span><span class="muted" style="font-size:13px">${[b.shepherd ? esc(shortTitle(b.shepherd)) : "No shepherd set", b.pastor ? esc(shortTitle(b.pastor)) : ""].filter(Boolean).join(" · ")}</span></div>
       <div class="row"><div style="flex:0 0 170px"><label class="f" for="bc-d">Meeting date</label><input class="in" id="bc-d" type="date" value="${esc(S.bcDate)}" max="${today()}"></div>
         <div class="card tile" style="flex:0 0 140px;margin:0"><div class="label">Came</div><div class="num" id="bc-n">0</div></div></div>
-      ${canTick ? "" : `<p class="note" style="margin:10px 2px">${S.preview ? esc(viewOnly()) : !b.active ? "This Bacenta is hidden. Show it again to take attendance." : "Only this Bacenta's shepherd and the church's leaders can take its attendance."}</p>`}
+      ${canTick ? "" : `<p class="note" style="margin:10px 2px">${S.preview ? esc(viewOnly()) : !b.active ? "This Bacenta is hidden. Show it again to take attendance." : "Only this Bacenta's shepherd, its pastor and the church's leaders can take its attendance."}</p>`}
       <label class="find-bar" style="margin-top:12px">${svg("search")}<input id="bc-q" type="search" placeholder="Search ${esc(S.church)} by name to add someone" value="${esc(S.bcQ || "")}" autocomplete="off" aria-label="Search by name"></label>
       <div id="bc-names"></div></div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>People in ${esc(b.name)}</h2><span class="gap"></span><span class="muted" style="font-size:13px">Came in the last 3 months</span></div><div id="bc-people"></div></div>
@@ -3786,18 +3788,20 @@ async function bacentas(el) {
     if (name && list.some(x => x.id !== id && norm(x.name) === norm(name))) throw new Error(`${name} is already a Bacenta in ${S.church}.`);
     try {
       if (id) await api(`bacentas?id=eq.${id}`, {method: "PATCH", prefer: "return=minimal", body: {...body, ...(body.name !== undefined ? {name} : {})}});
-      else { const nid = crypto.randomUUID(); await api("bacentas", {method: "POST", prefer: "return=minimal", body: {id: nid, church: S.church, name, shepherd: body.shepherd || null, active: true}}); S.bacenta = nid; S.bcQ = ""; }
+      else { const nid = crypto.randomUUID(); await api("bacentas", {method: "POST", prefer: "return=minimal", body: {id: nid, church: S.church, name, shepherd: body.shepherd || null, pastor: body.pastor || null, active: true}}); S.bacenta = nid; S.bcQ = ""; }
     } catch (e) { throw new Error(/duplicate|unique/i.test(e.message) ? `${name} is already a Bacenta in ${S.church}.` : bacentaSetup(e)); }
     render();
   };
   el.querySelector("#bc-add")?.addEventListener("click", () => formDialog("Add a Bacenta", [
     {k: "name", label: "Bacenta name", value: "", required: true, hint: "The name its shepherd picked, e.g. Saved - City Bacenta"},
-    {k: "shepherd", label: "Shepherd", type: "select", value: "", options: shepherdOpts(), hint: "Names come from the Shepherds list. Add a new shepherd there first."}],
-    async v => { await saveB(null, {name: v.name, shepherd: v.shepherd || null}); toast(`${clean(v.name)} added.`); }, "Add"));
+    {k: "shepherd", label: "Shepherd", type: "select", value: "", options: shepherdOpts(), hint: "Names come from the Shepherds list. Add a new shepherd there first."},
+    {k: "pastor", label: "Pastor overseeing it", type: "select", value: "", options: pastorOpts(), hint: "Names come from the Pastors list. One pastor can oversee several Bacentas."}],
+    async v => { await saveB(null, {name: v.name, shepherd: v.shepherd || null, pastor: v.pastor || null}); toast(`${clean(v.name)} added.`); }, "Add"));
   el.querySelectorAll("[data-bcedit]").forEach(btn => btn.onclick = () => { const x = list.find(y => y.id === btn.dataset.bcedit);
     formDialog(`Change ${x.name}`, [{k: "name", label: "Bacenta name", value: x.name, required: true},
-      {k: "shepherd", label: "Shepherd", type: "select", value: x.shepherd || "", options: shepherdOpts()}],
-      async v => { await saveB(x.id, {name: v.name, shepherd: v.shepherd || null}); toast("Saved."); }, "Save",
+      {k: "shepherd", label: "Shepherd", type: "select", value: x.shepherd || "", options: shepherdOpts()},
+      {k: "pastor", label: "Pastor overseeing it", type: "select", value: x.pastor || "", options: pastorOpts()}],
+      async v => { await saveB(x.id, {name: v.name, shepherd: v.shepherd || null, pastor: v.pastor || null}); toast("Saved."); }, "Save",
       x.active ? {label: "Hide Bacenta", confirm: "Tap again to hide", run: async () => { await saveB(x.id, {active: false}); toast(`${x.name} is hidden. Its past attendance is kept.`); }}
         : {label: "Show again", confirm: "Tap again to show", run: async () => { await saveB(x.id, {active: true}); toast(`${x.name} is back.`); }}); });
   el.querySelector("#bc-hid")?.addEventListener("change", e => { S.bcHidden = e.target.checked; render(); });

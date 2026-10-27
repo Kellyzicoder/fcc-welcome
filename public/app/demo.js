@@ -62,8 +62,8 @@
     });
   }
   // Bacentas: two in the home church, meeting on Tuesdays, each with a few regulars
-  const bacentas = [{id: "b1", church: HOME, name: "City Bacenta", shepherd: "Shepherd Kofi Asante", active: true},
-    {id: "b2", church: HOME, name: "West Bacenta", shepherd: "Shepherd Abena Ofori", active: true}], bacenta_ticks = [];
+  const bacentas = [{id: "b1", church: HOME, name: "City Bacenta", shepherd: "Shepherd Kofi Asante", pastor: "Pastor John Asante", active: true},
+    {id: "b2", church: HOME, name: "West Bacenta", shepherd: "Shepherd Abena Ofori", pastor: "Pastor John Asante", active: true}], bacenta_ticks = [];
   const homeIds = members.filter(m => !m.church && m.age_group !== "Child").map(m => m.id);
   for (let i = 1; i < 90; i++) { const d = dayAgo(i); if (d.getDay() !== 2) continue;
     bacentas.forEach((b, j) => homeIds.slice(j * 9, j * 9 + 9).forEach(id => { if (rnd() < .7) bacenta_ticks.push({bacenta: b.id, meeting_date: iso(d), member_id: id, checked_at: iso(d) + "T19:10:00+13:00"}); })); }
