@@ -136,6 +136,7 @@
         register: mine.length, red: ms.filter(x => x >= 5).length, yellow: ms.filter(x => x >= 3 && x <= 4).length, missed_this: ms.filter(x => x >= 1 && x <= 2).length,
         trend: days.slice(-12).map(d => t.filter(a => a.service_date === d).length)};
     });
+    if (name === "app_bacenta_people") return T.members.filter(m => !m.church).map(m => ({id: m.id, full_name: m.full_name, type: m.type, age_group: m.age_group, phone: m.phone, birthday: m.birthday, address: m.address}));
     if (name === "bacenta_numbers") {  // numbers only, like the real one: last finished week Monday to Sunday, and 8 weeks of totals
       const d0 = new Date((body?.upto || iso(now)) + "T12:00:00"); d0.setDate(d0.getDate() - ((d0.getDay() + 6) % 7) - 7);
       const wk = k => { const a = new Date(d0); a.setDate(a.getDate() - 7 * k); const z = new Date(a); z.setDate(z.getDate() + 6); return [iso(a), iso(z)]; };
