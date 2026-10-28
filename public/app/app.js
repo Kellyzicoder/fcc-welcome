@@ -1090,7 +1090,7 @@ function picture(upTo = today()) {  // everything the pages show, as things stoo
   const people = [], archived = [];
   for (const m of mine) {
     if (ruleOf(m) !== "in") continue;  // only statuses set to stay on the lists are in Follow-up (Settings → Statuses)
-    const start = [m.date_joined, m.first_visit].filter(Boolean).sort()[0] || "0000";
+    const start = [m.date_joined, m.first_visit, dates.find(d => byDate[d][m.id]), (m.created_at || "").slice(0, 10)].filter(Boolean).sort()[0] || "0000";  // no join date: count from their first tick or the day they were added, not every Sunday on record
     let missed = 0, seen = null;
     // only Sunday services count as missed; coming to any service (midweek too) counts as being seen
     for (let i = dates.length - 1; i >= 0 && dates[i] >= start; i--) { if (byDate[dates[i]][m.id]) { seen = dates[i]; break; } if (isSunday(dates[i])) missed++; }

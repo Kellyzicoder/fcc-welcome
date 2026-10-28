@@ -336,7 +336,9 @@ begin
            -- visitors are never chased, so they never count as missing
            case when p.type = 'visitor' then 0 else
            (select count(*) from svc s where s.ch = p.ch and s.service_date > coalesce(sn.d, date '0001-01-01')
-              and s.service_date >= coalesce(p.started, date '0001-01-01') and extract(dow from s.service_date) = 0)::int end as missed,
+              and s.service_date >= coalesce(least(p.started, (select min(t.service_date) from ticks t where t.id = p.id),  -- no join date: from their first tick or the day they were added
+                                                   case when p.added ~ '^\d{4}-\d{2}-\d{2}$' then p.added::date end), date '0001-01-01')
+              and extract(dow from s.service_date) = 0)::int end as missed,
            coalesce(sn.d::text, p.started::text, p.added) as last_sign
     from people p join seen sn on sn.id = p.id
   ),
