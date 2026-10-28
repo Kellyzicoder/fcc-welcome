@@ -3674,7 +3674,6 @@ function mine(el) {
   };
   el.innerHTML = head("", p.last ? `${esc(svcName(p.last))} · ${esc(nice(p.last, true))}` : "No services recorded yet",
     `<button class="pill-btn" id="wa">Message for WhatsApp</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `
-    <div id="bac-home"></div>
     <div class="tiles"><div class="card tile"><div class="label">Your people</div><div class="num">${list.length}</div></div>
       <div class="card tile"><div class="label">Came</div><div class="num">${came.length}</div></div>
       <div class="card tile"><div class="label">Not there</div><div class="num">${list.length - came.length}</div></div>
@@ -3683,12 +3682,13 @@ function mine(el) {
       ${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Came</th><th>Sunday</th><th>Missed in a row</th>${hasBac ? "<th>Bacenta</th>" : ""}<th>Phone</th></tr></thead><tbody>
       ${list.slice().sort((a, b) => (b.level !== "ok") - (a.level !== "ok") || b.missed - a.missed || byName(a, b)).map(x => `<tr><td>${whoBtn(x)}</td><td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${badge(x.flag)}</td><td>${x.missed}</td>${hasBac ? `<td data-bacst="${esc(x.id)}"><span class="muted">…</span></td>` : ""}
         <td>${x.phone ? `<a href="tel:${esc(x.phone.replace(/[^0-9+]/g, ""))}">${esc(x.phone)}</a>` : ""}</td></tr>`).join("")}</tbody></table></div>`
-      : `<p class="empty">${me ? `Nobody is assigned to ${esc(me)} yet. Ask your church admin.` : "Your sign-in isn't linked to a pastor name yet. Ask your church admin."}</p>`}</div>`;
+      : `<p class="empty">${me ? `Nobody is assigned to ${esc(me)} yet. Ask your church admin.` : "Your sign-in isn't linked to a pastor name yet. Ask your church admin."}</p>`}</div>
+    <div id="bac-home" style="margin-top:14px"></div>`;
   el.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { S.view = b.dataset.go; render(); });
   el.querySelector("#wa").onclick = () => waDialog("Message for WhatsApp", message, {day: p.last || today()});
-  bacHome(el.querySelector("#bac-home"), el);  // their Bacenta first, and their people's Bacenta follow-up
+  bacHome(el.querySelector("#bac-home"), el);  // their Bacenta after their people, and their people's Bacenta follow-up
 }
-// Home for a shepherd or pastor: a card for each Bacenta they're on, above the Sunday numbers. When it meets, how the last
+// Home for a shepherd or pastor: a card for each Bacenta they're on, below their people. When it meets, how the last
 // meeting went, weeks not filled in, who needs a call, and Take attendance.
 async function bacHome(box, page) {
   const mineBs = (S.bacList || []).filter(b => b.active && b.church === S.church && bacMine(b));
