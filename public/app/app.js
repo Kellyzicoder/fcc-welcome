@@ -3960,7 +3960,7 @@ async function bacentas(el, mode = "manage") {
       const rows = [...meetings(b.id).map(([d, n]) => [d, String(n)]), ...skips.filter(s => s.bacenta === b.id).map(s => [s.meeting_date, "Didn't meet" + (s.reason ? ": " + s.reason : "")])]
         .sort((x, y) => y[0].localeCompare(x[0]));
       $("#bc-past").innerHTML = rows.length ? `<div class="scroll"><table><thead><tr><th>Date</th><th>Came</th>${can ? "<th></th>" : ""}</tr></thead><tbody>${rows.slice(0, 26).map(([d, n]) =>
-        `<tr><td>${esc(nice(d, true))}</td><td>${/^\d+$/.test(n) ? n : `<span class="muted">${esc(n)}</span>`}</td>${can ? `<td><button class="pill-btn sm" data-bcday="${d}">Open in Check-in</button></td>` : ""}</tr>`).join("")}</tbody></table></div>`
+        `<tr><td>${esc(nice(d, true))}</td><td>${/^\d+$/.test(n) ? n : `<span class="muted">${esc(n)}</span>`}</td>${can ? `<td><button class="pill-btn sm" data-bcday="${d}" style="white-space:nowrap" title="Open this meeting in Check-in" aria-label="Open ${esc(nice(d, true))} in Check-in">Open</button></td>` : ""}</tr>`).join("")}</tbody></table></div>`
         : `<p class="empty">No meetings recorded yet.</p>`;
     }
     el.querySelectorAll("[data-bcday]").forEach(x => x.onclick = () => goDay(x.dataset.bcday));
