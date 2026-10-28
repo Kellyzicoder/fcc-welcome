@@ -74,7 +74,7 @@
   const services = [...sundays.map(d => ({service_date: d, name: "Sunday Service"})), ...weds.map(d => ({service_date: d, name: "Midweek Service"}))];
   const T = {
     churches: CH.map(name => ({name, livestream: null, created_at: "2024-01-01T00:00:00Z"})),
-    members, attendance, services, service_parts: [], service_ticks: [], bacentas, bacenta_ticks, bacenta_skips, bacenta_guests, bacenta_guest_ticks,
+    members, attendance, services, service_parts: [], service_ticks: [], bacentas, bacenta_ticks, bacenta_skips, bacenta_guests, bacenta_guest_ticks, bacenta_helpers: [{bacenta: "b1", email: "usher@example.com", role: "assisting"}],
     app_users: [{email: "demo@example.com", role: "admin", church: null, name: "Demo Admin", pastor: null, title: null},
       {email: "lead.north@example.com", role: "lead", church: "Grace North", name: "Ruth Mensah", pastor: "Pastor Ruth Mensah", title: "Lead pastor"},
       {email: "usher@example.com", role: "team", church: HOME, name: "Kojo Appiah", pastor: null, title: null},
@@ -111,7 +111,7 @@
     return true;
   };
   const KEYS = {churches: ["name"], members: ["id"], attendance: ["service_date", "member_id"], services: ["service_date"], service_parts: ["church", "service_date", "part"],
-    service_ticks: ["service_date", "part", "member_id"], bacentas: ["id"], bacenta_ticks: ["bacenta", "meeting_date", "member_id"], bacenta_skips: ["bacenta", "meeting_date"], bacenta_guests: ["id"], bacenta_guest_ticks: ["bacenta", "meeting_date", "guest"], app_users: ["email"], settings: ["key"], app_prefs: ["email"], registrations: ["id"], help_messages: ["id"]};
+    service_ticks: ["service_date", "part", "member_id"], bacentas: ["id"], bacenta_ticks: ["bacenta", "meeting_date", "member_id"], bacenta_skips: ["bacenta", "meeting_date"], bacenta_guests: ["id"], bacenta_helpers: ["bacenta", "email"], bacenta_guest_ticks: ["bacenta", "meeting_date", "guest"], app_users: ["email"], settings: ["key"], app_prefs: ["email"], registrations: ["id"], help_messages: ["id"]};
   const homeOf = m => (m.church || "").trim() || HOME;
   const live = m => !["inactive", "moved", "left", "deceased", "transferred", "away"].includes((m.status || "").toLowerCase());
   const kid = m => ["child", "kid", "kids", "children"].includes((m.age_group || "").toLowerCase());
@@ -141,6 +141,7 @@
         trend: days.slice(-12).map(d => t.filter(a => a.service_date === d).length)};
     });
     if (name === "app_bacenta_people") return T.members.filter(m => !m.church).map(m => ({id: m.id, full_name: m.full_name, type: m.type, age_group: m.age_group, phone: m.phone, birthday: m.birthday, address: m.address}));
+    if (name === "app_church_signins") return T.app_users.filter(u => u.church === body?.ch).map(u => ({email: u.email, name: u.name, role: u.role, title: u.title}));
     if (name === "app_bacenta_link") { const g = T.bacenta_guests.find(x => x.id === body?.g); if (!g) throw new Error("not allowed");
       const mine = T.bacenta_guest_ticks.filter(t => t.guest === g.id);
       for (const t of mine) if (!T.bacenta_ticks.some(x => x.bacenta === t.bacenta && x.meeting_date === t.meeting_date && x.member_id === body.mid)) T.bacenta_ticks.push({bacenta: t.bacenta, meeting_date: t.meeting_date, member_id: body.mid, checked_at: t.checked_at, from_guest: g.id});

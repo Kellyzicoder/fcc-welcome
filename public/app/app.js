@@ -1016,6 +1016,7 @@ async function load() {
   S.partsOk = parts !== null; S.parts = {}; for (const r of parts || []) (S.parts[r.service_date] ??= []).push({part: r.part, name: r.name});
   S.pticks = pticks;
   S.bacList = await all("bacentas?select=id,church,name,shepherd,pastor,meet_day,active,created_at&order=name").catch(() => null);  // for Check-in's Service | Bacenta switch
+  S.bacHelp = await all("bacenta_helpers?select=bacenta,email,role").catch(() => []);  // who leads or assists which Bacenta
 }
 // Before a page opens: what may have changed lately (people, and the last two weeks' ticks and services). Quicker than load().
 let freshAt = 0;
@@ -1156,7 +1157,7 @@ function pages() {  // the menu, in groups; what each role can actually load is 
   if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ...((S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people (and the Bacentas they oversee or shepherd)
   // Grouped by what people come to do: take attendance, look after people, share the numbers, run the churches, settings
   return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["followup", "Follow-up"]]],
-          ["PEOPLE", [["people", "Congregation"], ["pastors", "Pastors"], ["shepherds", "Shepherds"], ["bacentas", "Bacentas"], ...(canApprove() ? [["signups", "Sign-ups"]] : []), ...(canTeam() ? [["teamforms", "Team forms"]] : []), ["archive", "Archive"]]],
+          ["PEOPLE", [["people", "Congregation"], ["pastors", "Pastors"], ["shepherds", "Shepherds"], ...(["admin", "lead"].includes(r) || (S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ...(canApprove() ? [["signups", "Sign-ups"]] : []), ...(canTeam() ? [["teamforms", "Team forms"]] : []), ["archive", "Archive"]]],
           ["SHARE", [["reports", "Reports"]]],
           ...(r === "admin" ? [["CHURCHES", [["overview", "Churches"]]]] : []),
           ...(r === "team" ? [] : [[r === "admin" ? "ADMIN" : "RECORDS", [...(r === "admin" ? [["admin", "Admin"]] : []), ["activity", "Activity log"]]]]),
@@ -3778,12 +3779,14 @@ const bacentaSetup = e => /bacenta|relation|schema cache|function/i.test(e?.mess
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const dayShift = (d, k) => { const x = new Date(d + "T12:00:00"); x.setDate(x.getDate() + k); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`; };
 const bacLastDay = x => { if (x.meet_day == null) return ""; const t = today(); return dayShift(t, -((new Date(t + "T12:00:00").getDay() - x.meet_day + 7) % 7)); };
-const bacMine = b => [b.shepherd, b.pastor].some(n => n && norm(n) === norm(S.me.pastor));  // a Bacenta they shepherd or oversee
-// the Bacentas this sign-in takes attendance for: a shepherd or pastor, the ones with their name on; leaders and the team, all of the church's
-const bacTickable = () => (S.bacList || []).filter(b => b.active && b.church === S.church && (S.me.base !== "pastor" || bacMine(b)));
-// Check-in opens on Bacenta for a shepherd or pastor on their Bacenta's usual day; otherwise on Service
+// a Bacenta they shepherd, oversee, or were put on as leading or assisting
+const bacMine = b => [b.shepherd, b.pastor].some(n => n && norm(n) === norm(S.me.pastor)) || (S.bacHelp || []).some(h => h.bacenta === b.id && h.email === S.me.email);
+const bacAll = () => ["admin", "lead"].includes(S.me.base);  // admins and church admins see every Bacenta (of their church); everyone else only theirs
+// the Bacentas this sign-in takes attendance for: admins and church admins, all of the church's; anyone else, only the ones they're on
+const bacTickable = () => (S.bacList || []).filter(b => b.active && b.church === S.church && (bacAll() || bacMine(b)));
+// Check-in opens on Bacenta on their Bacenta's usual day for someone on it (shepherd, pastor, leading or assisting); otherwise on Service
 function ciDefaultMode() {
-  const todays = S.me.base === "pastor" && !S.preview ? bacTickable().find(b => b.meet_day === new Date().getDay()) : null;
+  const todays = !bacAll() && !S.preview ? bacTickable().find(b => b.meet_day === new Date().getDay()) : null;
   if (todays) { S.ciMode = "bacenta"; S.bacenta = todays.id; S.bcDate = today(); S.bcDateFor = todays.id; } else S.ciMode = "service";
 }
 // the switch at the top of Check-in (only when there's a Bacenta to take)
@@ -3796,13 +3799,13 @@ function takeBacenta(id, d) { S.ciMode = "bacenta"; S.ciModeKeep = true; S.bacen
 
 async function bacentas(el, mode = "manage") {
   const take = mode === "take", page = take ? "checkin" : "bacentas", title = take ? "Check-in" : "Bacentas";
-  const canEdit = !take && ["admin", "lead"].includes(S.me.role) && !S.preview, shep = S.me.base === "pastor";  // a pastor or shepherd sign-in
+  const canEdit = !take && ["admin", "lead"].includes(S.me.role) && !S.preview, shep = S.me.base === "pastor", lim = !bacAll();  // shep: a pastor or shepherd sign-in; lim: only their own Bacentas
   const since = new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10), recent = new Date(Date.now() - 91 * 864e5).toISOString().slice(0, 10);
   el.innerHTML = head(title, esc(S.church)) + (take ? ciSwitch() : "") + `<p class="empty">Loading…</p>`;
   if (take) wireSwitch(el);
-  let list, ticks, skips, people, guests, gticks;
+  let list, ticks, skips, people, guests, gticks, helpers, signins;
   try {
-    [list, ticks, skips, people, guests, gticks] = await Promise.all([
+    [list, ticks, skips, people, guests, gticks, helpers, signins] = await Promise.all([
       all(`bacentas?select=id,church,name,shepherd,pastor,meet_day,active,created_at&church=eq.${encodeURIComponent(S.church)}&order=name`),
       all(`bacenta_ticks?select=bacenta,meeting_date,member_id&meeting_date=gte.${since}&order=meeting_date`),
       all(`bacenta_skips?select=bacenta,meeting_date,reason&meeting_date=gte.${since}`),
@@ -3811,7 +3814,11 @@ async function bacentas(el, mode = "manage") {
       shep ? api("rpc/app_bacenta_people", {method: "POST", body: {}}) : Promise.resolve(S.members.filter(m => churchOf(m) === S.church && ruleOf(m) !== "gone")),
       // Bacenta-only people: on a Bacenta's list but not on the church's register (yet)
       all("bacenta_guests?select=id,bacenta,full_name,phone,birthday,address,member_id&order=full_name").catch(() => []),
-      all(`bacenta_guest_ticks?select=bacenta,meeting_date,guest&meeting_date=gte.${since}`).catch(() => [])]);
+      all(`bacenta_guest_ticks?select=bacenta,meeting_date,guest&meeting_date=gte.${since}`).catch(() => []),
+      all("bacenta_helpers?select=bacenta,email,role").catch(() => []),
+      // who can be put on a Bacenta as leading or assisting: the church's sign-ins (admins and church admins see all anyway)
+      canEdit ? api("rpc/app_church_signins", {method: "POST", body: {ch: S.church}}).catch(() => []) : Promise.resolve([])]);
+  S.bacHelp = helpers;
   } catch (e) { if (S.view === page) el.innerHTML = head(title, esc(S.church)) + `<div class="msg bad">${esc(bacentaSetup(e))}</div>`; return; }
   if (S.view !== page || (take && S.ciMode !== "bacenta")) return;  // moved on while loading
   people = people || [];
@@ -3822,8 +3829,8 @@ async function bacentas(el, mode = "manage") {
   people = [...people, ...guests.filter(g => !g.member_id).map(g => ({id: "g:" + g.id, gid: g.id, bacenta: g.bacenta, full_name: g.full_name, phone: g.phone, birthday: g.birthday, address: g.address, guest: true}))];
   ticks = [...ticks, ...gticks.map(t => ({bacenta: t.bacenta, meeting_date: t.meeting_date, member_id: "g:" + t.guest}))];
   S.bacList = [...(S.bacList || []).filter(x => x.church !== S.church), ...list];  // keep the switch's list fresh
-  // a shepherd or pastor only sees the Bacentas with their name on (the others' numbers would be empty for them anyway)
-  if (shep) list = list.filter(bacMine);
+  // anyone but an admin or church admin only sees the Bacentas they're on (the database gives them no others anyway)
+  if (lim) list = list.filter(bacMine);
   const shown = list.filter(b => b.active || S.bcHidden), hidden = list.filter(b => !b.active).length;
   const ids = new Set(list.map(b => b.id)); ticks = ticks.filter(t => ids.has(t.bacenta));
   const of = id => ticks.filter(t => t.bacenta === id), byId = Object.fromEntries(people.map(m => [m.id, m]));
@@ -3842,11 +3849,11 @@ async function bacentas(el, mode = "manage") {
       out.push({d, state: of(x.id).some(t => inWeek(t.meeting_date, mon)) ? "met" : skip ? "none" : "missing", reason: skip?.reason || ""}); }
     return out; };
   const missing = x => weeks(x).filter(w => w.state === "missing");
-  const mine = list.filter(x => x.active && (!shep || bacMine(x)));  // the ones this sign-in can take
+  const mine = list.filter(x => x.active && (!lim || bacMine(x)));  // the ones this sign-in can take
   // which Bacenta is open: on Check-in, one they can take (today's first); on the Bacentas page, any shown
   const pickFrom = take ? mine : shown;
-  if (!pickFrom.some(x => x.id === S.bacenta)) S.bacenta = (pickFrom.find(x => x.meet_day === new Date().getDay()) || (shep && shown.find(bacMine)) || pickFrom[0])?.id || "";
-  const b = list.find(x => x.id === S.bacenta), canTick = take && !!b && b.active && !S.preview && (!shep || bacMine(b));
+  if (!pickFrom.some(x => x.id === S.bacenta)) S.bacenta = (pickFrom.find(x => x.meet_day === new Date().getDay()) || (lim && shown.find(bacMine)) || pickFrom[0])?.id || "";
+  const b = list.find(x => x.id === S.bacenta), canTick = take && !!b && b.active && !S.preview && (!lim || bacMine(b));
   if (b && S.bcDateFor !== b.id) { S.bcDate = bacLastDay(b) || today(); S.bcDateFor = b.id; }  // opens on its latest usual day
   S.bcDate ||= today();
   const pastorOpts = () => { const names = [...new Set([...(S.pastorList?.[S.church] || []), ...list.map(x => x.pastor).filter(Boolean)])].sort();
@@ -3854,9 +3861,17 @@ async function bacentas(el, mode = "manage") {
   const shepherdOpts = () => { const names = [...new Set([...(S.shepherdList?.[S.church] || []), ...list.map(x => x.shepherd).filter(Boolean)])].sort();
     return [["", "Not set yet"], ...names.map(n => [n, n])]; };
   const dayOpts = [["", "Not set yet"], ...DAYS.map((d, i) => [String(i), d])];
+  // sign-ins to put on a Bacenta: the team and pastors of this church (admins and church admins already see every Bacenta)
+  const helpOpts = signins.filter(u => !["admin", "lead"].includes(u.role)).map(u => [u.email, `${u.name || u.email} · ${roleName(u)}`]);
+  const helpFields = x => helpOpts.length ? [
+    {k: "leading", label: "Leading (besides the shepherd)", type: "multi", value: x ? helpOf(x, "leading").map(h => h.email) : [], options: helpOpts},
+    {k: "assisting", label: "Assisting", type: "multi", value: x ? helpOf(x, "assisting").map(h => h.email) : [], options: helpOpts,
+     hint: "Only the people ticked here (and its shepherd and pastor) see this Bacenta. Ushers who aren't on it see nothing of it."}] : [];
   const clean = v => String(v || "").replace(/\s+/g, " ").trim().slice(0, 60);
   const short = d => nice(d);
-  const who = x => [x.meet_day != null ? "Meets " + DAYS[x.meet_day] + "s" : "", x.shepherd ? esc(shortTitle(x.shepherd)) : "No shepherd set", x.pastor ? esc(shortTitle(x.pastor)) : ""].filter(Boolean).join(" · ");
+  const nameOf = em => signins.find(u => u.email === em)?.name || em, helpOf = (x, r) => helpers.filter(h => h.bacenta === x.id && h.role === r);
+  const helpLine = x => ["leading", "assisting"].map(r => { const hs = helpOf(x, r); return hs.length ? `${r === "leading" ? "Leading" : "Assisting"}: ${hs.map(h => h.email === S.me.email ? "you" : esc(nameOf(h.email))).join(", ")}` : ""; });
+  const who = x => [x.meet_day != null ? "Meets " + DAYS[x.meet_day] + "s" : "", x.shepherd ? esc(shortTitle(x.shepherd)) : "No shepherd set", x.pastor ? esc(shortTitle(x.pastor)) : "", ...helpLine(x)].filter(Boolean).join(" · ");
   if (take) {  // ---- Check-in → Bacenta: pick the Bacenta and the day, then tick
     el.innerHTML = head("Check-in", esc(S.church)) + ciSwitch() + (b ? `
       <div class="card" id="bc-take" style="margin-bottom:14px">
@@ -3889,35 +3904,42 @@ async function bacentas(el, mode = "manage") {
             ${canEdit ? `<td><button class="pill-btn sm" data-bcedit="${esc(x.id)}" aria-label="Edit ${esc(x.name)}">${svg("edit")}Edit</button></td>` : ""}</tr>`; }).join("")}</tbody></table></div>`
         : `<p class="empty">${list.length ? "All this church's Bacentas are hidden." : `No Bacentas in ${esc(S.church)} yet.${canEdit ? " Tap Add a Bacenta." : ""}`}</p>`}</div>
     ${b ? `<div class="card" id="bc-take" style="margin-bottom:14px;scroll-margin-top:12px"><div class="card-head"><h2>${esc(b.name)}</h2><span class="gap"></span>
-        ${b.active && !S.preview && (!shep || bacMine(b)) ? `<button type="button" class="pill-btn primary sm" id="bc-go">${svg("checkin")}Take attendance</button>` : ""}</div>
+        ${b.active && !S.preview && (!lim || bacMine(b)) ? `<button type="button" class="pill-btn primary sm" id="bc-go">${svg("checkin")}Take attendance</button>` : ""}</div>
       <p class="note" style="margin:0 2px 10px">${who(b)}</p><div id="bc-miss"></div></div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Follow-up</h2><span class="gap"></span><span class="muted" style="font-size:13px">Missed the last meetings in a row</span></div><div id="bc-follow"></div></div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>People in ${esc(b.name)}</h2><span class="gap"></span><span class="muted" style="font-size:13px">Came in the last 3 months</span></div><div id="bc-people"></div></div>
     <div class="card"><div class="card-head"><h2>Past meetings</h2></div><div id="bc-past"></div></div>` : ""}`;
     // add, rename, set the shepherd, pastor and day, hide or show again
     const saveB = async (id, body) => {
+      const help = body.help; delete body.help;
       const name = clean(body.name);
       if (body.name !== undefined && !name) throw new Error("Type the Bacenta's name.");
       if (name && list.some(x => x.id !== id && norm(x.name) === norm(name))) throw new Error(`${name} is already a Bacenta in ${S.church}.`);
       try {
         if (id) await api(`bacentas?id=eq.${id}`, {method: "PATCH", prefer: "return=minimal", body: {...body, ...(body.name !== undefined ? {name} : {})}});
-        else { const nid = crypto.randomUUID(); await api("bacentas", {method: "POST", prefer: "return=minimal", body: {id: nid, church: S.church, name, shepherd: body.shepherd || null, pastor: body.pastor || null, meet_day: body.meet_day ?? null, active: true, created_at: new Date().toISOString()}}); S.bacenta = nid; S.bcQ = ""; }
+        else { const nid = crypto.randomUUID(); await api("bacentas", {method: "POST", prefer: "return=minimal", body: {id: nid, church: S.church, name, shepherd: body.shepherd || null, pastor: body.pastor || null, meet_day: body.meet_day ?? null, active: true, created_at: new Date().toISOString()}}); S.bacenta = nid; S.bcQ = ""; id = nid; }
+        if (help) {  // who's leading and assisting: replaced with what was ticked (leading wins if someone is ticked in both)
+          const rows = [...help.leading.map(email => ({bacenta: id, email, role: "leading"})), ...help.assisting.filter(e => !help.leading.includes(e)).map(email => ({bacenta: id, email, role: "assisting"}))];
+          await api(`bacenta_helpers?bacenta=eq.${id}`, {method: "DELETE", prefer: "return=minimal"});
+          if (rows.length) await api("bacenta_helpers", {method: "POST", prefer: "return=minimal", body: rows});
+        }
       } catch (e) { throw new Error(/duplicate|unique/i.test(e.message) ? `${name} is already a Bacenta in ${S.church}.` : bacentaSetup(e)); }
       S.bcDateFor = ""; render();
     };
     const dayOf = v => v === "" ? null : Number(v);
+    const splitHelp = v => ({leading: (v.leading || "").split(",").map(x => x.trim()).filter(Boolean), assisting: (v.assisting || "").split(",").map(x => x.trim()).filter(Boolean)});
     el.querySelector("#bc-add")?.addEventListener("click", () => formDialog("Add a Bacenta", [
       {k: "name", label: "Bacenta name", value: "", required: true, hint: "The name its shepherd picked, e.g. Saved - City Bacenta"},
       {k: "meet_day", label: "Usually meets on", type: "select", value: "", options: dayOpts, hint: "Its usual day. A week's meeting can still be moved to any other day that week."},
       {k: "shepherd", label: "Shepherd", type: "select", value: "", options: shepherdOpts(), hint: "Names come from the Shepherds list. Add a new shepherd there first."},
-      {k: "pastor", label: "Pastor overseeing it", type: "select", value: "", options: pastorOpts(), hint: "Names come from the Pastors list. One pastor can oversee several Bacentas."}],
-      async v => { await saveB(null, {name: v.name, meet_day: dayOf(v.meet_day), shepherd: v.shepherd || null, pastor: v.pastor || null}); toast(`${clean(v.name)} added.`); }, "Add"));
+      {k: "pastor", label: "Pastor overseeing it", type: "select", value: "", options: pastorOpts(), hint: "Names come from the Pastors list. One pastor can oversee several Bacentas."}, ...helpFields(null)],
+      async v => { await saveB(null, {name: v.name, meet_day: dayOf(v.meet_day), shepherd: v.shepherd || null, pastor: v.pastor || null, help: helpOpts.length ? splitHelp(v) : null}); toast(`${clean(v.name)} added.`); }, "Add"));
     el.querySelectorAll("[data-bcedit]").forEach(btn => btn.onclick = () => { const x = list.find(y => y.id === btn.dataset.bcedit);
       formDialog(`Change ${x.name}`, [{k: "name", label: "Bacenta name", value: x.name, required: true},
         {k: "meet_day", label: "Usually meets on", type: "select", value: x.meet_day == null ? "" : String(x.meet_day), options: dayOpts},
         {k: "shepherd", label: "Shepherd", type: "select", value: x.shepherd || "", options: shepherdOpts()},
-        {k: "pastor", label: "Pastor overseeing it", type: "select", value: x.pastor || "", options: pastorOpts()}],
-        async v => { await saveB(x.id, {name: v.name, meet_day: dayOf(v.meet_day), shepherd: v.shepherd || null, pastor: v.pastor || null}); toast("Saved."); }, "Save",
+        {k: "pastor", label: "Pastor overseeing it", type: "select", value: x.pastor || "", options: pastorOpts()}, ...helpFields(x)],
+        async v => { await saveB(x.id, {name: v.name, meet_day: dayOf(v.meet_day), shepherd: v.shepherd || null, pastor: v.pastor || null, help: helpOpts.length ? splitHelp(v) : null}); toast("Saved."); }, "Save",
         x.active ? {label: "Hide Bacenta", confirm: "Tap again to hide", run: async () => { await saveB(x.id, {active: false}); toast(`${x.name} is hidden. Its past attendance is kept.`); }}
           : {label: "Show again", confirm: "Tap again to show", run: async () => { await saveB(x.id, {active: true}); toast(`${x.name} is back.`); }}); });
     el.querySelector("#bc-hid")?.addEventListener("change", e => { S.bcHidden = e.target.checked; render(); });
@@ -3972,7 +3994,7 @@ async function bacentas(el, mode = "manage") {
         `<tr><td><span class="who"><span ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</span>${onlyTag(m)}</td><td>${flag(m.row)}</td><td>${m.row}</td><td>${esc(short(m.lastCame))}</td><td>${tel(m)}</td></tr>`).join("")}</tbody></table></div>`
         : `<p class="empty">${own.length ? "Everyone came to the last meeting." : "Nobody to follow up yet."}</p>`;
       // the Bacenta's own people with their phone, birthday and address
-      const canLink = b.active && !S.preview && (!shep || bacMine(b));
+      const canLink = b.active && !S.preview && (!lim || bacMine(b));
       $("#bc-people").innerHTML = own.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Phone</th><th>Birthday</th><th>Address</th>${canLink && own.some(m => m.guest) ? "<th></th>" : ""}</tr></thead><tbody>${own.map(m =>
         `<tr><td><span class="who"><span ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</span>${onlyTag(m)}${(() => { const g = linked.find(x => x.bacenta === b.id && x.member_id === m.id);
             return g ? ` <small class="muted">Linked from ${esc(g.full_name)}</small>${canLink ? ` <button class="pill-btn sm" data-bcunlink="${esc(g.id)}" style="white-space:nowrap" title="Picked the wrong name? Undo the link">Undo link</button>` : ""}` : ""; })()}</td><td>${tel(m)}</td>
@@ -3981,7 +4003,7 @@ async function bacentas(el, mode = "manage") {
         ${own.some(m => m.guest) ? `<p class="note" style="margin:10px 2px 0"><b>Bacenta only</b> means they come to ${esc(b.name)} but aren't on the church register. When they start coming on Sundays and are added on Check-in, tap <b>Link to register</b> so their Bacenta attendance moves with them.</p>` : ""}`
         : `<p class="empty">Nobody has come to ${esc(b.name)} in the last 3 months yet.</p>`;
       // past meetings, and the weeks it didn't meet
-      const can = b.active && !S.preview && (!shep || bacMine(b));
+      const can = b.active && !S.preview && (!lim || bacMine(b));
       const rows = [...meetings(b.id).map(([d, n]) => [d, String(n)]), ...skips.filter(s => s.bacenta === b.id).map(s => [s.meeting_date, "Didn't meet" + (s.reason ? ": " + s.reason : "")])]
         .sort((x, y) => y[0].localeCompare(x[0]));
       $("#bc-past").innerHTML = rows.length ? `<div class="scroll"><table><thead><tr><th>Date</th><th>Came</th>${can ? "<th></th>" : ""}</tr></thead><tbody>${rows.slice(0, 26).map(([d, n]) =>

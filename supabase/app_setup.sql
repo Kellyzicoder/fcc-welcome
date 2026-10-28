@@ -710,10 +710,20 @@ create table if not exists bacenta_skips (
   primary key (bacenta, meeting_date));
 alter table bacenta_skips enable row level security;
 
--- may the signed-in person take attendance for this Bacenta? Admins, church admins and the team for their church;
--- a shepherd for the Bacenta that has their name on it, and a pastor for the Bacentas they oversee
+-- Sign-ins put on a Bacenta as leading or assisting (e.g. an usher who helps on Bacenta night). Only they, of the team,
+-- see anything of that Bacenta. Admins and church admins choose them (Bacentas page → Edit).
+create table if not exists bacenta_helpers (
+  bacenta uuid not null references bacentas(id) on delete cascade,
+  email text not null references app_users(email) on update cascade on delete cascade,
+  role text not null check (role in ('leading', 'assisting')),
+  primary key (bacenta, email));
+alter table bacenta_helpers enable row level security;
+
+-- may the signed-in person see and take this Bacenta? Admins, and church admins for their church; anyone of its church put
+-- on it as leading or assisting; its shepherd and the pastor overseeing it. Ushers (the team) only when put on it.
 create or replace function app_bacenta_ok(b uuid) returns boolean language sql stable security definer set search_path = public as
-$$ select coalesce((select app_can_see(x.church)
+$$ select coalesce((select (app_role() in ('admin', 'lead') and app_can_see(x.church))
+     or (x.church = app_church() and exists (select 1 from bacenta_helpers h where h.bacenta = x.id and h.email = lower(auth.jwt() ->> 'email')))
      or (app_role() = 'pastor' and x.church = app_church() and app_pastor_name() in
            (lower(regexp_replace(trim(x.shepherd), '\s+', ' ', 'g')), lower(regexp_replace(trim(x.pastor), '\s+', ' ', 'g'))))
      from bacentas x where x.id = b), false) $$;
@@ -727,7 +737,7 @@ grant execute on function app_bacenta_ok(uuid), app_bacenta_tick_ok(uuid, text) 
 
 drop policy if exists "app: see bacentas" on bacentas;
 create policy "app: see bacentas" on bacentas for select to authenticated
-  using (app_can_see(church) or (app_role() = 'pastor' and church = app_church()));
+  using ((app_role() in ('admin', 'lead') and app_can_see(church)) or app_bacenta_ok(id));  -- others: only the ones they're on
 drop policy if exists "app: add bacentas" on bacentas;
 create policy "app: add bacentas" on bacentas for insert to authenticated
   with check (app_role() in ('admin', 'lead') and app_can_see(church));
@@ -736,6 +746,26 @@ create policy "app: change bacentas" on bacentas for update to authenticated
   using (app_role() in ('admin', 'lead') and app_can_see(church))
   with check (app_role() in ('admin', 'lead') and app_can_see(church));
 grant select, insert, update on bacentas to authenticated;
+create or replace function app_signin_church(em text) returns text language sql stable security definer set search_path = public as
+$$ select church from app_users where email = lower(em) $$;
+revoke all on function app_signin_church(text) from public, anon;
+grant execute on function app_signin_church(text) to authenticated;
+drop policy if exists "app: see bacenta helpers" on bacenta_helpers;
+create policy "app: see bacenta helpers" on bacenta_helpers for select to authenticated
+  using (email = lower(auth.jwt() ->> 'email') or exists (select 1 from bacentas b where b.id = bacenta and app_role() in ('admin', 'lead') and app_can_see(b.church)));
+drop policy if exists "app: choose bacenta helpers" on bacenta_helpers;
+create policy "app: choose bacenta helpers" on bacenta_helpers for all to authenticated
+  using (exists (select 1 from bacentas b where b.id = bacenta and app_role() in ('admin', 'lead') and app_can_see(b.church)))
+  with check (exists (select 1 from bacentas b where b.id = bacenta and app_role() in ('admin', 'lead') and app_can_see(b.church)
+                      and app_signin_church(bacenta_helpers.email) = b.church));  -- only a sign-in of the Bacenta's own church
+grant select, insert, update, delete on bacenta_helpers to authenticated;
+-- the church's sign-ins to choose from (a church admin can't read sign-ins otherwise): name and role only
+create or replace function app_church_signins(ch text) returns table (email text, name text, role text, title text)
+language sql stable security definer set search_path = public as $$
+  select u.email, u.name, u.role, u.title from app_users u
+  where app_role() in ('admin', 'lead') and app_can_see(ch) and u.church = ch order by coalesce(u.name, u.email) $$;
+revoke all on function app_church_signins(text) from public, anon;
+grant execute on function app_church_signins(text) to authenticated;
 
 drop policy if exists "app: see bacenta ticks" on bacenta_ticks;
 create policy "app: see bacenta ticks" on bacenta_ticks for select to authenticated using (app_bacenta_ok(bacenta));
@@ -912,6 +942,7 @@ create or replace function app_backup_data() returns json language sql stable se
     'bacenta_ticks', (select coalesce(json_agg(t order by t.meeting_date, t.bacenta_name, t.full_name), '[]') from (  -- each Bacenta check-in with the Bacenta's and the person's names
       select k.*, b.name as bacenta_name, b.church, m.full_name
       from bacenta_ticks k join bacentas b on b.id = k.bacenta left join members m on m.id = k.member_id) t),
+    'bacenta_helpers', (select coalesce(json_agg(t order by t.bacenta, t.email), '[]') from bacenta_helpers t),
     'bacenta_guests', (select coalesce(json_agg(t order by t.full_name), '[]') from (  -- Bacenta-only people (not on the register)
       select g.*, b.name as bacenta_name, b.church from bacenta_guests g join bacentas b on b.id = g.bacenta) t),
     'bacenta_guest_ticks', (select coalesce(json_agg(t order by t.meeting_date, t.full_name), '[]') from (
