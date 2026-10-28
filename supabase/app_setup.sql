@@ -308,6 +308,16 @@ grant execute on function app_day_parts(text, date), app_add_service(text, date,
 -- Returns counts only. The Bishop's sign-in has no rule that lets it read the members table, so names and phone
 -- numbers cannot be loaded with it; this function is the only thing it can call.
 -- Called with a date it gives the numbers as they stood after that day's services (for sharing an earlier day).
+-- What a status does at a church (Settings → Statuses): 'in' stays on the lists and in the numbers; 'out' and 'gone' are left out.
+-- No status, or one without a rule, is 'in'. The defaults match the app: Left and Transferred out, Deceased gone.
+create or replace function app_status_rule(ch text, st text) returns text language sql stable security definer set search_path = public as $$
+  select case when trim(coalesce(st, '')) = '' then 'in' else coalesce(
+    (select r.value from settings s, json_each_text(s.value::json) r where s.key = 'status_rules:' || ch and lower(r.key) = lower(trim(st)) limit 1),
+    case lower(trim(st)) when 'left' then 'out' when 'transferred' then 'out' when 'deceased' then 'gone' else 'in' end) end
+$$;
+revoke all on function app_status_rule(text, text) from public, anon;
+grant execute on function app_status_rule(text, text) to authenticated;
+
 drop function if exists church_numbers();
 create or replace function church_numbers(upto date default null) returns table (
   church text, latest date, present int, adults int, kids int, first_timers int, register int,
@@ -323,7 +333,7 @@ begin
            lower(coalesce(m.age_group, '')) in ('child', 'kid', 'kids', 'children') as kid,
            least(m.date_joined, m.first_visit) as started, left(m.created_at, 10) as added
     from members m
-    where lower(coalesce(m.status, '')) not in ('inactive', 'moved', 'left', 'deceased', 'transferred', 'away')
+    where app_status_rule(coalesce(nullif(trim(m.church), ''), app_home_church()), m.status) = 'in'
   ),
   ticks as (select p.ch, p.id, a.service_date from attendance a join people p on p.id = a.member_id
             where a.service_date <= coalesce(upto, current_date + 1)),
@@ -369,7 +379,7 @@ create or replace function church_trend(upto date default null) returns table (
     select m.id, coalesce(nullif(trim(m.church), ''), app_home_church()) as ch, m.type,
            lower(coalesce(m.age_group, '')) in ('child', 'kid', 'kids', 'children') as kid
     from members m
-    where lower(coalesce(m.status, '')) not in ('inactive', 'moved', 'left', 'deceased', 'transferred', 'away')),
+    where app_status_rule(coalesce(nullif(trim(m.church), ''), app_home_church()), m.status) = 'in'),
   counts as (
     select p.ch, a.service_date as d, count(*) filter (where not p.kid)::int as ad, count(*) filter (where p.kid)::int as ki,
            count(*) filter (where p.type = 'first_timer')::int as ft, count(*) filter (where p.type = 'visitor')::int as vi
@@ -387,7 +397,7 @@ language sql stable security definer set search_path = public as $$
   select coalesce(nullif(trim(m.church), ''), app_home_church()), a.service_date, count(*)::int
   from attendance a join members m on m.id = a.member_id
   where app_role() in ('admin', 'bishop')
-    and lower(coalesce(m.status, '')) not in ('inactive', 'moved', 'left', 'deceased', 'transferred', 'away')
+    and app_status_rule(coalesce(nullif(trim(m.church), ''), app_home_church()), m.status) = 'in'
   group by 1, 2 order by 2
 $$;
 revoke all on function church_days() from public, anon;
@@ -1177,7 +1187,7 @@ create or replace function app_ask_people(ch text default null) returns table (
               when 'm' then 'Male' when 'male' then 'Male' else 'Not given' end,
          nullif(trim(m.pastor), ''), nullif(trim(m.role), ''), coalesce(nullif(trim(m.status), ''), 'Active'),
          coalesce(nullif(trim(m.church), ''), app_home_church()),
-         lower(coalesce(m.status, '')) not in ('inactive', 'moved', 'left', 'deceased', 'transferred', 'away'),
+         app_status_rule(coalesce(nullif(trim(m.church), ''), app_home_church()), m.status) = 'in',
          nullif(regexp_replace(coalesce(m.phone, ''), '\s', '', 'g'), '') is not null,
          m.first_visit, least(m.date_joined, m.first_visit),
          case when left(m.created_at, 10) ~ '^\d{4}-\d{2}-\d{2}$' then left(m.created_at, 10)::date end
