@@ -775,6 +775,66 @@ language sql stable security definer set search_path = public as $$
 revoke all on function app_bacenta_people() from public, anon;
 grant execute on function app_bacenta_people() to authenticated;
 
+-- Bacenta-only people: someone who comes to a Bacenta but not (yet) on Sundays. They are kept off the church's register
+-- (members), so they never show on Check-in for services, follow-up, reports, numbers or the Streamlit tracker. Once they
+-- start coming on Sundays and are on the register, "link" them: their Bacenta attendance moves onto their register entry.
+create table if not exists bacenta_guests (
+  id uuid primary key default gen_random_uuid(),
+  bacenta uuid not null references bacentas(id) on delete cascade,
+  full_name text not null check (length(trim(full_name)) between 1 and 80),
+  phone text check (length(phone) <= 30),
+  birthday date,
+  address text check (length(address) <= 200),
+  member_id text references members(id) on delete set null,  -- set once they're on the register
+  added_by text,
+  created_at timestamptz not null default now());
+create table if not exists bacenta_guest_ticks (
+  bacenta uuid not null references bacentas(id) on delete cascade,
+  meeting_date date not null,
+  guest uuid not null references bacenta_guests(id) on delete cascade,
+  checked_at text,
+  primary key (bacenta, meeting_date, guest));
+alter table bacenta_guests enable row level security;
+alter table bacenta_guest_ticks enable row level security;
+drop policy if exists "app: see bacenta guests" on bacenta_guests;
+create policy "app: see bacenta guests" on bacenta_guests for select to authenticated using (app_bacenta_ok(bacenta));
+drop policy if exists "app: add bacenta guests" on bacenta_guests;
+create policy "app: add bacenta guests" on bacenta_guests for insert to authenticated with check (app_bacenta_ok(bacenta) and member_id is null);
+drop policy if exists "app: edit bacenta guests" on bacenta_guests;
+create policy "app: edit bacenta guests" on bacenta_guests for update to authenticated using (app_bacenta_ok(bacenta)) with check (app_bacenta_ok(bacenta));
+drop policy if exists "app: remove bacenta guests" on bacenta_guests;
+create policy "app: remove bacenta guests" on bacenta_guests for delete to authenticated using (app_bacenta_ok(bacenta));
+grant select, insert, delete on bacenta_guests to authenticated;
+grant update (full_name, phone, birthday, address) on bacenta_guests to authenticated;  -- linking goes through app_bacenta_link
+drop policy if exists "app: see bacenta guest ticks" on bacenta_guest_ticks;
+create policy "app: see bacenta guest ticks" on bacenta_guest_ticks for select to authenticated using (app_bacenta_ok(bacenta));
+drop policy if exists "app: tick a bacenta guest" on bacenta_guest_ticks;
+create policy "app: tick a bacenta guest" on bacenta_guest_ticks for insert to authenticated
+  with check (app_bacenta_ok(bacenta) and exists (select 1 from bacenta_guests g where g.id = guest and g.bacenta = bacenta_guest_ticks.bacenta and g.member_id is null));
+drop policy if exists "app: untick a bacenta guest" on bacenta_guest_ticks;
+create policy "app: untick a bacenta guest" on bacenta_guest_ticks for delete to authenticated using (app_bacenta_ok(bacenta));
+grant select, insert, delete on bacenta_guest_ticks to authenticated;
+
+-- Link a Bacenta-only person to their entry on the register (once they're on it): their Bacenta check-ins move onto the
+-- register entry, all at once. Whoever can take that Bacenta's attendance can do it; the person must be in its church.
+create or replace function app_bacenta_link(g uuid, mid text) returns int
+language plpgsql security definer set search_path = public as $$
+declare x bacenta_guests; n int;
+begin
+  select * into x from bacenta_guests where id = g for update;
+  if not found or not app_bacenta_ok(x.bacenta) then raise exception 'not allowed'; end if;
+  if x.member_id is not null then raise exception 'already linked'; end if;
+  if not app_bacenta_tick_ok(x.bacenta, mid) then raise exception 'that person is not on this church''s register'; end if;
+  insert into bacenta_ticks (bacenta, meeting_date, member_id, checked_at)
+    select t.bacenta, t.meeting_date, mid, t.checked_at from bacenta_guest_ticks t where t.guest = g on conflict do nothing;
+  get diagnostics n = row_count;
+  delete from bacenta_guest_ticks where guest = g;
+  update bacenta_guests set member_id = mid where id = g;
+  return n;
+end $$;
+revoke all on function app_bacenta_link(uuid, text) from public, anon;
+grant execute on function app_bacenta_link(uuid, text) to authenticated;
+
 -- All churches page (Bishop and admin): Bacentas as numbers only, no names. For each church: how many Bacentas,
 -- how many people came to them last week (Monday to Sunday, the last finished week), people each week for the last
 -- 8 finished weeks (oldest first), and how many Bacentas didn't fill in last week (no ticks and not marked Didn't meet).
@@ -784,15 +844,18 @@ declare mon date := date_trunc('week', coalesce(upto, current_date))::date - 7; 
 begin
   if app_role() is null or app_role() not in ('admin', 'bishop') then raise exception 'not allowed'; end if;
   return query
+  with t as (  -- every Bacenta check-in: people on the register and Bacenta-only people
+    select k.bacenta, k.meeting_date, 'm' || k.member_id as who from bacenta_ticks k
+    union all select k.bacenta, k.meeting_date, 'g' || k.guest from bacenta_guest_ticks k)
   select c.name,
     (select count(*)::int from bacentas b where b.church = c.name and b.active),
-    (select count(distinct t.member_id)::int from bacenta_ticks t join bacentas b on b.id = t.bacenta
+    (select count(distinct t.who)::int from t join bacentas b on b.id = t.bacenta
        where b.church = c.name and t.meeting_date between mon and mon + 6),
-    array(select (select count(distinct t.member_id)::int from bacenta_ticks t join bacentas b on b.id = t.bacenta
+    array(select (select count(distinct t.who)::int from t join bacentas b on b.id = t.bacenta
                     where b.church = c.name and t.meeting_date between mon - 7 * k and mon - 7 * k + 6)
           from generate_series(7, 0, -1) k),
     (select count(*)::int from bacentas b where b.church = c.name and b.active and b.created_at::date <= mon + 6
-       and not exists (select 1 from bacenta_ticks t where t.bacenta = b.id and t.meeting_date between mon and mon + 6)
+       and not exists (select 1 from t where t.bacenta = b.id and t.meeting_date between mon and mon + 6)
        and not exists (select 1 from bacenta_skips k where k.bacenta = b.id and k.meeting_date between mon and mon + 6))
   from churches c order by c.name;
 end $$;
@@ -832,6 +895,10 @@ create or replace function app_backup_data() returns json language sql stable se
     'bacenta_ticks', (select coalesce(json_agg(t order by t.meeting_date, t.bacenta_name, t.full_name), '[]') from (  -- each Bacenta check-in with the Bacenta's and the person's names
       select k.*, b.name as bacenta_name, b.church, m.full_name
       from bacenta_ticks k join bacentas b on b.id = k.bacenta left join members m on m.id = k.member_id) t),
+    'bacenta_guests', (select coalesce(json_agg(t order by t.full_name), '[]') from (  -- Bacenta-only people (not on the register)
+      select g.*, b.name as bacenta_name, b.church from bacenta_guests g join bacentas b on b.id = g.bacenta) t),
+    'bacenta_guest_ticks', (select coalesce(json_agg(t order by t.meeting_date, t.full_name), '[]') from (
+      select k.*, g.full_name, b.name as bacenta_name from bacenta_guest_ticks k join bacenta_guests g on g.id = k.guest join bacentas b on b.id = k.bacenta) t),
     'bacenta_skips', (select coalesce(json_agg(t order by t.meeting_date), '[]') from (  -- weeks a Bacenta didn't meet
       select k.*, b.name as bacenta_name, b.church from bacenta_skips k join bacentas b on b.id = k.bacenta) t),
     'lists', (select coalesce(json_agg(json_build_object('key', t.key, 'names', t.value) order by t.key), '[]') from settings t

@@ -67,10 +67,14 @@
   const homeIds = members.filter(m => !m.church && m.age_group !== "Child").map(m => m.id);
   for (let i = 1; i < 90; i++) { const d = dayAgo(i);
     bacentas.forEach((b, j) => d.getDay() === b.meet_day && i !== 8 && i !== 15 && homeIds.slice(j * 9, j * 9 + 9).forEach(id => { if (rnd() < .7) bacenta_ticks.push({bacenta: b.id, meeting_date: iso(d), member_id: id, checked_at: iso(d) + "T19:10:00+13:00"}); })); }
+  // a Bacenta-only person: comes to City Bacenta, not on the register
+  const bacenta_guests = [{id: "g1", bacenta: "b1", full_name: "Emma Wilson", phone: "022 555 0142", birthday: "1996-04-09", address: "12 Hobsonville Rd, Auckland", member_id: null}];
+  const bacenta_guest_ticks = bacenta_ticks.filter(t => t.bacenta === "b1").map(t => t.meeting_date).filter((d, i, a) => a.indexOf(d) === i).slice(-4)
+    .map(d => ({bacenta: "b1", meeting_date: d, guest: "g1", checked_at: d + "T19:05:00+13:00"}));
   const services = [...sundays.map(d => ({service_date: d, name: "Sunday Service"})), ...weds.map(d => ({service_date: d, name: "Midweek Service"}))];
   const T = {
     churches: CH.map(name => ({name, livestream: null, created_at: "2024-01-01T00:00:00Z"})),
-    members, attendance, services, service_parts: [], service_ticks: [], bacentas, bacenta_ticks, bacenta_skips,
+    members, attendance, services, service_parts: [], service_ticks: [], bacentas, bacenta_ticks, bacenta_skips, bacenta_guests, bacenta_guest_ticks,
     app_users: [{email: "demo@example.com", role: "admin", church: null, name: "Demo Admin", pastor: null, title: null},
       {email: "lead.north@example.com", role: "lead", church: "Grace North", name: "Ruth Mensah", pastor: "Pastor Ruth Mensah", title: "Lead pastor"},
       {email: "usher@example.com", role: "team", church: HOME, name: "Kojo Appiah", pastor: null, title: null},
@@ -107,7 +111,7 @@
     return true;
   };
   const KEYS = {churches: ["name"], members: ["id"], attendance: ["service_date", "member_id"], services: ["service_date"], service_parts: ["church", "service_date", "part"],
-    service_ticks: ["service_date", "part", "member_id"], bacentas: ["id"], bacenta_ticks: ["bacenta", "meeting_date", "member_id"], bacenta_skips: ["bacenta", "meeting_date"], app_users: ["email"], settings: ["key"], app_prefs: ["email"], registrations: ["id"], help_messages: ["id"]};
+    service_ticks: ["service_date", "part", "member_id"], bacentas: ["id"], bacenta_ticks: ["bacenta", "meeting_date", "member_id"], bacenta_skips: ["bacenta", "meeting_date"], bacenta_guests: ["id"], bacenta_guest_ticks: ["bacenta", "meeting_date", "guest"], app_users: ["email"], settings: ["key"], app_prefs: ["email"], registrations: ["id"], help_messages: ["id"]};
   const homeOf = m => (m.church || "").trim() || HOME;
   const live = m => !["inactive", "moved", "left", "deceased", "transferred", "away"].includes((m.status || "").toLowerCase());
   const kid = m => ["child", "kid", "kids", "children"].includes((m.age_group || "").toLowerCase());
@@ -137,14 +141,19 @@
         trend: days.slice(-12).map(d => t.filter(a => a.service_date === d).length)};
     });
     if (name === "app_bacenta_people") return T.members.filter(m => !m.church).map(m => ({id: m.id, full_name: m.full_name, type: m.type, age_group: m.age_group, phone: m.phone, birthday: m.birthday, address: m.address}));
+    if (name === "app_bacenta_link") { const g = T.bacenta_guests.find(x => x.id === body?.g); if (!g) throw new Error("not allowed");
+      const mine = T.bacenta_guest_ticks.filter(t => t.guest === g.id);
+      for (const t of mine) if (!T.bacenta_ticks.some(x => x.bacenta === t.bacenta && x.meeting_date === t.meeting_date && x.member_id === body.mid)) T.bacenta_ticks.push({bacenta: t.bacenta, meeting_date: t.meeting_date, member_id: body.mid, checked_at: t.checked_at});
+      T.bacenta_guest_ticks = T.bacenta_guest_ticks.filter(t => t.guest !== g.id); g.member_id = body.mid; return mine.length; }
     if (name === "bacenta_numbers") {  // numbers only, like the real one: last finished week Monday to Sunday, and 8 weeks of totals
       const d0 = new Date((body?.upto || iso(now)) + "T12:00:00"); d0.setDate(d0.getDate() - ((d0.getDay() + 6) % 7) - 7);
       const wk = k => { const a = new Date(d0); a.setDate(a.getDate() - 7 * k); const z = new Date(a); z.setDate(z.getDate() + 6); return [iso(a), iso(z)]; };
       return CH.map(c => { const bs = T.bacentas.filter(b => b.church === c && b.active), idsB = new Set(bs.map(b => b.id));
-        const ppl = ([a, z]) => new Set(T.bacenta_ticks.filter(t => idsB.has(t.bacenta) && t.meeting_date >= a && t.meeting_date <= z).map(t => t.member_id)).size;
+        const all = [...T.bacenta_ticks.map(t => ({...t, who: "m" + t.member_id})), ...T.bacenta_guest_ticks.map(t => ({...t, who: "g" + t.guest}))];
+        const ppl = ([a, z]) => new Set(all.filter(t => idsB.has(t.bacenta) && t.meeting_date >= a && t.meeting_date <= z).map(t => t.who)).size;
         const [a, z] = wk(0);
         return {church: c, bacentas: bs.length, came: ppl(wk(0)), weeks: [7, 6, 5, 4, 3, 2, 1, 0].map(k => ppl(wk(k))),
-          behind: bs.filter(b => !T.bacenta_ticks.some(t => t.bacenta === b.id && t.meeting_date >= a && t.meeting_date <= z) && !T.bacenta_skips.some(s => s.bacenta === b.id && s.meeting_date >= a && s.meeting_date <= z)).length}; });
+          behind: bs.filter(b => !all.some(t => t.bacenta === b.id && t.meeting_date >= a && t.meeting_date <= z) && !T.bacenta_skips.some(s => s.bacenta === b.id && s.meeting_date >= a && s.meeting_date <= z)).length}; });
     }
     if (name === "app_db_size") return {total: 31457280, tables: [{name: "attendance", bytes: 9437184}, {name: "members", bytes: 2097152}]};
     if (name === "app_set_my_name") return body?.new_name || "";
@@ -175,7 +184,7 @@
 
   function rest(method, url, bodyText, prefer) {
     const path = url.pathname.replace(/^\/rest\/v1\//, ""), params = [...url.searchParams.entries()], body = bodyText ? JSON.parse(bodyText) : undefined;
-    if (path.startsWith("rpc/")) { const name = path.slice(4); if (name.startsWith("app_team_")) { try { const v = teamRpc(name, body); if (v !== undefined) return json(v); } catch (e) { return json({message: e.message}, 400); } } return json(rpc(name, body)); }
+    if (path.startsWith("rpc/")) { const name = path.slice(4); if (name.startsWith("app_team_")) { try { const v = teamRpc(name, body); if (v !== undefined) return json(v); } catch (e) { return json({message: e.message}, 400); } } try { return json(rpc(name, body)); } catch (e) { return json({message: e.message}, 400); } }
     const table = path; if (!T[table]) T[table] = [];
     if (table === "team_requests") T.team_requests = sent.get();
     let rows = T[table];
