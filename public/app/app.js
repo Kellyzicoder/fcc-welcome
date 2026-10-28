@@ -3652,6 +3652,8 @@ async function admin(el) {
 
 // ---------------------------------------------------------------- a pastor's home: only their own people
 function mine(el) {
+  const canAdd = S.me.base === "pastor" && S.me.title === "Shepherd" && !S.preview;  // a shepherd adds people to their own
+  const hasBac = (S.bacList || []).some(b => b.active && b.church === S.church && bacMine(b));  // their people's Bacenta column
   const p = picture(), me = S.me.pastor || "", list = p.people.filter(x => !me || careOf(x).some(n => norm(n) === norm(me))).sort(byName);
   const came = list.filter(x => p.here[x.id]), need = list.filter(x => x.level !== "ok");
   const message = (o = {}) => {
@@ -3665,24 +3667,40 @@ function mine(el) {
     return wa(out);
   };
   el.innerHTML = head("", p.last ? `${esc(svcName(p.last))} · ${esc(nice(p.last, true))}` : "No services recorded yet",
-    `<button class="pill-btn" id="wa">Message for WhatsApp</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `
+    `<button class="pill-btn" id="wa">Message for WhatsApp</button>${canAdd ? `<button class="pill-btn" id="care-add">${svg("plus")}Add to my people</button>` : ""}<button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `
     <div id="bac-home"></div>
     <div class="tiles"><div class="card tile"><div class="label">Your people</div><div class="num">${list.length}</div></div>
       <div class="card tile"><div class="label">Came</div><div class="num">${came.length}</div></div>
       <div class="card tile"><div class="label">Not there</div><div class="num">${list.length - came.length}</div></div>
       <div class="card tile"><div class="label">Need a call</div><div class="num">${need.length}</div></div></div>
     <div class="card"><div class="card-head"><h2>Your people</h2></div>
-      ${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Came</th><th>Status</th><th>Missed in a row</th><th>Phone</th></tr></thead><tbody>
-      ${list.slice().sort((a, b) => (b.level !== "ok") - (a.level !== "ok") || b.missed - a.missed || byName(a, b)).map(x => `<tr><td>${whoBtn(x)}</td><td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${badge(x.flag)}</td><td>${x.missed}</td>
+      ${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Came</th><th>Sunday</th><th>Missed in a row</th>${hasBac ? "<th>Bacenta</th>" : ""}<th>Phone</th></tr></thead><tbody>
+      ${list.slice().sort((a, b) => (b.level !== "ok") - (a.level !== "ok") || b.missed - a.missed || byName(a, b)).map(x => `<tr><td>${whoBtn(x)}</td><td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${badge(x.flag)}</td><td>${x.missed}</td>${hasBac ? `<td data-bacst="${esc(x.id)}"><span class="muted">…</span></td>` : ""}
         <td>${x.phone ? `<a href="tel:${esc(x.phone.replace(/[^0-9+]/g, ""))}">${esc(x.phone)}</a>` : ""}</td></tr>`).join("")}</tbody></table></div>`
       : `<p class="empty">${me ? `Nobody is assigned to ${esc(me)} yet. Ask your church admin.` : "Your sign-in isn't linked to a pastor name yet. Ask your church admin."}</p>`}</div>`;
   el.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { S.view = b.dataset.go; render(); });
   el.querySelector("#wa").onclick = () => waDialog("Message for WhatsApp", message, {day: p.last || today()});
-  bacHome(el.querySelector("#bac-home"));  // their Bacenta first
+  bacHome(el.querySelector("#bac-home"), el);  // their Bacenta first, and their people's Bacenta follow-up
+  // Add to my people: someone already in the church goes on this shepherd's people (Sunday check-in and follow-up)
+  el.querySelector("#care-add")?.addEventListener("click", async () => {
+    const names = await api("rpc/app_care_names", {method: "POST", body: {}}).catch(() => null);
+    if (!names) return toast("Run the latest setup SQL in Supabase once, then try again.");
+    const mineIds = new Set(list.map(x => x.id)), pickable = names.filter(n => !mineIds.has(n.id));
+    formDialog("Add to my people", [{k: "name", label: "Their name", value: "", required: true, suggest: pickable.map(n => n.full_name),
+        hint: "Someone already in the church. They'll show on your Sunday check-in and follow-up. Someone new to the church: they fill in the welcome form, or a church admin adds them."}],
+      async v => {
+        const hits = pickable.filter(n => norm(n.full_name) === norm(v.name));
+        if (!hits.length) throw new Error(names.some(n => norm(n.full_name) === norm(v.name)) ? `${v.name} is already one of your people.` : `Nobody called ${v.name} is in the church yet. Pick a name from the suggestions.`);
+        if (hits.length > 1) throw new Error(`${hits.length} people are called ${v.name}. Ask your church admin to add the right one.`);
+        const ok = await api("rpc/app_care_add", {method: "POST", body: {mid: hits[0].id, at_txt: isoLocal()}}).catch(err => { throw new Error(err.message); });
+        if (!ok) throw new Error(`${v.name} couldn't be added. They may already be one of your people.`);
+        await load(); render(); toast(`${hits[0].full_name} is now one of your people.`);
+      }, "Add");
+  });
 }
 // Home for a shepherd or pastor: a card for each Bacenta they're on, above the Sunday numbers. When it meets, how the last
 // meeting went, weeks not filled in, who needs a call, and Take attendance.
-async function bacHome(box) {
+async function bacHome(box, page) {
   const mineBs = (S.bacList || []).filter(b => b.active && b.church === S.church && bacMine(b));
   if (!box || !mineBs.length) return;
   const since = dayShift(today(), -91), ids = mineBs.map(b => b.id).join(",");
@@ -3711,6 +3729,14 @@ async function bacHome(box) {
         ${call ? `<span class="badge red">${call} ${call === 1 ? "needs" : "need"} a call</span>` : ppl.size ? `<span class="badge ok">Nobody to call</span>` : ""}
         <button type="button" class="pill-btn sm" data-bcpage="${esc(b.id)}">Follow-up and details</button></div></div>`;
   }).join("");
+  // their assigned people's Bacenta follow-up, in the Bacenta column (separate from Sunday): came last time, missed in a row, or never
+  page?.querySelectorAll("[data-bacst]").forEach(td => {
+    const id = td.dataset.bacst, at = mineBs.map(b => { const t = all_.filter(x => x.bacenta === b.id), mineT = t.filter(x => x.member_id === id).map(x => x.meeting_date).sort();
+      if (!mineT.length) return null; const held = [...new Set(t.map(x => x.meeting_date))]; return held.filter(d => d > mineT[mineT.length - 1]).length; }).filter(n => n !== null);
+    const n = at.length ? Math.min(...at) : null;
+    td.innerHTML = n === null ? `<span class="muted" title="Not been to your Bacenta in the last 3 months">Not coming</span>` : n === 0 ? `<span class="badge ok">Came last time</span>`
+      : n >= 3 ? `<span class="badge red">Missed ${n}</span>` : n === 2 ? `<span class="badge yellow">Missed 2</span>` : `<span class="badge blue">Missed 1</span>`;
+  });
   box.querySelectorAll("[data-bctake]").forEach(x => x.onclick = () => { const b = mineBs.find(y => y.id === x.dataset.bctake); takeBacenta(b.id, b.meet_day === dow ? today() : bacLastDay(b) || today()); });
   box.querySelectorAll("[data-bcpage]").forEach(x => x.onclick = () => { S.bacenta = x.dataset.bcpage; S.view = "bacentas"; render(); });
 }
