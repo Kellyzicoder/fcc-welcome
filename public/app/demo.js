@@ -69,7 +69,8 @@
     // each Bacenta's people are its shepherd's people (most come most weeks; a couple have stopped coming)
     bacentas.forEach(b => d.getDay() === b.meet_day && i !== 8 && i !== 15 && members.filter(m => !m.church && m.shepherd === b.shepherd).map(m => m.id).forEach((id, k) => { if (k % 7 !== 3 && rnd() < .78) bacenta_ticks.push({bacenta: b.id, meeting_date: iso(d), member_id: id, checked_at: iso(d) + "T19:10:00+13:00"}); })); }
   // a Bacenta-only person: comes to City Bacenta, not on the register
-  const bacenta_guests = [{id: "g1", bacenta: "b1", full_name: "Emma Wilson", phone: "022 555 0142", birthday: "1996-04-09", address: "12 Hobsonville Rd, Auckland", member_id: null}];
+  const bacenta_guests = [{id: "g1", bacenta: "b1", full_name: "Emma Wilson", phone: "022 555 0142", birthday: "1996-04-09", address: "12 Hobsonville Rd, Auckland", member_id: null, status: "approved"},
+    {id: "g2", bacenta: "b2", full_name: "Daniel Kim", phone: "021 555 0911", member_id: null, status: "pending", added_by: "Abena Ofori (Shepherd)"}];
   const bacenta_guest_ticks = bacenta_ticks.filter(t => t.bacenta === "b1").map(t => t.meeting_date).filter((d, i, a) => a.indexOf(d) === i).sort().slice(-4)
     .map(d => ({bacenta: "b1", meeting_date: d, guest: "g1", checked_at: d + "T19:05:00+13:00"}));
   const services = [...sundays.map(d => ({service_date: d, name: "Sunday Service"})), ...weds.map(d => ({service_date: d, name: "Midweek Service"}))];
@@ -148,6 +149,8 @@
         trend: days.slice(-12).map(d => t.filter(a => a.service_date === d).length)};
     });
     if (name === "app_bacenta_people") return T.members.filter(m => !m.church).map(m => ({id: m.id, full_name: m.full_name, type: m.type, age_group: m.age_group, phone: m.phone, birthday: m.birthday, address: m.address}));
+    if (name === "app_bacenta_review") { const g = T.bacenta_guests.find(x => x.id === body?.g); if (!g || g.status !== "pending") return false;
+      if (body.ok) g.status = "approved"; else { T.bacenta_guests = T.bacenta_guests.filter(x => x !== g); T.bacenta_guest_ticks = T.bacenta_guest_ticks.filter(t => t.guest !== g.id); } return true; }
     if (name === "app_bacenta_helpers") return T.bacenta_helpers.map(h => ({...h, name: T.app_users.find(u => u.email === h.email)?.name || h.email}));
     if (name === "app_church_signins") return T.app_users.filter(u => u.church === body?.ch).map(u => ({email: u.email, name: u.name, role: u.role, title: u.title}));
     if (name === "app_bacenta_link") { const g = T.bacenta_guests.find(x => x.id === body?.g); if (!g) throw new Error("not allowed");
@@ -216,6 +219,7 @@
       const merge = /merge-duplicates/.test(prefer || ""), ignore = /ignore-duplicates/.test(prefer || "");
       for (const r of list) {
         if (table === "help_messages" && !r.id) r.id = crypto.randomUUID?.() || String(Date.now());
+        if (table === "bacenta_guests") r.status = AS ? "pending" : "approved";  // like the database: a shepherd's names wait for approval
         const i = keys.length ? rows.findIndex(x => keys.every(k => String(x[k]) === String(r[k]))) : -1;
         if (i >= 0) { if (merge) rows[i] = {...rows[i], ...r}; else if (!ignore) return json({message: "That's already saved."}, 409); }
         else rows.push({...r});

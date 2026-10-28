@@ -835,6 +835,18 @@ create table if not exists bacenta_guest_ticks (
   guest uuid not null references bacenta_guests(id) on delete cascade,
   checked_at text,
   primary key (bacenta, meeting_date, guest));
+-- Someone new added at a Bacenta by a shepherd, pastor or helper waits for a church admin to approve the name (they can be
+-- ticked in meanwhile); added by an admin or church admin, it's approved straight away. Turning it down removes the name.
+alter table bacenta_guests add column if not exists status text not null default 'approved' check (status in ('pending', 'approved'));
+alter table bacenta_guests add column if not exists approved_by text;
+create or replace function app_guest_status() returns trigger language plpgsql set search_path = public as $$
+begin
+  new.status := case when app_role() in ('admin', 'lead') then 'approved' else 'pending' end;  -- whatever was sent
+  new.approved_by := case when new.status = 'approved' then app_who() end;
+  return new;
+end $$;
+drop trigger if exists app_guest_status on bacenta_guests;
+create trigger app_guest_status before insert on bacenta_guests for each row execute function app_guest_status();
 alter table bacenta_guests enable row level security;
 alter table bacenta_guest_ticks enable row level security;
 drop policy if exists "app: see bacenta guests" on bacenta_guests;
@@ -867,6 +879,7 @@ begin
   select * into x from bacenta_guests where id = g for update;
   if not found or not app_bacenta_ok(x.bacenta) then raise exception 'not allowed'; end if;
   if x.member_id is not null then raise exception 'already linked'; end if;
+  if x.status <> 'approved' then raise exception 'waiting for a church admin to approve the name'; end if;
   if not app_bacenta_tick_ok(x.bacenta, mid) then raise exception 'that person is not on this church''s register'; end if;
   insert into bacenta_ticks (bacenta, meeting_date, member_id, checked_at, from_guest)
     select t.bacenta, t.meeting_date, mid, t.checked_at, g from bacenta_guest_ticks t where t.guest = g on conflict do nothing;
@@ -889,6 +902,25 @@ begin
 end $$;
 revoke all on function app_bacenta_unlink(uuid) from public, anon;
 grant execute on function app_bacenta_unlink(uuid) to authenticated;
+-- Church admin: approve a name added at a Bacenta, or turn it down (the name and its ticks are removed)
+create or replace function app_bacenta_review(g uuid, ok boolean, at_txt text default null) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare x bacenta_guests; ch text; bn text;
+begin
+  select * into x from bacenta_guests where id = g for update;
+  if not found then return false; end if;
+  select church, name into ch, bn from bacentas where id = x.bacenta;
+  if app_role() not in ('admin', 'lead') or app_role() is null or not app_can_see(ch) then raise exception 'not allowed'; end if;
+  if x.status <> 'pending' then return false; end if;
+  if ok then update bacenta_guests set status = 'approved', approved_by = app_who() where id = g;
+  else delete from bacenta_guests where id = g; end if;
+  insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+  values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), left(coalesce(nullif(trim(at_txt), ''), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF')), 40),
+          case when ok then 'bacenta_approved' else 'bacenta_rejected' end, null, null, left(x.full_name || ' · ' || bn || ' (added by ' || coalesce(x.added_by, '?') || ')', 300), app_who(), 'done');
+  return true;
+end $$;
+revoke all on function app_bacenta_review(uuid, boolean, text) from public, anon;
+grant execute on function app_bacenta_review(uuid, boolean, text) to authenticated;
 revoke all on function app_bacenta_link(uuid, text) from public, anon;
 grant execute on function app_bacenta_link(uuid, text) to authenticated;
 
