@@ -69,7 +69,7 @@
     bacentas.forEach((b, j) => d.getDay() === b.meet_day && i !== 8 && i !== 15 && homeIds.slice(j * 9, j * 9 + 9).forEach(id => { if (rnd() < .7) bacenta_ticks.push({bacenta: b.id, meeting_date: iso(d), member_id: id, checked_at: iso(d) + "T19:10:00+13:00"}); })); }
   // a Bacenta-only person: comes to City Bacenta, not on the register
   const bacenta_guests = [{id: "g1", bacenta: "b1", full_name: "Emma Wilson", phone: "022 555 0142", birthday: "1996-04-09", address: "12 Hobsonville Rd, Auckland", member_id: null}];
-  const bacenta_guest_ticks = bacenta_ticks.filter(t => t.bacenta === "b1").map(t => t.meeting_date).filter((d, i, a) => a.indexOf(d) === i).slice(-4)
+  const bacenta_guest_ticks = bacenta_ticks.filter(t => t.bacenta === "b1").map(t => t.meeting_date).filter((d, i, a) => a.indexOf(d) === i).sort().slice(-4)
     .map(d => ({bacenta: "b1", meeting_date: d, guest: "g1", checked_at: d + "T19:05:00+13:00"}));
   const services = [...sundays.map(d => ({service_date: d, name: "Sunday Service"})), ...weds.map(d => ({service_date: d, name: "Midweek Service"}))];
   const T = {
@@ -86,6 +86,12 @@
       first_visit: sundays.at(-1), notes: "Would love to join the choir", wants_contact: true, created_at: now.toISOString(), status: "pending"}],
     activity_log: [], help_messages: [],
   };
+
+  // Try the demo as someone else: ?demo&as=shepherd (Kofi Asante, City Bacenta) or ?demo&as=usher (Kojo Appiah, assisting City Bacenta)
+  const asWho = (/[?&]as=(\w+)/.exec(location.search) || [])[1];
+  const AS = {shepherd: {email: "shepherd@example.com", role: "pastor", church: HOME, name: "Kofi Asante", pastor: "Shepherd Kofi Asante", title: "Shepherd"},
+              usher: {email: "usher@example.com", role: "team", church: HOME, name: "Kojo Appiah", pastor: null, title: null}}[asWho] || null;
+  if (AS && !T.app_users.some(u => u.email === AS.email)) T.app_users.push({...AS});
 
   // 3. A small stand-in for the database's web API (the parts the app uses)
   const unq = v => decodeURIComponent(v).replace(/^"|"$/g, "");
@@ -119,7 +125,7 @@
 
   function rpc(name, body) {
     const people = members.filter(live), byId = Object.fromEntries(people.map(m => [m.id, m]));
-    if (name === "app_me") return {email: "demo@example.com", role: "admin", church: null, name: "Demo Admin", home: HOME, pastor: null, title: null, role3: null};
+    if (name === "app_me") return AS ? {...AS, home: HOME, role3: null} : {email: "demo@example.com", role: "admin", church: null, name: "Demo Admin", home: HOME, pastor: null, title: null, role3: null};
     if (name === "app_last_seen") { const o = {}; for (const a of T.attendance) if (!o[a.member_id] || a.service_date > o[a.member_id]) o[a.member_id] = a.service_date; return Object.entries(o).map(([member_id, last_seen]) => ({member_id, last_seen})); }
     if (name === "church_days") { const o = {}; for (const a of T.attendance) { const m = byId[a.member_id]; if (m) { const k = homeOf(m) + "|" + a.service_date; o[k] = (o[k] || 0) + 1; } }
       return Object.entries(o).map(([k, present]) => ({church: k.split("|")[0], service_date: k.split("|")[1], present})).sort((a, b) => a.service_date.localeCompare(b.service_date)); }
@@ -141,6 +147,7 @@
         trend: days.slice(-12).map(d => t.filter(a => a.service_date === d).length)};
     });
     if (name === "app_bacenta_people") return T.members.filter(m => !m.church).map(m => ({id: m.id, full_name: m.full_name, type: m.type, age_group: m.age_group, phone: m.phone, birthday: m.birthday, address: m.address}));
+    if (name === "app_bacenta_helpers") return T.bacenta_helpers.map(h => ({...h, name: T.app_users.find(u => u.email === h.email)?.name || h.email}));
     if (name === "app_church_signins") return T.app_users.filter(u => u.church === body?.ch).map(u => ({email: u.email, name: u.name, role: u.role, title: u.title}));
     if (name === "app_bacenta_link") { const g = T.bacenta_guests.find(x => x.id === body?.g); if (!g) throw new Error("not allowed");
       const mine = T.bacenta_guest_ticks.filter(t => t.guest === g.id);

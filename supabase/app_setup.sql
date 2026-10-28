@@ -759,6 +759,13 @@ create policy "app: choose bacenta helpers" on bacenta_helpers for all to authen
   with check (exists (select 1 from bacentas b where b.id = bacenta and app_role() in ('admin', 'lead') and app_can_see(b.church)
                       and app_signin_church(bacenta_helpers.email) = b.church));  -- only a sign-in of the Bacenta's own church
 grant select, insert, update, delete on bacenta_helpers to authenticated;
+-- who leads and assists each Bacenta the signed-in person can see, with their names (shepherds can't read sign-ins)
+create or replace function app_bacenta_helpers() returns table (bacenta uuid, email text, role text, name text)
+language sql stable security definer set search_path = public as $$
+  select h.bacenta, h.email, h.role, coalesce(u.name, h.email) from bacenta_helpers h join app_users u on u.email = h.email
+  where app_bacenta_ok(h.bacenta) order by u.name $$;
+revoke all on function app_bacenta_helpers() from public, anon;
+grant execute on function app_bacenta_helpers() to authenticated;
 -- the church's sign-ins to choose from (a church admin can't read sign-ins otherwise): name and role only
 create or replace function app_church_signins(ch text) returns table (email text, name text, role text, title text)
 language sql stable security definer set search_path = public as $$

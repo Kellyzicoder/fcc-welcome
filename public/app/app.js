@@ -3815,7 +3815,7 @@ async function bacentas(el, mode = "manage") {
       // Bacenta-only people: on a Bacenta's list but not on the church's register (yet)
       all("bacenta_guests?select=id,bacenta,full_name,phone,birthday,address,member_id&order=full_name").catch(() => []),
       all(`bacenta_guest_ticks?select=bacenta,meeting_date,guest&meeting_date=gte.${since}`).catch(() => []),
-      all("bacenta_helpers?select=bacenta,email,role").catch(() => []),
+      api("rpc/app_bacenta_helpers", {method: "POST", body: {}}).catch(() => all("bacenta_helpers?select=bacenta,email,role")).catch(() => []),  // with names
       // who can be put on a Bacenta as leading or assisting: the church's sign-ins (admins and church admins see all anyway)
       canEdit ? api("rpc/app_church_signins", {method: "POST", body: {ch: S.church}}).catch(() => []) : Promise.resolve([])]);
   S.bacHelp = helpers;
@@ -3869,7 +3869,7 @@ async function bacentas(el, mode = "manage") {
      hint: "Only the people ticked here (and its shepherd and pastor) see this Bacenta. Ushers who aren't on it see nothing of it."}] : [];
   const clean = v => String(v || "").replace(/\s+/g, " ").trim().slice(0, 60);
   const short = d => nice(d);
-  const nameOf = em => signins.find(u => u.email === em)?.name || em, helpOf = (x, r) => helpers.filter(h => h.bacenta === x.id && h.role === r);
+  const nameOf = em => signins.find(u => u.email === em)?.name || helpers.find(h => h.email === em)?.name || em, helpOf = (x, r) => helpers.filter(h => h.bacenta === x.id && h.role === r);
   const helpLine = x => ["leading", "assisting"].map(r => { const hs = helpOf(x, r); return hs.length ? `${r === "leading" ? "Leading" : "Assisting"}: ${hs.map(h => h.email === S.me.email ? "you" : esc(nameOf(h.email))).join(", ")}` : ""; });
   const who = x => [x.meet_day != null ? "Meets " + DAYS[x.meet_day] + "s" : "", x.shepherd ? esc(shortTitle(x.shepherd)) : "No shepherd set", x.pastor ? esc(shortTitle(x.pastor)) : "", ...helpLine(x)].filter(Boolean).join(" · ");
   if (take) {  // ---- Check-in → Bacenta: pick the Bacenta and the day, then tick
