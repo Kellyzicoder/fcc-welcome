@@ -815,8 +815,10 @@ drop policy if exists "app: untick a bacenta guest" on bacenta_guest_ticks;
 create policy "app: untick a bacenta guest" on bacenta_guest_ticks for delete to authenticated using (app_bacenta_ok(bacenta));
 grant select, insert, delete on bacenta_guest_ticks to authenticated;
 
--- Link a Bacenta-only person to their entry on the register (once they're on it): their Bacenta check-ins move onto the
--- register entry, all at once. Whoever can take that Bacenta's attendance can do it; the person must be in its church.
+-- Link a Bacenta-only person to their entry on the register (once they're on it): their Bacenta check-ins are copied onto
+-- the register entry, all at once, marked with where they came from. Their own check-ins are kept, so a wrong pick can be
+-- undone (app_bacenta_unlink). Whoever can take that Bacenta's attendance can do it; the person must be in its church.
+alter table bacenta_ticks add column if not exists from_guest uuid references bacenta_guests(id) on delete set null;
 create or replace function app_bacenta_link(g uuid, mid text) returns int
 language plpgsql security definer set search_path = public as $$
 declare x bacenta_guests; n int;
@@ -825,13 +827,27 @@ begin
   if not found or not app_bacenta_ok(x.bacenta) then raise exception 'not allowed'; end if;
   if x.member_id is not null then raise exception 'already linked'; end if;
   if not app_bacenta_tick_ok(x.bacenta, mid) then raise exception 'that person is not on this church''s register'; end if;
-  insert into bacenta_ticks (bacenta, meeting_date, member_id, checked_at)
-    select t.bacenta, t.meeting_date, mid, t.checked_at from bacenta_guest_ticks t where t.guest = g on conflict do nothing;
+  insert into bacenta_ticks (bacenta, meeting_date, member_id, checked_at, from_guest)
+    select t.bacenta, t.meeting_date, mid, t.checked_at, g from bacenta_guest_ticks t where t.guest = g on conflict do nothing;
   get diagnostics n = row_count;
-  delete from bacenta_guest_ticks where guest = g;
   update bacenta_guests set member_id = mid where id = g;
   return n;
 end $$;
+-- Undo a link (picked the wrong name): the copied check-ins come off the register entry and the person is Bacenta only again
+create or replace function app_bacenta_unlink(g uuid) returns int
+language plpgsql security definer set search_path = public as $$
+declare x bacenta_guests; n int;
+begin
+  select * into x from bacenta_guests where id = g for update;
+  if not found or not app_bacenta_ok(x.bacenta) then raise exception 'not allowed'; end if;
+  if x.member_id is null then raise exception 'not linked'; end if;
+  delete from bacenta_ticks where from_guest = g;
+  get diagnostics n = row_count;
+  update bacenta_guests set member_id = null where id = g;
+  return n;
+end $$;
+revoke all on function app_bacenta_unlink(uuid) from public, anon;
+grant execute on function app_bacenta_unlink(uuid) to authenticated;
 revoke all on function app_bacenta_link(uuid, text) from public, anon;
 grant execute on function app_bacenta_link(uuid, text) to authenticated;
 
@@ -846,7 +862,8 @@ begin
   return query
   with t as (  -- every Bacenta check-in: people on the register and Bacenta-only people
     select k.bacenta, k.meeting_date, 'm' || k.member_id as who from bacenta_ticks k
-    union all select k.bacenta, k.meeting_date, 'g' || k.guest from bacenta_guest_ticks k)
+    union all select k.bacenta, k.meeting_date, 'g' || k.guest from bacenta_guest_ticks k
+      join bacenta_guests g on g.id = k.guest where g.member_id is null)  -- once linked, they're counted on the register
   select c.name,
     (select count(*)::int from bacentas b where b.church = c.name and b.active),
     (select count(distinct t.who)::int from t join bacentas b on b.id = t.bacenta

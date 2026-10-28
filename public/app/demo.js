@@ -143,8 +143,11 @@
     if (name === "app_bacenta_people") return T.members.filter(m => !m.church).map(m => ({id: m.id, full_name: m.full_name, type: m.type, age_group: m.age_group, phone: m.phone, birthday: m.birthday, address: m.address}));
     if (name === "app_bacenta_link") { const g = T.bacenta_guests.find(x => x.id === body?.g); if (!g) throw new Error("not allowed");
       const mine = T.bacenta_guest_ticks.filter(t => t.guest === g.id);
-      for (const t of mine) if (!T.bacenta_ticks.some(x => x.bacenta === t.bacenta && x.meeting_date === t.meeting_date && x.member_id === body.mid)) T.bacenta_ticks.push({bacenta: t.bacenta, meeting_date: t.meeting_date, member_id: body.mid, checked_at: t.checked_at});
+      for (const t of mine) if (!T.bacenta_ticks.some(x => x.bacenta === t.bacenta && x.meeting_date === t.meeting_date && x.member_id === body.mid)) T.bacenta_ticks.push({bacenta: t.bacenta, meeting_date: t.meeting_date, member_id: body.mid, checked_at: t.checked_at, from_guest: g.id});
       T.bacenta_guest_ticks = T.bacenta_guest_ticks.filter(t => t.guest !== g.id); g.member_id = body.mid; return mine.length; }
+    if (name === "app_bacenta_unlink") { const g = T.bacenta_guests.find(x => x.id === body?.g); if (!g?.member_id) throw new Error("not linked");
+      const back = T.bacenta_ticks.filter(t => t.from_guest === g.id); T.bacenta_ticks = T.bacenta_ticks.filter(t => t.from_guest !== g.id);
+      for (const t of back) T.bacenta_guest_ticks.push({bacenta: t.bacenta, meeting_date: t.meeting_date, guest: g.id, checked_at: t.checked_at}); g.member_id = null; return back.length; }
     if (name === "bacenta_numbers") {  // numbers only, like the real one: last finished week Monday to Sunday, and 8 weeks of totals
       const d0 = new Date((body?.upto || iso(now)) + "T12:00:00"); d0.setDate(d0.getDate() - ((d0.getDay() + 6) % 7) - 7);
       const wk = k => { const a = new Date(d0); a.setDate(a.getDate() - 7 * k); const z = new Date(a); z.setDate(z.getDate() + 6); return [iso(a), iso(z)]; };

@@ -3803,15 +3803,16 @@ async function bacentas(el, mode = "manage") {
       // everyone else already has the church's people loaded
       shep ? api("rpc/app_bacenta_people", {method: "POST", body: {}}) : Promise.resolve(S.members.filter(m => churchOf(m) === S.church && ruleOf(m) !== "gone")),
       // Bacenta-only people: on a Bacenta's list but not on the church's register (yet)
-      all("bacenta_guests?select=id,bacenta,full_name,phone,birthday,address&member_id=is.null&order=full_name").catch(() => []),
+      all("bacenta_guests?select=id,bacenta,full_name,phone,birthday,address,member_id&order=full_name").catch(() => []),
       all(`bacenta_guest_ticks?select=bacenta,meeting_date,guest&meeting_date=gte.${since}`).catch(() => [])]);
   } catch (e) { if (S.view === page) el.innerHTML = head(title, esc(S.church)) + `<div class="msg bad">${esc(bacentaSetup(e))}</div>`; return; }
   if (S.view !== page || (take && S.ciMode !== "bacenta")) return;  // moved on while loading
   people = people || [];
   // Bacenta-only people sit beside the register's people (ids start "g:"), and their ticks beside the others, so every
   // list and count below includes them; only saving a tick goes to their own table
-  const register = people.slice();
-  people = [...people, ...guests.map(g => ({id: "g:" + g.id, gid: g.id, bacenta: g.bacenta, full_name: g.full_name, phone: g.phone, birthday: g.birthday, address: g.address, guest: true}))];
+  const register = people.slice(), linked = guests.filter(g => g.member_id), open = new Set(guests.filter(g => !g.member_id).map(g => g.id));
+  gticks = gticks.filter(t => open.has(t.guest));  // once linked, their check-ins are on the register entry
+  people = [...people, ...guests.filter(g => !g.member_id).map(g => ({id: "g:" + g.id, gid: g.id, bacenta: g.bacenta, full_name: g.full_name, phone: g.phone, birthday: g.birthday, address: g.address, guest: true}))];
   ticks = [...ticks, ...gticks.map(t => ({bacenta: t.bacenta, meeting_date: t.meeting_date, member_id: "g:" + t.guest}))];
   S.bacList = [...(S.bacList || []).filter(x => x.church !== S.church), ...list];  // keep the switch's list fresh
   // a shepherd or pastor only sees the Bacentas with their name on (the others' numbers would be empty for them anyway)
@@ -3966,7 +3967,8 @@ async function bacentas(el, mode = "manage") {
       // the Bacenta's own people with their phone, birthday and address
       const canLink = b.active && !S.preview && (!shep || bacMine(b));
       $("#bc-people").innerHTML = own.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Phone</th><th>Birthday</th><th>Address</th>${canLink && own.some(m => m.guest) ? "<th></th>" : ""}</tr></thead><tbody>${own.map(m =>
-        `<tr><td><span class="who"><span ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</span>${onlyTag(m)}</td><td>${tel(m)}</td>
+        `<tr><td><span class="who"><span ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</span>${onlyTag(m)}${(() => { const g = linked.find(x => x.bacenta === b.id && x.member_id === m.id);
+            return g ? ` <small class="muted">Linked from ${esc(g.full_name)}</small>${canLink ? ` <button class="pill-btn sm" data-bcunlink="${esc(g.id)}" style="white-space:nowrap" title="Picked the wrong name? Undo the link">Undo link</button>` : ""}` : ""; })()}</td><td>${tel(m)}</td>
           <td>${m.birthday ? esc(bday(m.birthday)) : `<span class="muted">Not given</span>`}</td><td>${m.address ? esc(m.address) : `<span class="muted">Not given</span>`}</td>
           ${canLink && own.some(x => x.guest) ? `<td>${m.guest ? `<button class="pill-btn sm" data-bclink="${esc(m.gid)}" style="white-space:nowrap" title="They're on the church register now: link them">Link to register</button>` : ""}</td>` : ""}</tr>`).join("")}</tbody></table></div>
         ${own.some(m => m.guest) ? `<p class="note" style="margin:10px 2px 0"><b>Bacenta only</b> means they come to ${esc(b.name)} but aren't on the church register. When they start coming on Sundays and are added on Check-in, tap <b>Link to register</b> so their Bacenta attendance moves with them.</p>` : ""}`
@@ -3991,7 +3993,17 @@ async function bacentas(el, mode = "manage") {
         async v => { if (!v.mid) throw new Error("Choose who they are.");
           try { await api("rpc/app_bacenta_link", {method: "POST", body: {g: g.gid, mid: v.mid}}); }
           catch (err) { throw new Error(/already linked/i.test(err.message) ? "They're already linked." : /register/i.test(err.message) ? "That person isn't on this church's register." : bacentaSetup(err)); }
+          log("bacenta_link", v.mid, "done", `${g.full_name} (Bacenta only) → ${register.find(m => m.id === v.mid)?.full_name || v.mid} · ${b.name}`);
           toast(`${g.full_name} is linked. Their Bacenta attendance moved with them.`); render(); }, "Link");
+    });
+    // Undo link: picked the wrong name. The copied check-ins come off that register entry; they're Bacenta only again.
+    el.querySelectorAll("[data-bcunlink]").forEach(x => x.onclick = () => {
+      const g = linked.find(y => y.id === x.dataset.bcunlink), to = register.find(m => m.id === g.member_id)?.full_name || "that person";
+      formDialog(`Undo linking ${g.full_name}?`, [], async () => {
+        try { await api("rpc/app_bacenta_unlink", {method: "POST", body: {g: g.id}}); } catch (err) { throw new Error(bacentaSetup(err)); }
+        log("bacenta_unlink", g.member_id, "done", `${g.full_name} unlinked from ${to} · ${b.name}`);
+        toast(`${g.full_name} is Bacenta only again. Their Bacenta attendance came off ${to}.`); render(); }, "Undo link");
+      document.querySelector(".modal .fields").innerHTML = `<p style="margin:0">${esc(g.full_name)}'s Bacenta attendance will come off <b>${esc(to)}</b>, and they'll be <b>Bacenta only</b> again. Then you can link them to the right name.</p>`;
     });
   };
   if (take) {
@@ -4309,7 +4321,8 @@ function archive(el) {
 
 // ---------------------------------------------------------------- activity: who did what, and when
 const KIND = {lock: "Locked a service", unlock: "Unlocked a service", delete: "Deleted from register", rename_church: "Renamed a church", role_change: "Changed a sign-in", tick: "Ticked in", untick: "Unticked", clear_service: "Unticked everyone", edit: "Edited", add_person: "Added",
-              signup_approved: "Approved sign-up", signup_rejected: "Rejected sign-up"};
+              signup_approved: "Approved sign-up", signup_rejected: "Rejected sign-up",
+              bacenta_link: "Linked a Bacenta-only person", bacenta_unlink: "Undid a Bacenta link"};
 const RESULT = {done: "Done", already: "No change (already done)", changed: "Blocked: someone else changed it first"};
 async function activity(el) {
   const sub = `${esc(S.church)} · every tick, untick, edit and approval.`;
