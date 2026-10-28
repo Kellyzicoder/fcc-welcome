@@ -166,6 +166,10 @@ body.going::after {content: ""; position: fixed; top: 0; left: 0; right: 0; heig
 .card-head .gap {flex: 1;}
 /* Welcome tour: one card at a time with a coloured icon, dots for the steps, Back and Next */
 .tour-cover {position: fixed; inset: 0; z-index: 45;} .tour-cover.dim {background: rgba(10, 16, 28, .55);}
+html.loading::before {content: ""; position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 100; pointer-events: none; background: linear-gradient(90deg, transparent, var(--accent), transparent) no-repeat; background-size: 40% 100%; animation: fcc-load 1s linear infinite;}
+@keyframes fcc-load {from {background-position: -60% 0;} to {background-position: 160% 0;}}
+.is-busy {pointer-events: none; opacity: .8;} .is-busy::after {content: ""; display: inline-block; width: 13px; height: 13px; margin-left: 8px; flex: none; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; vertical-align: -2px; animation: fcc-busy-spin .7s linear infinite;}
+@keyframes fcc-busy-spin {to {transform: rotate(360deg);}}
 .tour-spot {position: fixed; z-index: 46; border-radius: 16px; pointer-events: none; box-shadow: 0 0 0 3px var(--accent), 0 0 0 9999px rgba(10, 16, 28, .55);
             transition: left .25s, top .25s, width .25s, height .25s;}
 .tour-pop {position: fixed; z-index: 47; width: min(340px, calc(100vw - 24px)); background: var(--panel); border: 1px solid var(--line); border-radius: 20px;

@@ -663,7 +663,29 @@ document.addEventListener("visibilitychange", () => {  // the background: hang u
   if (document.hidden) { if (RT.ws) { clearInterval(RT.hb); const w = RT.ws; RT.ws = null; RT.open = false; w.close(); } }
   else if (RT.subs.size) rtConnect();
 });
-async function api(path, {method = "GET", body, prefer, retry = true} = {}) {
+// After a press: while it saves or loads, a thin bar runs along the top, and the pressed button shows a spinner and
+// can't be pressed again until it's done (no double sends). Loading in the background shows nothing.
+const BUSY = {n: 0, w: 0, btns: new Set(), last: null, at: 0, t: 0};
+const pressed = e => { const b = e.type === "submit" ? e.submitter : e.target.closest?.("button, [role=button]"); if (!b) return;
+  if (b.classList.contains("is-busy")) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+  BUSY.last = b; BUSY.at = Date.now(); };
+document.addEventListener("click", pressed, true); document.addEventListener("submit", pressed, true);
+function busyOn(write) {
+  if (++BUSY.n === 1) BUSY.t = setTimeout(() => document.documentElement.classList.add("loading"), 150);
+  if (!write) return; BUSY.w++; const b = BUSY.last;
+  if (b?.isConnected) { b.classList.add("is-busy"); b.setAttribute("aria-busy", "true"); BUSY.btns.add(b); }
+}
+function busyOff(write) {
+  if (!(BUSY.n = Math.max(0, BUSY.n - 1))) { clearTimeout(BUSY.t); document.documentElement.classList.remove("loading"); }
+  if (write && !(BUSY.w = Math.max(0, BUSY.w - 1))) setTimeout(() => { if (BUSY.w) return;  // a few saves in a row keep the spinner
+    BUSY.btns.forEach(b => { b.classList.remove("is-busy"); b.removeAttribute("aria-busy"); }); BUSY.btns.clear(); }, 150);
+}
+async function api(path, opts = {}) {
+  if (Date.now() - BUSY.at > 1500) return api0(path, opts);  // not from a press: no bar, no spinner
+  const write = (opts.method || "GET") !== "GET"; busyOn(write);
+  try { return await api0(path, opts); } finally { busyOff(write); }
+}
+async function api0(path, {method = "GET", body, prefer, retry = true} = {}) {
   if (S.preview && method !== "GET" && !/^rpc\/(app_(me|ask|db_size|last_seen|set_my_name)|church_(numbers|trend|days))\b/.test(path)) throw new Error(viewOnly());  // View as: look, don't change (the church_ ones only read)
   if (S.session && S.session.expires_at - Date.now() < 60000) await refresh();
   const r = await fetch(S.cfg.url + "/rest/v1/" + path, {method, body: body === undefined ? undefined : JSON.stringify(body),
