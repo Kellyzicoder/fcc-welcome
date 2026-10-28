@@ -666,9 +666,9 @@ document.addEventListener("visibilitychange", () => {  // the background: hang u
 // After a press: while it saves or loads, a thin bar runs along the top, and the pressed button shows a spinner and
 // can't be pressed again until it's done (no double sends). Loading in the background shows nothing.
 const BUSY = {n: 0, w: 0, btns: new Set(), last: null, at: 0, t: 0};
-const pressed = e => { const b = e.type === "submit" ? e.submitter : e.target.closest?.("button, [role=button]"); if (!b) return;
-  if (b.classList.contains("is-busy")) { e.preventDefault(); e.stopImmediatePropagation(); return; }
-  BUSY.last = b; BUSY.at = Date.now(); };
+const pressed = e => { const b = e.type === "submit" ? e.submitter : e.target.closest?.("button, [role=button]");
+  if (b?.classList.contains("is-busy")) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+  BUSY.last = b || null; BUSY.at = Date.now(); };  // a tap on a tick box or link still shows the bar, but no button spins
 document.addEventListener("click", pressed, true); document.addEventListener("submit", pressed, true);
 function busyOn(write) {
   if (++BUSY.n === 1) BUSY.t = setTimeout(() => document.documentElement.classList.add("loading"), 150);
