@@ -2953,7 +2953,7 @@ function people(el) {
   const TYPECLS = {member: "r-team", first_timer: "r-pastor", visitor: "r-bishop"};
   const DOT = {member: "r-team", first: "r-pastor", visitor: "r-bishop", nopastor: "r-admin", female: "r-lead", male: "r-lead", adult: "", child: ""};
   const mixed = ["admin", "lead"].includes(S.me.role) ? everyone.filter(m => splitNamePhone(m.full_name)) : [];  // phone numbers that went into the name
-  el.innerHTML = head("Congregation", esc(S.church), `${["admin", "lead", "team"].includes(S.me.role) ? `<button class="pill-btn primary" id="bulk-add">${svg("upload")}Import people</button>` : ""}<button class="pill-btn" id="dl">Download</button>`) + `
+  el.innerHTML = head("Congregation", esc(S.church), `${["admin", "lead", "team"].includes(S.me.role) && !S.preview ? `<button class="pill-btn primary" id="one-add">${svg("plus")}Add a person</button><button class="pill-btn" id="bulk-add">${svg("upload")}Import people</button>` : ""}<button class="pill-btn" id="dl">Download</button>`) + `
     <div class="tiles">${[["Total people", everyone.length, "In " + S.church], ["Members", everyone.filter(SHOW.member[1]).length, "Regular members"],
         ["First-timers & visitors", everyone.filter(m => m.type === "first_timer" || m.type === "visitor").length, "Still getting to know us"],
         ["No pastor yet", everyone.filter(SHOW.nopastor[1]).length, "Need a pastor assigned"]]
@@ -3113,6 +3113,36 @@ function people(el) {
   const moreB = el.querySelector(".chips [data-more]"); if (moreB) moreB.onclick = () => { S.roleMore = !S.roleMore; render(); };
   el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => editPerson(S.members.find(x => x.id === b.dataset.edit)));
   el.querySelector("#bulk-add")?.addEventListener("click", bulkAdd);
+  // Add a person: one at a time, straight onto the register (no check-in needed). Church admins can give them a pastor and shepherd too.
+  el.querySelector("#one-add")?.addEventListener("click", () => {
+    const lead = ["admin", "lead"].includes(S.me.role), slist = (S.shepherdList || {})[S.church] || [];
+    formDialog(`Add a person to ${S.church}`, [
+      {k: "full_name", label: "Full name", value: "", required: true},
+      {k: "phone", label: "Phone (optional)", value: "", type: "tel"},
+      {k: "email", label: "Email (optional)", value: "", type: "email"},
+      {k: "type", label: "Attendance Type", value: "first_timer", type: "select", options: typeOpts},
+      {k: "age_group", label: "Age group", value: "Adult", type: "select", options: [["Adult", "Adult"], ["Child", "Child"]]},
+      {k: "gender", label: "Gender", value: "", type: "select", options: [["", "Not given"], ["Female", "Female"], ["Male", "Male"]]},
+      {k: "birthday", label: "Birthday (optional)", value: "", type: "date"},
+      {k: "address", label: "Address (optional)", value: ""},
+      ...(lead && plist.length ? [{k: "pastor", label: "Pastors (optional)", value: [], type: "multi", options: plist.map(n => [n, shortTitle(n)])}] : []),
+      ...(lead && slist.length ? [{k: "shepherd", label: "Shepherds (optional)", value: [], type: "multi", options: slist.map(n => [n, n])}] : []),
+    ], async v => {
+      const name = v.full_name.slice(0, 80); if (!name) throw new Error("Type their name.");
+      const bad = phoneProblem(v.phone, false); if (bad) throw new Error(bad);
+      const wrong = v.email ? emailProblem(v.email.toLowerCase()) : ""; if (wrong) throw new Error(wrong);
+      const same = S.members.find(m => churchOf(m) === S.church && norm(m.full_name) === norm(name));
+      if (same) throw new Error(`${same.full_name} is already on the list. Search for them instead.`);
+      const m = {id: newId(), full_name: name, phone: v.phone, email: v.email.toLowerCase(), type: v.type, status: "", age_group: v.age_group, church: S.church, created_at: isoLocal(),
+        [v.type === "member" ? "date_joined" : "first_visit"]: today(),
+        ...(v.gender ? {gender: v.gender} : {}), ...(v.birthday ? {birthday: v.birthday} : {}), ...(v.address ? {address: v.address.slice(0, 200)} : {}),
+        ...(v.pastor ? {pastor: v.pastor} : {}), ...(v.shepherd ? {shepherd: v.shepherd} : {})};
+      try { await api("members", {method: "POST", prefer: "return=minimal", body: m}); }
+      catch (err) { throw new Error(/birthday|address|gender|shepherd/.test(err.message) ? "Run the latest setup SQL in Supabase once to save this, then try again." : "Not saved: " + err.message); }
+      S.members.push({...m, version: 1}); log("add_person", m.id, "done", "Congregation · Add a person");
+      toast(`${name} is added to the register.`); render();
+    }, "Add person");
+  });
   el.querySelector("#np-fix")?.addEventListener("click", async e => {  // "Ama Mensah 0211234567" → name Ama Mensah, phone 0211234567
     e.target.disabled = true; let done = 0, kept = 0, clash = 0;
     for (const m of mixed) {
