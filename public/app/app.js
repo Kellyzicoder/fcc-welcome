@@ -193,7 +193,7 @@ function backup() {
   const raw = (name, list) => { const sh = tab(name), keys = [...new Set((list || []).flatMap(x => Object.keys(x)))]; sh.hideSheet(); done.push(name + " " + (list || []).length);
     if (keys.length) sh.getRange(1, 1, list.length + 1, keys.length).setNumberFormat("@").setValues(text([keys, ...list.map(x => keys.map(k => x[k]))])); };
   for (const [name, key] of [["data: people", "members"], ["data: attendance", "attendance"], ["data: churches", "churches"], ["data: services", "services"],
-    ["data: service parts", "service_parts"], ["data: service ticks", "service_ticks"], ["data: bacentas", "bacentas"], ["data: bacenta attendance", "bacenta_ticks"], ["data: bacenta weeks off", "bacenta_skips"],
+    ["data: service parts", "service_parts"], ["data: service ticks", "service_ticks"], ["data: bacentas", "bacentas"], ["data: bacenta attendance", "bacenta_ticks"], ["data: bacenta weeks off", "bacenta_skips"], ["data: bacenta-only people", "bacenta_guests"], ["data: bacenta-only attendance", "bacenta_guest_ticks"],
     ["data: pastor lists", "lists"], ["data: sign-ins", "signins"]]) raw(name, d[key]);
   // A church that's gone (deleted or renamed in the app) keeps its last copy: renamed "… (removed date)", moved to the end, never deleted.
   // Older layouts' tabs go. Any tab of your own stays.
