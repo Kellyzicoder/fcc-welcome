@@ -835,8 +835,10 @@ create table if not exists bacenta_guest_ticks (
   guest uuid not null references bacenta_guests(id) on delete cascade,
   checked_at text,
   primary key (bacenta, meeting_date, guest));
--- Someone new added at a Bacenta by a shepherd, pastor or helper waits for a church admin to approve the name (they can be
--- ticked in meanwhile); added by an admin or church admin, it's approved straight away. Turning it down removes the name.
+-- Someone new added at a Bacenta by a shepherd, pastor or helper goes on the Bacenta's list straight away, and waits for a
+-- church admin to approve adding them to the church's Congregation list (status 'pending'). Approving puts them on the
+-- register with their Bacenta attendance; "Keep as Bacenta only" closes the request (status 'approved'). Added by an admin or
+-- church admin, there's no request.
 alter table bacenta_guests add column if not exists status text not null default 'approved' check (status in ('pending', 'approved'));
 alter table bacenta_guests add column if not exists approved_by text;
 create or replace function app_guest_status() returns trigger language plpgsql set search_path = public as $$
@@ -879,12 +881,11 @@ begin
   select * into x from bacenta_guests where id = g for update;
   if not found or not app_bacenta_ok(x.bacenta) then raise exception 'not allowed'; end if;
   if x.member_id is not null then raise exception 'already linked'; end if;
-  if x.status <> 'approved' then raise exception 'waiting for a church admin to approve the name'; end if;
   if not app_bacenta_tick_ok(x.bacenta, mid) then raise exception 'that person is not on this church''s register'; end if;
   insert into bacenta_ticks (bacenta, meeting_date, member_id, checked_at, from_guest)
     select t.bacenta, t.meeting_date, mid, t.checked_at, g from bacenta_guest_ticks t where t.guest = g on conflict do nothing;
   get diagnostics n = row_count;
-  update bacenta_guests set member_id = mid where id = g;
+  update bacenta_guests set member_id = mid, status = 'approved' where id = g;  -- already on the register: no request left
   return n;
 end $$;
 -- Undo a link (picked the wrong name): the copied check-ins come off the register entry and the person is Bacenta only again
@@ -902,25 +903,37 @@ begin
 end $$;
 revoke all on function app_bacenta_unlink(uuid) from public, anon;
 grant execute on function app_bacenta_unlink(uuid) to authenticated;
--- Church admin: approve a name added at a Bacenta, or turn it down (the name and its ticks are removed)
-create or replace function app_bacenta_review(g uuid, ok boolean, at_txt text default null) returns boolean
+-- Church admin: add a name from a Bacenta to the Congregation list (ok), or keep them Bacenta only (not ok)
+drop function if exists app_bacenta_review(uuid, boolean, text);
+create or replace function app_bacenta_review(g uuid, ok boolean, at_txt text default null, typ text default 'visitor') returns text
 language plpgsql security definer set search_path = public as $$
-declare x bacenta_guests; ch text; bn text;
+declare x bacenta_guests; ch text; bn text; mid text;
+        stamp text := left(coalesce(nullif(trim(at_txt), ''), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF')), 40);
 begin
   select * into x from bacenta_guests where id = g for update;
-  if not found then return false; end if;
+  if not found then return null; end if;
   select church, name into ch, bn from bacentas where id = x.bacenta;
   if app_role() not in ('admin', 'lead') or app_role() is null or not app_can_see(ch) then raise exception 'not allowed'; end if;
-  if x.status <> 'pending' then return false; end if;
-  if ok then update bacenta_guests set status = 'approved', approved_by = app_who() where id = g;
-  else delete from bacenta_guests where id = g; end if;
+  if x.status <> 'pending' or x.member_id is not null then return null; end if;
+  if ok then
+    mid := substr(replace(gen_random_uuid()::text, '-', ''), 1, 12);
+    insert into members (id, full_name, phone, birthday, address, type, status, church, follow_up, created_at)
+    values (mid, regexp_replace(trim(x.full_name), '\s+', ' ', 'g'), trim(coalesce(x.phone, '')), x.birthday, x.address,
+            case when typ in ('member', 'visitor', 'first_timer') then typ else 'visitor' end, '',
+            case when ch = app_home_church() then null else ch end, 'Added from ' || bn || ' (Bacenta)', stamp);
+    insert into bacenta_ticks (bacenta, meeting_date, member_id, checked_at, from_guest)  -- their Bacenta attendance comes with them
+      select t.bacenta, t.meeting_date, mid, t.checked_at, g from bacenta_guest_ticks t where t.guest = g on conflict do nothing;
+    update bacenta_guests set status = 'approved', approved_by = app_who(), member_id = mid where id = g;
+  else
+    update bacenta_guests set status = 'approved', approved_by = app_who() where id = g;
+  end if;
   insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
-  values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), left(coalesce(nullif(trim(at_txt), ''), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF')), 40),
-          case when ok then 'bacenta_approved' else 'bacenta_rejected' end, null, null, left(x.full_name || ' · ' || bn || ' (added by ' || coalesce(x.added_by, '?') || ')', 300), app_who(), 'done');
-  return true;
+  values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), stamp, case when ok then 'bacenta_approved' else 'bacenta_rejected' end, null, mid,
+          left(x.full_name || ' · ' || bn || ' (added by ' || coalesce(x.added_by, '?') || ')', 300), app_who(), 'done');
+  return coalesce(mid, 'kept');
 end $$;
-revoke all on function app_bacenta_review(uuid, boolean, text) from public, anon;
-grant execute on function app_bacenta_review(uuid, boolean, text) to authenticated;
+revoke all on function app_bacenta_review(uuid, boolean, text, text) from public, anon;
+grant execute on function app_bacenta_review(uuid, boolean, text, text) to authenticated;
 revoke all on function app_bacenta_link(uuid, text) from public, anon;
 grant execute on function app_bacenta_link(uuid, text) to authenticated;
 

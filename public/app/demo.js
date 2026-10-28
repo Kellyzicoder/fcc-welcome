@@ -149,8 +149,12 @@
         trend: days.slice(-12).map(d => t.filter(a => a.service_date === d).length)};
     });
     if (name === "app_bacenta_people") return T.members.filter(m => !m.church).map(m => ({id: m.id, full_name: m.full_name, type: m.type, age_group: m.age_group, phone: m.phone, birthday: m.birthday, address: m.address}));
-    if (name === "app_bacenta_review") { const g = T.bacenta_guests.find(x => x.id === body?.g); if (!g || g.status !== "pending") return false;
-      if (body.ok) g.status = "approved"; else { T.bacenta_guests = T.bacenta_guests.filter(x => x !== g); T.bacenta_guest_ticks = T.bacenta_guest_ticks.filter(t => t.guest !== g.id); } return true; }
+    if (name === "app_bacenta_review") { const g = T.bacenta_guests.find(x => x.id === body?.g); if (!g || g.status !== "pending") return null;
+      g.status = "approved"; if (!body.ok) return "kept";
+      const b = T.bacentas.find(x => x.id === g.bacenta), mid = "d" + (++n);
+      T.members.push({id: mid, full_name: g.full_name, phone: g.phone || "", type: body.typ || "visitor", status: "", age_group: "Adult", church: b.church === HOME ? null : b.church, version: 1, created_at: new Date().toISOString()});
+      for (const t of T.bacenta_guest_ticks.filter(t => t.guest === g.id)) T.bacenta_ticks.push({bacenta: t.bacenta, meeting_date: t.meeting_date, member_id: mid, checked_at: t.checked_at, from_guest: g.id});
+      g.member_id = mid; return mid; }
     if (name === "app_bacenta_helpers") return T.bacenta_helpers.map(h => ({...h, name: T.app_users.find(u => u.email === h.email)?.name || h.email}));
     if (name === "app_church_signins") return T.app_users.filter(u => u.church === body?.ch).map(u => ({email: u.email, name: u.name, role: u.role, title: u.title}));
     if (name === "app_bacenta_link") { const g = T.bacenta_guests.find(x => x.id === body?.g); if (!g) throw new Error("not allowed");
