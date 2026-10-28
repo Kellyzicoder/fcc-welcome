@@ -3800,9 +3800,9 @@ function moveCare(oldName, oldKind, newName, newKind, church) {
   const bacs = (S.bacList || []).filter(b => b.church === church && norm(b[oldKind]) === norm(oldName));
   if (!people.length && !bacs.length) return;
   const what = [people.length ? `${people.length} ${people.length === 1 ? "person" : "people"}` : "", bacs.length ? `${bacs.length} ${bacs.length === 1 ? "Bacenta" : "Bacentas"}` : ""].filter(Boolean).join(" and ");
-  formDialog(`Bring their ${what} over?`, [{k: "how", label: `${oldName} had ${what} as ${wOld}. They're ${wNew} ${newName} now.`, type: "select", value: "move",
-      options: [["move", `Move them: make ${newName} their ${wNew}, and take ${oldName} off as ${wOld}`], ["copy", `Copy them: make ${newName} their ${wNew} too, and keep ${oldName} as ${wOld}`], ["leave", "Leave them as they are"]],
-      hint: `Without this, ${newName} won't see them: a ${wNew} sign-in only sees people with their name as ${wNew}.`}],
+  formDialog(`Move ${newName}'s ${what}?`, [{k: "how", label: `From ${wOld} to ${wNew}`, type: "select", value: "move",
+      options: [["move", `Move (${wNew} only)`], ["copy", `Copy (${wOld} and ${wNew})`], ["leave", "Leave as they are"]],
+      hint: `Otherwise ${newName} won't see them.`}],
     async v => {
       if (v.how === "leave") return;
       let done = 0, clash = 0, full = 0;
@@ -3821,8 +3821,8 @@ function moveCare(oldName, oldKind, newName, newKind, church) {
       }
       log("edit", "", "done", `${oldName} (${wOld}) → ${newName} (${wNew}): ${v.how === "move" ? "moved" : "copied"} ${done} ${done === 1 ? "person" : "people"}${bacs.length ? ` and ${bacs.length} Bacenta(s)` : ""}`);
       if (clash) await load();
-      toast(`${v.how === "move" ? "Moved" : "Copied"} ${done} ${done === 1 ? "person" : "people"} to ${newName}.` + (clash ? ` ${clash} were being edited by someone else and were left alone.` : "")
-        + (full ? ` ${full} Bacenta${full === 1 ? " already has" : "s already have"} a ${wNew.toLowerCase()}: change ${full === 1 ? "it" : "them"} on the Bacentas page if needed.` : ""));
+      toast(`${v.how === "move" ? "Moved" : "Copied"} ${done} ${done === 1 ? "person" : "people"}.` + (clash ? ` ${clash} skipped (being edited).` : "")
+        + (full ? ` ${full} Bacenta${full === 1 ? " already has" : "s already have"} a ${wNew.toLowerCase()}.` : ""));
       render();
     }, "Save");
 }
