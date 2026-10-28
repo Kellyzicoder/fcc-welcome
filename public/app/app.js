@@ -3149,8 +3149,11 @@ function people(el) {
       {k: "gender", label: "Gender", value: "", type: "select", options: [["", "Not given"], ["Female", "Female"], ["Male", "Male"]]},
       {k: "birthday", label: "Birthday (optional)", value: "", type: "date"},
       {k: "address", label: "Address (optional)", value: ""},
-      ...(lead && plist.length ? [{k: "pastor", label: "Pastors (optional)", value: [], type: "multi", options: plist.map(n => [n, shortTitle(n)])}] : []),
-      ...(lead && slist.length ? [{k: "shepherd", label: "Shepherds (optional)", value: [], type: "multi", options: slist.map(n => [n, n])}] : []),
+      // pastors and shepherds: tick from the church's lists; with no list yet, type the name (as on Edit)
+      ...(lead ? [plist.length ? {k: "pastor", label: "Pastors (optional)", value: [], type: "multi", options: plist.map(n => [n, shortTitle(n)])}
+                               : {k: "pastor", label: "Pastors (optional)", value: "", hint: "Add pastors on the Pastors page to choose from a list."}] : []),
+      ...(lead ? [slist.length ? {k: "shepherd", label: "Shepherds (optional)", value: [], type: "multi", options: slist.map(n => [n, n])}
+                               : {k: "shepherd", label: "Shepherds (optional)", value: "", hint: "Add shepherds on the Shepherds page to choose from a list."}] : []),
     ], async v => {
       const name = v.full_name.slice(0, 80); if (!name) throw new Error("Type their name.");
       const bad = phoneProblem(v.phone, false); if (bad) throw new Error(bad);
