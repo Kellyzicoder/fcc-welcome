@@ -4168,15 +4168,33 @@ async function person(el) {
   if (!m) { el.innerHTML = top + `<div class="card"><p class="empty" style="margin:0 0 12px">Tap a name on any list to see their attendance.</p><button class="pill-btn" data-go-people>Open Congregation</button></div>`;
     el.querySelector("[data-go-people]").onclick = () => { S.view = "people"; render(); }; return; }
   el.innerHTML = top + `<p class="empty">Loading…</p>`; bind();
-  let rows;
-  try { rows = await all(`attendance?select=service_date&member_id=eq.${encodeURIComponent(m.id)}&order=service_date.desc`); }
-  catch (e) { el.innerHTML = top + `<div class="msg bad">${esc(e.message)}</div>`; bind(); return; }
+  let rows, bac, youthSvc, youthParts, myParts;
+  const mid = encodeURIComponent(m.id);
+  try {
+    [rows, bac, youthSvc, youthParts, myParts] = await Promise.all([
+      all(`attendance?select=service_date&member_id=eq.${mid}&order=service_date.desc`),
+      // their Bacenta attendance (only Bacentas this sign-in may see come back)
+      all(`bacenta_ticks?select=bacenta,meeting_date&member_id=eq.${mid}&order=meeting_date.desc`).catch(() => []),
+      // youth: services named Youth…, or a Youth service on a day split into services
+      all("services?select=service_date,name&name=ilike.*youth*").catch(() => []),
+      all(`service_parts?select=service_date,part,name&church=eq.${encodeURIComponent(S.church)}&name=ilike.*youth*`).catch(() => []),
+      all(`service_ticks?select=service_date,part&member_id=eq.${mid}`).catch(() => [])]);
+  } catch (e) { el.innerHTML = top + `<div class="msg bad">${esc(e.message)}</div>`; bind(); return; }
   if (S.view !== "person" || S.person !== m.id) return;
   const came = rows.map(r => r.service_date).filter(d => d <= today()), set = new Set(came);
   const st = p.people.find(x => x.id === m.id), years = {};
   for (const d of came) (years[d.slice(0, 4)] ??= []).push(d);
   const state = st ? badge(st.flag) : p.archived.some(x => x.id === m.id) ? `<span class="badge">Archived</span>` : `<span class="badge">${esc(m.status || "Not active")}</span>`;
   const recent = p.dates.slice(-12);
+  // Bacenta: which ones they come to, how often, and when
+  const bacName = id => (S.bacList || []).find(b => b.id === id)?.name || "A Bacenta";
+  const bacs = [...new Set(bac.map(t => t.bacenta))].map(id => ({id, name: bacName(id), dates: bac.filter(t => t.bacenta === id).map(t => t.meeting_date)}));
+  const since3 = dayShift(today(), -91), hasBacentas = (S.bacList || []).some(b => b.church === S.church);
+  // youth: days the church held a youth service (a whole day named Youth…, or one of the day's services), and which they came to
+  const youthDay = new Set(youthSvc.map(x => x.service_date).filter(d => !partsOf(d).length));
+  const youthPart = youthParts.map(x => x.service_date + ":" + x.part), myPart = new Set(myParts.map(x => x.service_date + ":" + x.part));
+  const youthHeld = [...new Set([...youthDay, ...youthParts.map(x => x.service_date)])].filter(d => d <= today()).sort().reverse();
+  const youthCame = youthHeld.filter(d => youthDay.has(d) ? set.has(d) : youthPart.some(k => k.startsWith(d + ":") && myPart.has(k)));
   const pnames = [...new Set([...(S.pastorList[S.church] || []), ...p.people.flatMap(pastorsOf)])], asPastor = pnames.find(n => isSelf(n, m)) || "";
   const flock = asPastor ? p.people.filter(x => x.id !== m.id && pastorsOf(x).some(n => isSelf(n, m))).sort(byName) : [];  // if they are a pastor: who is under them
   el.innerHTML = top + `
@@ -4193,11 +4211,20 @@ async function person(el) {
     ${recent.length ? `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>The last ${recent.length} services</h2><span class="gap"></span>
         <div class="legend"><span><i class="dot on"></i>Came</span><span><i class="dot"></i>Missed</span></div></div>
       <div class="dots">${recent.map(d => `<div><i class="dot ${set.has(d) ? "on" : ""}" title="${set.has(d) ? "Came" : "Missed"}"></i><small>${esc(nice(d))}</small></div>`).join("")}</div></div>` : ""}
+    ${bacs.length || hasBacentas ? `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Bacenta</h2></div>
+      ${bacs.length ? bacs.map(x => `<h3 class="year">${esc(x.name)} · ${x.dates.filter(d => d >= since3).length} in the last 3 months · last came ${esc(full(x.dates[0]))}</h3>
+        <div class="chips">${x.dates.slice(0, 16).map(d => `<span class="chip">${esc(nice(d))}</span>`).join("")}${x.dates.length > 16 ? `<span class="chip muted">+${x.dates.length - 16} more</span>` : ""}</div>`).join("")
+        : `<p class="empty">${esc(m.full_name)} hasn't been to a Bacenta${S.me.base === "pastor" || S.me.role === "team" ? " you look after" : ""}.</p>`}</div>` : ""}
+    ${youthHeld.length ? `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Youth</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${youthCame.length} of the last ${youthHeld.length} youth ${youthHeld.length === 1 ? "service" : "services"}</span></div>
+      ${youthCame.length ? `<div class="chips">${youthCame.slice(0, 16).map(d => `<span class="chip">${esc(nice(d))}</span>`).join("")}</div>`
+        : `<p class="empty">${esc(m.full_name)} hasn't been to a youth service yet.</p>`}
+      <p class="note" style="margin:10px 2px 0">Youth services are services named "Youth…" on Check-in.</p></div>` : ""}
     <div class="card"><div class="card-head"><h2>History</h2></div>
       ${came.length ? Object.keys(years).sort().reverse().map(y => `<h3 class="year">${y} · ${years[y].length} ${years[y].length === 1 ? "service" : "services"}</h3>
         <div class="chips">${years[y].map(d => `<span class="chip">${esc(nice(d))}</span>`).join("")}</div>`).join("") : `<p class="empty">No services recorded for ${esc(m.full_name)} yet.</p>`}</div>`;
   bind();
-  el.querySelector("#dl").onclick = () => download(`${norm(m.full_name).replace(/[^a-z0-9]+/g, "_")}_history_${today()}.csv`, [["Name", "Church", "Service date"], ...came.map(d => [m.full_name, S.church, d])]);
+  el.querySelector("#dl").onclick = () => download(`${norm(m.full_name).replace(/[^a-z0-9]+/g, "_")}_history_${today()}.csv`, [["Name", "Church", "Date", "What"],
+    ...[...came.map(d => [m.full_name, S.church, d, youthCame.includes(d) ? "Youth service" : svcName(d)]), ...bac.map(t => [m.full_name, S.church, t.meeting_date, bacName(t.bacenta)])].sort((a, b) => b[2].localeCompare(a[2]))]);
 }
 
 // ---------------------------------------------------------------- sign-ups from the welcome form

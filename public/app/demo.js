@@ -73,7 +73,10 @@
     {id: "g2", bacenta: "b2", full_name: "Daniel Kim", phone: "021 555 0911", member_id: null, status: "pending", added_by: "Abena Ofori (Shepherd)"}];
   const bacenta_guest_ticks = bacenta_ticks.filter(t => t.bacenta === "b1").map(t => t.meeting_date).filter((d, i, a) => a.indexOf(d) === i).sort().slice(-4)
     .map(d => ({bacenta: "b1", meeting_date: d, guest: "g1", checked_at: d + "T19:05:00+13:00"}));
-  const services = [...sundays.map(d => ({service_date: d, name: "Sunday Service"})), ...weds.map(d => ({service_date: d, name: "Midweek Service"}))];
+  // youth services: a Friday night every two weeks lately, for some of the younger ones
+  const fris = []; for (let i = 2; i < 60; i++) { const d = dayAgo(i); if (d.getDay() === 5 && Math.floor(i / 7) % 2 === 0) fris.unshift(iso(d)); }
+  for (const d of fris) members.forEach((m, k) => { if (!m.church && m.age_group !== "Child" && k % 3 === 0 && rnd() < .7) attendance.push({service_date: d, member_id: m.id, checked_at: d + "T19:30:00+13:00"}); });
+  const services = [...sundays.map(d => ({service_date: d, name: "Sunday Service"})), ...weds.map(d => ({service_date: d, name: "Midweek Service"})), ...fris.map(d => ({service_date: d, name: "Youth Service"}))];
   const T = {
     churches: CH.map(name => ({name, livestream: null, created_at: "2024-01-01T00:00:00Z"})),
     members, attendance, services, service_parts: [], service_ticks: [], bacentas, bacenta_ticks, bacenta_skips, bacenta_guests, bacenta_guest_ticks, bacenta_helpers: [{bacenta: "b1", email: "usher@example.com", role: "assisting"}],
