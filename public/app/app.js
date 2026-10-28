@@ -2963,7 +2963,7 @@ function people(el) {
           return vis.map(([k, [t, f]]) =>
           `<button type="button" class="rpill ${DOT[k] || ""}" role="tab" data-show="${k}" aria-selected="${S.showF === k}">${k === "all" || !DOT[k] ? "" : "<i></i>"}${t} <span>${inRole.filter(f).length}</span></button>`).join("")
             + (more ? `<button type="button" class="rpill more" data-pmore>+ ${more} more</button>` : S.pMore && all.length > 6 ? `<button type="button" class="rpill more" data-pmore>Show less</button>` : ""); })()}</div>
-      ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><button class="pill-btn sm" id="bulk-see">${S.selOnly ? "Show all" : "View"}</button><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-set">Set details</button>${["admin", "lead"].includes(S.me.role) && !S.preview ? `<button class="pill-btn sm bulk-del" id="bulk-del">${svg("trash")}Delete</button>` : ""}<button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
+      ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><button class="pill-btn sm" id="bulk-see">${S.selOnly ? "Show all" : "View"}</button><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-shepherd">Set shepherd</button><button class="pill-btn sm" id="bulk-set">Set details</button>${["admin", "lead"].includes(S.me.role) && !S.preview ? `<button class="pill-btn sm bulk-del" id="bulk-del">${svg("trash")}Delete</button>` : ""}<button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
       <div class="scroll"><table class="utable"><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select all ${mine.length} shown" title="Select all ${mine.length} shown" ${mine.length && shownPicked === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Type</th><th>Pastor assigned</th><th>Age group</th><th>Gender</th><th>Status</th><th>Roles</th></tr></thead><tbody>
       ${shown.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}
         <td><div class="who-cell">${whoBtn(m)}</div>${m.phone ? `<small class="muted" style="display:block;margin:2px 0 0 40px">${esc(m.phone)}</small>` : ""}</td>
@@ -2986,31 +2986,37 @@ function people(el) {
   const all = el.querySelector("#pick-all");
   if (all) all.onchange = () => { for (const m of mine) all.checked ? S.sel.add(m.id) : S.sel.delete(m.id); render(); };  // only those on show
   const see = el.querySelector("#bulk-see"); if (see) see.onclick = () => { S.selOnly = !S.selOnly; render(); };
-  const bp = el.querySelector("#bulk-pastor");
-  if (bp) bp.onclick = () => {
-    if (!plist.length) return toast("Add your pastors on the Pastors page first, then come back.");
-    formDialog(`Pastors for ${picked.length} ${picked.length === 1 ? "person" : "people"}`, [
-      {k: "how", label: "What to do", type: "select", value: "add", options: [["add", "Add this pastor (keep any others)"], ["only", "Make this their only pastor"], ["remove", "Take this pastor off"]]},
-      {k: "pastor", label: "Pastor", type: "select", value: plist[0], options: plist.map(n => [n, n])},
+  // Set pastor / Set shepherd: add one to everyone selected (keeping any others, so someone can have two), make it their
+  // only one, or take it off. Shepherds are their Bacenta too, so this is also how people are put on a shepherd's Bacenta.
+  const setCare = K => {
+    const list = K.list()[S.church] || [], word = K.word.toLowerCase();
+    if (!list.length) return toast(`Add your ${K.words.toLowerCase()} on the ${K.words} page first, then come back.`);
+    formDialog(`${K.words} for ${picked.length} ${picked.length === 1 ? "person" : "people"}`, [
+      {k: "how", label: "What to do", type: "select", value: "add", options: [["add", `Add this ${word} (keep any others)`], ["only", `Make this their only ${word}`], ["remove", `Take this ${word} off`]],
+       hint: `Someone can have more than one ${word}: add each one.`},
+      {k: "name", label: K.word, type: "select", value: list[0], options: list.map(n => [n, n])},
     ], async v => {
       let done = 0, clash = 0, self = 0;
       for (const m of picked) {
-        if (v.how !== "remove" && isSelf(v.pastor, m)) { self++; continue; }  // a pastor is never put under themselves
-        const now = pastorsOf(m), next = v.how === "only" ? [v.pastor] : v.how === "remove" ? now.filter(x => x !== v.pastor) : [...new Set([...now, v.pastor])];
-        const pastor = next.join(", "); if (pastor === now.join(", ")) continue;
+        if (v.how !== "remove" && isSelf(v.name, m)) { self++; continue; }  // nobody is put under themselves
+        const now = K.of(m), next = v.how === "only" ? [v.name] : v.how === "remove" ? now.filter(x => x !== v.name) : [...new Set([...now, v.name])];
+        const val = next.join(", "); if (val === now.join(", ")) continue;
         const ver = Number(m.version) || 1;
-        const rows = await api(`members?id=eq.${encodeURIComponent(m.id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {pastor, version: ver + 1}});
+        const rows = await api(`members?id=eq.${encodeURIComponent(m.id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {[K.field]: val, version: ver + 1}})
+          .catch(err => { throw new Error(/shepherd/.test(err.message) ? "Run the latest setup SQL in Supabase once to save this, then try again." : err.message); });
         if (!rows?.length) { clash++; continue; }
-        Object.assign(m, {pastor, version: ver + 1}); done++;
-        log("edit", m.id, "done", "pastor");
+        Object.assign(m, {[K.field]: val, version: ver + 1}); done++;
+        log("edit", m.id, "done", K.field);
       }
       if (clash) await load();
       S.sel = new Set();
       toast((clash ? `Changed ${done}. ${clash} were edited by someone else just now and were left alone.` : done ? `Changed ${done} ${done === 1 ? "person" : "people"}.` : "Nothing needed changing.")
-        + (self ? ` ${v.pastor} was not made their own pastor.` : ""));
+        + (self ? ` ${v.name} was not made their own ${word}.` : ""));
       render();
-    }, "Set pastor");
+    }, `Set ${word}`);
   };
+  el.querySelector("#bulk-pastor")?.addEventListener("click", () => setCare({...CARE.pastors, field: "pastor"}));
+  el.querySelector("#bulk-shepherd")?.addEventListener("click", () => setCare({...CARE.shepherds, field: "shepherd"}));
   // Set details: gender, age group, attendance type or status for everyone selected; "Leave as is" keeps what each person has
   const bs = el.querySelector("#bulk-set");
   if (bs) bs.onclick = () => {
