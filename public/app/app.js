@@ -75,6 +75,8 @@ const typeKey = m => TYPE[m.type] ? m.type : "member", typeName = m => TYPE[type
 const fullTitle = n => String(n || "").replace(/\s+/g, " ").trim().replace(/^(lady\s+(pastor|pst\.?|ps\.?)|lp\.?)\s+/i, "Lady Pastor ")
   .replace(/^(reverend|revd\.?|rev\.?)\s+/i, "Reverend ").replace(/^(pastor|pst\.?|ps\.?)\s+/i, "Pastor ").replace(/^(bishop|bp\.?)\s+/i, "Bishop ");
 const shortTitle = n => String(n || "").replace(/^\s*lady\s+(pastor|pst\.?|ps\.?)\s+/i, "LP ").replace(/^\s*(reverend|rev\.?)\s+/i, "Rev. ").replace(/^\s*(pastor|pst\.?|ps\.?)\s+/i, "Pst. ");
+// a shepherd's name: tap to see their people on the Shepherds page
+const shepherdBtn = n => S.me?.role === "pastor" ? esc(shortTitle(n)) : `<button class="plink" data-to-shepherd="${esc(n)}">${esc(shortTitle(n))}</button>`;
 const pastorBtn = n => S.me?.role === "pastor" ? esc(shortTitle(n)) : `<button class="plink" data-to-pastor="${esc(n)}">${esc(shortTitle(n))}</button>`;  // a pastor's name: tap to see their people
 const isSelf = (pastor, m) => !!bare(pastor) && bare(pastor) === bare(m.full_name);
 const genderOf = m => ({f: "Female", female: "Female", m: "Male", male: "Male"})[norm(m.gender)] || "";
@@ -1318,7 +1320,8 @@ function render() {
   const view = document.getElementById("view");
   view.onclick = e => {
     const b = e.target.closest("[data-person]"); if (b) { S.person = b.dataset.person; go("person"); return; }
-    const t = e.target.closest("[data-to-pastor]"); if (t) { S.pastor = t.dataset.toPastor; S.pastorJump = true; go("pastors"); }
+    const t = e.target.closest("[data-to-pastor]"); if (t) { S.pastor = t.dataset.toPastor; S.pastorJump = true; go("pastors"); return; }
+    const sh = e.target.closest("[data-to-shepherd]"); if (sh) { S.shepherd = sh.dataset.toShepherd; S.pastorJump = true; go("shepherds"); }
   };
   root.querySelectorAll("[data-back]").forEach(b => b.onclick = () => history.back());  // same as the phone's back gesture
   if (moved) pageIn(view);
@@ -2936,7 +2939,7 @@ function people(el) {
   if (!SHOW[S.showF]) S.showF = "all"; if (!SORT[S.sortBy]) S.sortBy = "name";
   S.sel = new Set([...(S.sel || [])].filter(id => everyone.some(m => m.id === id)));  // ticks stay while you search; only this church's people
   if (!S.sel.size) S.selOnly = false;
-  const mine = S.selOnly ? everyone.filter(m => S.sel.has(m.id)).sort((a, b) => SORT[S.sortBy][1](a, b) || byName(a, b)) : (q ? inRole.filter(m => [m.full_name, m.phone, m.role, m.pastor, m.status].some(x => norm(x).includes(q))) : inRole)
+  const mine = S.selOnly ? everyone.filter(m => S.sel.has(m.id)).sort((a, b) => SORT[S.sortBy][1](a, b) || byName(a, b)) : (q ? inRole.filter(m => [m.full_name, m.phone, m.role, m.pastor, m.shepherd, m.status].some(x => norm(x).includes(q))) : inRole)
     .filter(SHOW[S.showF][1]).sort((a, b) => SORT[S.sortBy][1](a, b) || byName(a, b));
   const plist = S.pastorList[S.church] || [], admin = S.me.role === "admin";
   const edit = S.me.role !== "team", statuses = ["", ...Object.keys(statusRules())];
@@ -2958,7 +2961,7 @@ function people(el) {
     ${mixed.length ? `<div class="msg np-fix"><span><b>${mixed.length} ${mixed.length === 1 ? "name has" : "names have"} a phone number in ${mixed.length === 1 ? "it" : "them"}.</b> Move each number to Phone and keep just the name.</span>
       <button type="button" class="pill-btn primary sm" id="np-fix">Fix ${mixed.length === 1 ? "it" : "all " + mixed.length}</button></div>` : ""}
     <div class="card">
-      <div class="find-row"><label class="find-bar">${svg("search")}<input id="find" type="search" placeholder="Search by name, phone or pastor" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off"></label>
+      <div class="find-row"><label class="find-bar">${svg("search")}<input id="find" type="search" placeholder="Search by name, phone, pastor or shepherd" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off"></label>
         <div class="u-tools">${roleKeys.length ? `<select class="in" id="teamF" aria-label="Team"><option value="">All teams</option>${roleKeys.map(k => `<option value="${esc(k)}" ${S.roleF === k ? "selected" : ""}>${esc(counts[k].label)} · ${counts[k].n}</option>`).join("")}</select>` : ""}
           <select class="in" id="sort" aria-label="Sort by">${Object.entries(SORT).map(([k, [t]]) => `<option value="${k}" ${S.sortBy === k ? "selected" : ""}>${t}</option>`).join("")}</select></div></div>
       <div class="rpills u-pills" role="tablist" aria-label="Show">${(() => {  // the first six (and the one picked), then "+ n more", as on Check-in
@@ -2967,12 +2970,13 @@ function people(el) {
           `<button type="button" class="rpill ${DOT[k] || ""}" role="tab" data-show="${k}" aria-selected="${S.showF === k}">${k === "all" || !DOT[k] ? "" : "<i></i>"}${t} <span>${inRole.filter(f).length}</span></button>`).join("")
             + (more ? `<button type="button" class="rpill more" data-pmore>+ ${more} more</button>` : S.pMore && all.length > 6 ? `<button type="button" class="rpill more" data-pmore>Show less</button>` : ""); })()}</div>
       ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><button class="pill-btn sm" id="bulk-see">${S.selOnly ? "Show all" : "View"}</button><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-shepherd">Set shepherd</button><button class="pill-btn sm" id="bulk-set">Set details</button>${["admin", "lead"].includes(S.me.role) && !S.preview ? `<button class="pill-btn sm bulk-del" id="bulk-del">${svg("trash")}Delete</button>` : ""}<button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
-      <div class="scroll"><table class="utable"><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select all ${mine.length} shown" title="Select all ${mine.length} shown" ${mine.length && shownPicked === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Type</th><th>Pastor assigned</th><th>Age group</th><th>Gender</th><th>Status</th><th>Roles</th></tr></thead><tbody>
+      <div class="scroll"><table class="utable"><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select all ${mine.length} shown" title="Select all ${mine.length} shown" ${mine.length && shownPicked === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Type</th><th>Pastor assigned</th><th>Shepherd</th><th>Age group</th><th>Gender</th><th>Status</th><th>Roles</th></tr></thead><tbody>
       ${shown.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}
         <td><div class="who-cell">${whoBtn(m)}</div>${m.phone ? `<small class="muted" style="display:block;margin:2px 0 0 40px">${esc(m.phone)}</small>` : ""}</td>
         ${edit ? `<td><button class="pill-btn sm" data-edit="${esc(m.id)}" aria-label="Edit ${esc(m.full_name)}">${svg("edit")}Edit</button></td>` : ""}
         <td><span class="rbadge ${TYPECLS[typeKey(m)] || ""}">${esc(typeOf(m))}</span></td>
-        <td class="${pastorsOf(m).length ? "" : "muted"}">${pastorsOf(m).length ? pastorsOf(m).map(pastorBtn).join("<br>") : "Not assigned"}</td><td class="muted">${ageOf(m)}</td><td class="muted">${genderOf(m)}</td>
+        <td class="${pastorsOf(m).length ? "" : "muted"}">${pastorsOf(m).length ? pastorsOf(m).map(pastorBtn).join("<br>") : "Not assigned"}</td>
+        <td class="${shepherdsOf(m).length ? "" : "muted"}">${shepherdsOf(m).length ? shepherdsOf(m).map(shepherdBtn).join("<br>") : "Not assigned"}</td><td class="muted">${ageOf(m)}</td><td class="muted">${genderOf(m)}</td>
         <td>${m.status ? `<span class="badge">${esc(m.status)}</span>` : `<span class="muted">Active</span>`}</td>
         <td>${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("")}</td></tr>`).join("")}
       </tbody></table></div>${mine.length ? "" : `<p class="empty">${q ? "Nobody matches that search." : "Nobody here. Try another filter, or add people from Check-in."}</p>`}
