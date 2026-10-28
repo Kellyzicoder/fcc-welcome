@@ -797,15 +797,18 @@ grant select, insert, update, delete on bacenta_skips to authenticated;
 -- and address only for their Bacentas' own
 -- people (anyone ticked at it in the last 3 months); blank for everyone else.
 drop function if exists app_bacenta_people();
-create or replace function app_bacenta_people() returns table (id text, full_name text, type text, age_group text, phone text, birthday date, address text)
+create or replace function app_bacenta_people() returns table (id text, full_name text, type text, age_group text, shepherd text, phone text, birthday date, address text)
 language sql stable security definer set search_path = public as $$
-  with mine as (select b.id from bacentas b where b.church = app_church() and b.active
+  with mine as (select b.id, lower(regexp_replace(trim(coalesce(b.shepherd, '')), '\s+', ' ', 'g')) as sh from bacentas b where b.church = app_church() and b.active
                   and app_pastor_name() in (lower(regexp_replace(trim(b.shepherd), '\s+', ' ', 'g')), lower(regexp_replace(trim(b.pastor), '\s+', ' ', 'g')))),
-       near as (select distinct t.member_id from bacenta_ticks t join mine on mine.id = t.bacenta where t.meeting_date >= current_date - 91)
-  select m.id, m.full_name, m.type, m.age_group,
+       -- their Bacentas' people: assigned to its shepherd (a shepherd's people are their Bacenta), or came in the last 3 months
+       near as (select t.member_id from bacenta_ticks t join mine on mine.id = t.bacenta where t.meeting_date >= current_date - 91
+                union select m2.id from members m2 join mine on mine.sh <> '' and exists (
+                  select 1 from unnest(string_to_array(coalesce(m2.shepherd, ''), ',')) x where lower(regexp_replace(trim(x), '\s+', ' ', 'g')) = mine.sh))
+  select m.id, m.full_name, m.type, m.age_group, m.shepherd,
          case when n.member_id is not null then m.phone end, case when n.member_id is not null then m.birthday end,
          case when n.member_id is not null then m.address end
-  from members m left join near n on n.member_id = m.id
+  from members m left join (select distinct member_id from near) n on n.member_id = m.id
   where app_role() = 'pastor' and exists (select 1 from mine)
     and coalesce(nullif(trim(m.church), ''), app_home_church()) = app_church()
   order by m.full_name $$;

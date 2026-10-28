@@ -3660,6 +3660,7 @@ function mine(el) {
   };
   el.innerHTML = head("", p.last ? `${esc(svcName(p.last))} · ${esc(nice(p.last, true))}` : "No services recorded yet",
     `<button class="pill-btn" id="wa">Message for WhatsApp</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `
+    <div id="bac-home"></div>
     <div class="tiles"><div class="card tile"><div class="label">Your people</div><div class="num">${list.length}</div></div>
       <div class="card tile"><div class="label">Came</div><div class="num">${came.length}</div></div>
       <div class="card tile"><div class="label">Not there</div><div class="num">${list.length - came.length}</div></div>
@@ -3671,6 +3672,42 @@ function mine(el) {
       : `<p class="empty">${me ? `Nobody is assigned to ${esc(me)} yet. Ask your church admin.` : "Your sign-in isn't linked to a pastor name yet. Ask your church admin."}</p>`}</div>`;
   el.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { S.view = b.dataset.go; render(); });
   el.querySelector("#wa").onclick = () => waDialog("Message for WhatsApp", message, {day: p.last || today()});
+  bacHome(el.querySelector("#bac-home"));  // their Bacenta first
+}
+// Home for a shepherd or pastor: a card for each Bacenta they're on, above the Sunday numbers. When it meets, how the last
+// meeting went, weeks not filled in, who needs a call, and Take attendance.
+async function bacHome(box) {
+  const mineBs = (S.bacList || []).filter(b => b.active && b.church === S.church && bacMine(b));
+  if (!box || !mineBs.length) return;
+  const since = dayShift(today(), -91), ids = mineBs.map(b => b.id).join(",");
+  const [ticks, gticks, skips, guests] = await Promise.all([
+    all(`bacenta_ticks?select=bacenta,meeting_date,member_id&bacenta=in.(${ids})&meeting_date=gte.${since}`).catch(() => []),
+    all(`bacenta_guest_ticks?select=bacenta,meeting_date,guest&bacenta=in.(${ids})&meeting_date=gte.${since}`).catch(() => []),
+    all(`bacenta_skips?select=bacenta,meeting_date&bacenta=in.(${ids})&meeting_date=gte.${since}`).catch(() => []),
+    all(`bacenta_guests?select=id,bacenta&bacenta=in.(${ids})&member_id=is.null`).catch(() => [])]);
+  if (!box.isConnected) return;
+  const open = new Set(guests.map(g => g.id)), all_ = [...ticks, ...gticks.filter(t => open.has(t.guest)).map(t => ({...t, member_id: "g:" + t.guest}))];
+  const monday = d => dayShift(d, -((new Date(d + "T12:00:00").getDay() + 6) % 7)), thisMon = monday(today()), dow = new Date().getDay();
+  box.innerHTML = mineBs.map(b => {
+    const t = all_.filter(x => x.bacenta === b.id), held = [...new Set(t.map(x => x.meeting_date))].sort(), last = held[held.length - 1];
+    const from = String(b.created_at || "").slice(0, 10);
+    const missing = b.meet_day == null ? 0 : [1, 2, 3, 4, 5, 6, 7, 8].filter(i => { const mon = dayShift(thisMon, -7 * i), sun = dayShift(mon, 6);
+      return !(from && sun < from) && mon >= since && !t.some(x => x.meeting_date >= mon && x.meeting_date <= sun) && !skips.some(x => x.bacenta === b.id && x.meeting_date >= mon && x.meeting_date <= sun); }).length;
+    // its people: assigned to its shepherd, its Bacenta-only people, and recent visitors; 3 missed in a row needs a call
+    const ppl = new Set([...t.map(x => x.member_id), ...guests.filter(g => g.bacenta === b.id).map(g => "g:" + g.id),
+      ...S.members.filter(m => b.shepherd && shepherdsOf(m).some(n => norm(n) === norm(b.shepherd))).map(m => m.id)]);
+    const call = [...ppl].filter(id => { const lastCame = t.filter(x => x.member_id === id).map(x => x.meeting_date).sort().pop() || ""; return held.filter(d => d > lastCame).length >= 3; }).length;
+    const tonight = b.meet_day === dow, doneToday = t.some(x => x.meeting_date === today());
+    const when = b.meet_day == null ? "" : tonight ? (doneToday ? "Met today" : "Meets today") : `Meets ${DAYS[b.meet_day]}s`;
+    return `<div class="card" style="margin-bottom:14px${tonight && !doneToday ? ";border:1px solid var(--accent)" : ""}"><div class="card-head"><span class="hico" style="width:34px;height:34px;--wc:var(--h3);--wb:var(--h3b)">${svg("bacentas")}</span><h2>${esc(b.name)}</h2><span class="gap"></span>
+        <button type="button" class="pill-btn ${tonight && !doneToday ? "primary" : ""} sm" data-bctake="${esc(b.id)}">${svg("checkin")}Take attendance</button></div>
+      <p class="note" style="margin:0 2px 10px">${[when, last ? `Last met ${esc(nice(last))}: ${new Set(t.filter(x => x.meeting_date === last).map(x => x.member_id)).size} came` : "No meetings yet", `${ppl.size} ${ppl.size === 1 ? "person" : "people"}`].filter(Boolean).join(" · ")}</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">${missing ? `<span class="badge yellow">${missing} ${missing === 1 ? "week" : "weeks"} not filled in</span>` : b.meet_day != null ? `<span class="badge ok">Attendance up to date</span>` : ""}
+        ${call ? `<span class="badge red">${call} ${call === 1 ? "needs" : "need"} a call</span>` : ppl.size ? `<span class="badge ok">Nobody to call</span>` : ""}
+        <button type="button" class="pill-btn sm" data-bcpage="${esc(b.id)}">Follow-up and details</button></div></div>`;
+  }).join("");
+  box.querySelectorAll("[data-bctake]").forEach(x => x.onclick = () => { const b = mineBs.find(y => y.id === x.dataset.bctake); takeBacenta(b.id, b.meet_day === dow ? today() : bacLastDay(b) || today()); });
+  box.querySelectorAll("[data-bcpage]").forEach(x => x.onclick = () => { S.bacenta = x.dataset.bcpage; S.view = "bacentas"; render(); });
 }
 
 // ---------------------------------------------------------------- pastors: each pastor's people
@@ -3849,6 +3886,10 @@ async function bacentas(el, mode = "manage") {
       out.push({d, state: of(x.id).some(t => inWeek(t.meeting_date, mon)) ? "met" : skip ? "none" : "missing", reason: skip?.reason || ""}); }
     return out; };
   const missing = x => weeks(x).filter(w => w.state === "missing");
+  // a Bacenta's people: those assigned to its shepherd (a shepherd's people are their Bacenta), its Bacenta-only people,
+  // and anyone else who came to it in the last 3 months
+  const membersOf = x => new Set([...of(x.id).filter(t => t.meeting_date >= recent).map(t => t.member_id),
+    ...people.filter(m => m.guest ? m.bacenta === x.id : !!x.shepherd && shepherdsOf(m).some(n => norm(n) === norm(x.shepherd))).map(m => m.id)]);
   const mine = list.filter(x => x.active && (!lim || bacMine(x)));  // the ones this sign-in can take
   // which Bacenta is open: on Check-in, one they can take (today's first); on the Bacentas page, any shown
   const pickFrom = take ? mine : shown;
@@ -3895,8 +3936,8 @@ async function bacentas(el, mode = "manage") {
     el.innerHTML = head("Bacentas", esc(S.church), canEdit ? `<button class="pill-btn primary" id="bc-add">${svg("plus")}Add a Bacenta</button>` : "") + `
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>${esc(S.church)} Bacentas</h2><span class="gap"></span>
       ${hidden ? `<label class="check" style="font-size:13px"><input type="checkbox" id="bc-hid" ${S.bcHidden ? "checked" : ""}> Show hidden (${hidden})</label>` : ""}</div>
-      ${shown.length ? `<div class="scroll"><table><thead><tr><th>Bacenta</th><th>Meets</th><th>Shepherd</th><th>Pastor</th><th>Last met</th><th>Came</th><th>People in 3 months</th><th>Not filled in</th>${canEdit ? "<th></th>" : ""}</tr></thead><tbody>
-        ${shown.map(x => { const ms = meetings(x.id), last = ms[0], ppl = new Set(of(x.id).filter(t => t.meeting_date >= recent).map(t => t.member_id)).size, miss = missing(x).length;
+      ${shown.length ? `<div class="scroll"><table><thead><tr><th>Bacenta</th><th>Meets</th><th>Shepherd</th><th>Pastor</th><th>Last met</th><th>Came</th><th>People</th><th>Not filled in</th>${canEdit ? "<th></th>" : ""}</tr></thead><tbody>
+        ${shown.map(x => { const ms = meetings(x.id), last = ms[0], ppl = membersOf(x).size, miss = missing(x).length;
           return `<tr><td><button class="who ${x.id === S.bacenta ? "sel" : ""}" data-bc="${esc(x.id)}"><span>${esc(initials(x.name))}</span>${esc(x.name)}</button>${x.active ? "" : ` <small class="muted">Hidden</small>`}</td>
             <td>${x.meet_day != null ? esc(DAYS[x.meet_day] + "s") : `<span class="muted">Not set</span>`}</td>
             <td>${x.shepherd ? esc(shortTitle(x.shepherd)) : `<span class="muted">Not set</span>`}</td><td>${x.pastor ? esc(shortTitle(x.pastor)) : `<span class="muted">Not set</span>`}</td><td>${last ? esc(short(last[0])) : `<span class="muted">Not yet</span>`}</td><td>${last ? last[1] : ""}</td><td>${ppl}</td>
@@ -3907,7 +3948,7 @@ async function bacentas(el, mode = "manage") {
         ${b.active && !S.preview && (!lim || bacMine(b)) ? `<button type="button" class="pill-btn primary sm" id="bc-go">${svg("checkin")}Take attendance</button>` : ""}</div>
       <p class="note" style="margin:0 2px 10px">${who(b)}</p><div id="bc-miss"></div></div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Follow-up</h2><span class="gap"></span><span class="muted" style="font-size:13px">Missed the last meetings in a row</span></div><div id="bc-follow"></div></div>
-    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>People in ${esc(b.name)}</h2><span class="gap"></span><span class="muted" style="font-size:13px">Came in the last 3 months</span></div><div id="bc-people"></div></div>
+    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>People in ${esc(b.name)}</h2><span class="gap"></span><span class="muted" style="font-size:13px">Its shepherd's people, Bacenta-only people and recent visitors</span></div><div id="bc-people"></div></div>
     <div class="card"><div class="card-head"><h2>Past meetings</h2></div><div id="bc-past"></div></div>` : ""}`;
     // add, rename, set the shepherd, pastor and day, hide or show again
     const saveB = async (id, body) => {
@@ -3951,7 +3992,7 @@ async function bacentas(el, mode = "manage") {
   const $ = s => el.querySelector(s);
   const pool = people.filter(m => !m.guest || m.bacenta === b.id);  // the church's people, and this Bacenta's own Bacenta-only people
   const onlyTag = m => m.guest ? `<small class="badge blue" style="margin-left:6px" title="Comes to this Bacenta; not on the church register yet">Bacenta only</small>` : "";
-  const regular = new Set(of(b.id).filter(t => t.meeting_date >= recent).map(t => t.member_id));
+  const regular = membersOf(b);
   const here = () => new Set(of(b.id).filter(t => t.meeting_date === S.bcDate).map(t => t.member_id));
   const bday = v => { const d = new Date(String(v).slice(0, 10) + "T12:00:00"); return isNaN(d) ? String(v) : d.toLocaleDateString("en-NZ", {day: "numeric", month: "short"}); };
   const tel = m => m.phone ? `<a href="tel:${esc(String(m.phone).replace(/[^0-9+]/g, ""))}">${esc(m.phone)}</a>` : `<span class="muted">Not given</span>`;
@@ -4001,7 +4042,7 @@ async function bacentas(el, mode = "manage") {
           <td>${m.birthday ? esc(bday(m.birthday)) : `<span class="muted">Not given</span>`}</td><td>${m.address ? esc(m.address) : `<span class="muted">Not given</span>`}</td>
           ${canLink && own.some(x => x.guest) ? `<td>${m.guest ? `<button class="pill-btn sm" data-bclink="${esc(m.gid)}" style="white-space:nowrap" title="They're on the church register now: link them">Link to register</button>` : ""}</td>` : ""}</tr>`).join("")}</tbody></table></div>
         ${own.some(m => m.guest) ? `<p class="note" style="margin:10px 2px 0"><b>Bacenta only</b> means they come to ${esc(b.name)} but aren't on the church register. When they start coming on Sundays and are added on Check-in, tap <b>Link to register</b> so their Bacenta attendance moves with them.</p>` : ""}`
-        : `<p class="empty">Nobody has come to ${esc(b.name)} in the last 3 months yet.</p>`;
+        : `<p class="empty">Nobody in ${esc(b.name)} yet. ${b.shepherd ? `People assigned to ${esc(b.shepherd)} on Congregation show here.` : "Set its shepherd so their people show here."}</p>`;
       // past meetings, and the weeks it didn't meet
       const can = b.active && !S.preview && (!lim || bacMine(b));
       const rows = [...meetings(b.id).map(([d, n]) => [d, String(n)]), ...skips.filter(s => s.bacenta === b.id).map(s => [s.meeting_date, "Didn't meet" + (s.reason ? ": " + s.reason : "")])]

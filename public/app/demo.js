@@ -66,7 +66,8 @@
     {id: "b2", church: HOME, name: "West Bacenta", shepherd: "Shepherd Abena Ofori", pastor: "Pastor John Asante", meet_day: 4, active: true, created_at: "2024-01-01T00:00:00Z"}], bacenta_skips = [], bacenta_ticks = [];
   const homeIds = members.filter(m => !m.church && m.age_group !== "Child").map(m => m.id);
   for (let i = 1; i < 90; i++) { const d = dayAgo(i);
-    bacentas.forEach((b, j) => d.getDay() === b.meet_day && i !== 8 && i !== 15 && homeIds.slice(j * 9, j * 9 + 9).forEach(id => { if (rnd() < .7) bacenta_ticks.push({bacenta: b.id, meeting_date: iso(d), member_id: id, checked_at: iso(d) + "T19:10:00+13:00"}); })); }
+    // each Bacenta's people are its shepherd's people (most come most weeks; a couple have stopped coming)
+    bacentas.forEach(b => d.getDay() === b.meet_day && i !== 8 && i !== 15 && members.filter(m => !m.church && m.shepherd === b.shepherd).map(m => m.id).forEach((id, k) => { if (k % 7 !== 3 && rnd() < .78) bacenta_ticks.push({bacenta: b.id, meeting_date: iso(d), member_id: id, checked_at: iso(d) + "T19:10:00+13:00"}); })); }
   // a Bacenta-only person: comes to City Bacenta, not on the register
   const bacenta_guests = [{id: "g1", bacenta: "b1", full_name: "Emma Wilson", phone: "022 555 0142", birthday: "1996-04-09", address: "12 Hobsonville Rd, Auckland", member_id: null}];
   const bacenta_guest_ticks = bacenta_ticks.filter(t => t.bacenta === "b1").map(t => t.meeting_date).filter((d, i, a) => a.indexOf(d) === i).sort().slice(-4)
