@@ -148,9 +148,6 @@
         trend: days.slice(-12).map(d => t.filter(a => a.service_date === d).length)};
     });
     if (name === "app_bacenta_people") return T.members.filter(m => !m.church).map(m => ({id: m.id, full_name: m.full_name, type: m.type, age_group: m.age_group, phone: m.phone, birthday: m.birthday, address: m.address}));
-    if (name === "app_care_names") return T.members.filter(m => !m.church).map(m => ({id: m.id, full_name: m.full_name}));
-    if (name === "app_care_add") { const m = T.members.find(x => x.id === body?.mid), me = AS?.pastor; if (!m || !me || (m.shepherd || "").includes(me)) return false;
-      m.shepherd = m.shepherd ? m.shepherd + ", " + me : me; m.version = (m.version || 1) + 1; return true; }
     if (name === "app_bacenta_helpers") return T.bacenta_helpers.map(h => ({...h, name: T.app_users.find(u => u.email === h.email)?.name || h.email}));
     if (name === "app_church_signins") return T.app_users.filter(u => u.church === body?.ch).map(u => ({email: u.email, name: u.name, role: u.role, title: u.title}));
     if (name === "app_bacenta_link") { const g = T.bacenta_guests.find(x => x.id === body?.g); if (!g) throw new Error("not allowed");

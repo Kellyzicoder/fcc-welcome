@@ -812,31 +812,9 @@ language sql stable security definer set search_path = public as $$
 revoke all on function app_bacenta_people() from public, anon;
 grant execute on function app_bacenta_people() to authenticated;
 
--- A shepherd adds someone from their church to their own people (their name goes in that person's Shepherd field), so
--- they're on the shepherd's Sunday check-in and follow-up. Church admins and lead pastors still assign anyone (Edit, Set shepherd).
-create or replace function app_care_names() returns table (id text, full_name text)
-language sql stable security definer set search_path = public as $$
-  select m.id, m.full_name from members m
-  where app_role() = 'pastor' and coalesce(nullif(trim(m.church), ''), app_home_church()) = app_church()
-  order by m.full_name $$;
-create or replace function app_care_add(mid text, at_txt text default null) returns boolean
-language plpgsql security definer set search_path = public as $$
-declare me app_users; nm text;
-begin
-  select * into me from app_users where email = lower(auth.jwt() ->> 'email');
-  if me.role is distinct from 'pastor' or me.title is distinct from 'Shepherd' or nullif(trim(me.pastor), '') is null then raise exception 'not allowed'; end if;
-  update members set shepherd = case when coalesce(trim(shepherd), '') = '' then me.pastor else shepherd || ', ' || me.pastor end, version = version + 1
-   where id = mid and coalesce(nullif(trim(church), ''), app_home_church()) = me.church
-     and not exists (select 1 from unnest(string_to_array(coalesce(shepherd, ''), ',')) x where lower(regexp_replace(trim(x), '\s+', ' ', 'g')) = app_pastor_name())
-  returning full_name into nm;
-  if not found then return false; end if;  -- not in their church, or already theirs
-  insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
-  values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), left(coalesce(nullif(trim(at_txt), ''), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF')), 40),
-          'edit', null, mid, 'shepherd: added to ' || me.pastor || '''s people', app_who(), 'done');
-  return true;
-end $$;
-revoke all on function app_care_names(), app_care_add(text, text) from public, anon;
-grant execute on function app_care_names(), app_care_add(text, text) to authenticated;
+-- Only church admins and lead pastors put people under a shepherd (Edit, Set shepherd); shepherds can't add anyone themselves.
+drop function if exists app_care_add(text, text);
+drop function if exists app_care_names();
 
 -- Bacenta-only people: someone who comes to a Bacenta but not (yet) on Sundays. They are kept off the church's register
 -- (members), so they never show on Check-in for services, follow-up, reports, numbers or the Streamlit tracker. Once they
