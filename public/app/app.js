@@ -3586,9 +3586,13 @@ async function admin(el) {
       const shep = r === "shepherd";  // a shepherd goes by the Name above (no separate box) and is added to the Shepherds list on saving
       $("ud-2-wrap").hidden = !two(r); $("ud-p-wrap").hidden = !needP || shep; $("ud-p").required = needP && !shep; $("ud-c-wrap").hidden = noChurch(r);
       $("ud-name").required = shep;
-      $("ud-p-list").innerHTML = (r === "shepherd" ? snames : pnames).map(n => `<option value="${esc(n)}">`).join("");
+      // the names to pick from: the chosen church's Pastors list only (every church's for a role with no church)
+      const ch = noChurch(r) ? "" : $("ud-c").value, from = ch ? (S.pastorList?.[ch] || []) : pnames;
+      $("ud-p-list").innerHTML = from.map(n => `<option value="${esc(n)}">`).join("");
+      $("ud-p-note").textContent = ch ? (from.length ? `Pick from ${ch}'s Pastors list: it decides whose people they see.` : `${ch} has no Pastors list yet. Add them on the Pastors page first, or type their name exactly.`)
+        : "Must match a Pastors list exactly: it decides whose people they see.";
     };
-    $("ud-role").onchange = $("ud-2").onchange = sync; sync();
+    $("ud-role").onchange = $("ud-2").onchange = $("ud-c").onchange = sync; sync();
     (u ? $("ud-name") : $("ud-email")).focus();
     d.querySelector("form").onsubmit = async e => {
       e.preventDefault();
@@ -3602,6 +3606,9 @@ async function admin(el) {
       const fail = t => { err.textContent = t; err.hidden = false; go.disabled = false; };
       if (!u) { const wrong = emailProblem(email); if (wrong) return fail(wrong); if (users.some(x => x.email === email)) return fail("That email can already sign in. Use Change on their row instead."); }
       if (needP && !pastor) return fail(pick === "shepherd" ? "Type their name." : "Type their name as it is on the Pastors list.");
+      { const plist = church ? (S.pastorList?.[church] || []) : [];  // a pastor name from another church's list would show the wrong people
+        if (needP && pick !== "shepherd" && plist.length && !plist.some(n => norm(n) === norm(pastor)))
+          return fail(`${pastor} isn't on ${church}'s Pastors list. Pick a name from the list, or add them on the Pastors page first.`); }
       go.disabled = true; err.hidden = true;
       try {
         if (u) {
@@ -4229,7 +4236,9 @@ async function teamforms(el) {
   S.teamPending = reqs.length;
   const signed = S.me.role === "admin" ? new Set((await api("app_users?select=email").catch(() => [])).map(u => u.email)) : new Set();
   if (S.view !== "teamforms") return;
-  const pnames = [...new Set([...Object.values(S.pastorList || {}).flat(), ...Object.values(S.shepherdList || {}).flat()])].sort();
+  // name suggestions per church: a row only offers its own church's Pastors and Shepherds
+  const tfChurches = [...new Set(reqs.map(r => r.church))], tfList = c => "tf-pn-" + tfChurches.indexOf(c);
+  const namesOf = c => [...new Set([...(S.pastorList?.[c] || []), ...(S.shepherdList?.[c] || [])])].sort();
   const day = t => new Date(t).toLocaleDateString(undefined, {day: "numeric", month: "short"});
   const groups = {};
   for (const r of reqs) (groups[`${r.church}\n${r.sent_by}`] ??= []).push(r);
@@ -4249,12 +4258,12 @@ async function teamforms(el) {
         <div class="scroll"><table class="utable"><thead><tr><th><input type="checkbox" data-all checked aria-label="Tick all"></th><th>Name</th><th>Role</th><th>Pastor name (for a Pastor)</th></tr></thead><tbody>
         ${list.map(r => `<tr data-id="${esc(r.id)}"><td><input type="checkbox" data-pick checked aria-label="Include ${esc(r.name)}"></td>
           <td><b>${esc(r.name)}</b><small class="muted" style="display:block">${esc(r.email)}</small>${signed.has(r.email) ? `<span class="badge yellow">Can already sign in</span>` : ""}</td>
-          <td>${roleSel(r)}</td><td><input class="in sm" data-pastor ${["pastor", "shepherd"].includes(r.role) ? "" : "hidden"} list="tf-pn" value="${esc(r.pastor || "")}" placeholder="As on the Pastors or Shepherds list" aria-label="Pastor name for ${esc(r.name)}"></td></tr>`).join("")}
+          <td>${roleSel(r)}</td><td><input class="in sm" data-pastor ${["pastor", "shepherd"].includes(r.role) ? "" : "hidden"} list="${tfList(r.church)}" value="${esc(r.pastor || "")}" placeholder="As on the Pastors or Shepherds list" aria-label="Pastor name for ${esc(r.name)}"></td></tr>`).join("")}
         </tbody></table></div>
         <p class="note" style="margin:8px 2px 0">A Pastor's name must match the Pastors list.</p>
         <div class="tf-acts"><button class="pill-btn" data-no>Turn down ticked</button><button class="pill-btn primary" data-ok>Approve ticked</button></div></div>`; }).join("")
       : `<div class="card"><p class="empty">Nothing waiting. Lists sent in from a form show here.</p></div>`}
-    <datalist id="tf-pn">${pnames.map(n => `<option value="${esc(n)}">`).join("")}</datalist>`;
+    ${tfChurches.map(c => `<datalist id="${tfList(c)}">${namesOf(c).map(n => `<option value="${esc(n)}">`).join("")}</datalist>`).join("")}`;
   const share = (tok, church) => {
     if (!tok) throw new Error("no link came back. Please try again.");
     const url = teamLink(tok), msg = `Hi, please list who will use the FCC Attendance app for ${church} (name, email and role): ${url}`;
