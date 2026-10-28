@@ -2187,7 +2187,7 @@ function checkin(el) {
       <div class="card tile"><div class="label">Adults</div><div class="num" id="n-ad">0</div></div>
       <div class="card tile"><div class="label">Kids</div><div class="num" id="n-kid">0</div></div>
       <div class="card tile"><div class="label">Not yet</div><div class="num" id="n-not">0</div></div></div>
-    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span><button type="button" class="pill-btn sm" id="ci-list">${svg("checkin")}Tick from a list</button><button type="button" class="pill-btn sm" id="ci-lock">${svg("lock")}Save &amp; lock</button></div>
+    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span>${pastor ? "" : `<button type="button" class="pill-btn sm primary" id="ci-new">${svg("plus")}Add someone new</button>`}<button type="button" class="pill-btn sm" id="ci-list">${svg("checkin")}Tick from a list</button><button type="button" class="pill-btn sm" id="ci-lock">${svg("lock")}Save &amp; lock</button></div>
       <label class="find-bar">${svg("search")}<input id="q" type="search" placeholder="Search by name, phone or team" value="${esc(S.q)}" aria-label="Search by name, phone or team" autocomplete="off"></label>
       <div class="rpills ci-teams" id="ci-teams" aria-label="Teams" hidden></div>
       <div class="bulk" id="ci-bulk" hidden style="position:static;box-shadow:none"><b id="ci-count"></b><span class="gap"></span><button type="button" class="pill-btn sm primary" id="ci-all">Tick all</button><button type="button" class="pill-btn sm" id="ci-none">Untick all</button></div>
@@ -2544,6 +2544,30 @@ function checkin(el) {
   };
   if (pastor) { draw(); pull(); watchTicks(); return; }  // no Add form for pastors
   el.querySelector("#a-phone").oninput = digitsOnly;
+  // Add someone new, from the top: the same as the form at the bottom (Add & check in, or Add only), in a small popup
+  el.querySelector("#ci-new")?.addEventListener("click", () => {
+    const f = el.querySelector("#add"); if (!f) return;
+    document.querySelectorAll(".modal").forEach(m => m.remove());
+    const d = document.createElement("div"); d.className = "modal";
+    const copy = id => f.querySelector("#" + id).outerHTML.replace(`id="${id}"`, `id="n-${id}"`);  // the same boxes and choices
+    d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="Add someone new">
+      <div class="card-head"><h2>Add someone new</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+      <div class="fields">${[["a-name", "Full name"], ["a-phone", "Phone (optional)"], ["a-type", "Attendance Type"], ["a-age", "Age group"], ["a-gender", "Gender"]].map(([id, t]) =>
+        `<div><label class="f" for="n-${id}">${t}</label>${copy(id)}</div>`).join("")}</div>
+      <div class="modal-foot"><button class="pill-btn primary">Add &amp; check in</button><button class="pill-btn" data-only>Add only</button><button type="button" class="pill-btn" data-x>Cancel</button></div></form>`;
+    document.body.append(d);
+    const close = () => { d.remove(); document.removeEventListener("keydown", key); }, key = e => { if (e.key === "Escape") close(); };
+    d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
+    document.addEventListener("keydown", key);
+    d.querySelectorAll('input[type="tel"]').forEach(i => i.addEventListener("input", digitsOnly));
+    d.querySelector("#n-a-name").focus();
+    d.querySelector("form").onsubmit = e => {  // fill in the form below and send it the same way, with the button that was pressed
+      e.preventDefault();
+      for (const id of ["a-name", "a-phone", "a-type", "a-age", "a-gender"]) f.querySelector("#" + id).value = d.querySelector("#n-" + id).value;
+      if (!f.querySelector("#a-name").value.trim()) return d.querySelector("#n-a-name").focus();
+      close(); f.requestSubmit(e.submitter?.hasAttribute("data-only") ? f.querySelector("[data-only]") : f.querySelector("button:not([data-only])"));
+    };
+  });
   el.querySelector("#add").onsubmit = async e => {
     e.preventDefault();
     const name = el.querySelector("#a-name").value.trim().replace(/\s+/g, " "), type = el.querySelector("#a-type").value;
