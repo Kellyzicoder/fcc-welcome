@@ -797,23 +797,24 @@ grant select, insert, update, delete on bacenta_skips to authenticated;
 -- and address only for their Bacentas' own
 -- people (anyone ticked at it in the last 3 months); blank for everyone else.
 drop function if exists app_bacenta_people();
-create or replace function app_bacenta_people() returns table (id text, full_name text, type text, age_group text, shepherd text, phone text, birthday date, address text)
+create or replace function app_bacenta_people() returns table (id text, full_name text, type text, age_group text, phone text, birthday date, address text)
 language sql stable security definer set search_path = public as $$
-  with mine as (select b.id, lower(regexp_replace(trim(coalesce(b.shepherd, '')), '\s+', ' ', 'g')) as sh from bacentas b where b.church = app_church() and b.active
+  with mine as (select b.id from bacentas b where b.church = app_church() and b.active
                   and app_pastor_name() in (lower(regexp_replace(trim(b.shepherd), '\s+', ' ', 'g')), lower(regexp_replace(trim(b.pastor), '\s+', ' ', 'g')))),
-       -- their Bacentas' people: assigned to its shepherd (a shepherd's people are their Bacenta), or came in the last 3 months
-       near as (select t.member_id from bacenta_ticks t join mine on mine.id = t.bacenta where t.meeting_date >= current_date - 91
-                union select m2.id from members m2 join mine on mine.sh <> '' and exists (
-                  select 1 from unnest(string_to_array(coalesce(m2.shepherd, ''), ',')) x where lower(regexp_replace(trim(x), '\s+', ' ', 'g')) = mine.sh))
-  select m.id, m.full_name, m.type, m.age_group, m.shepherd,
+       near as (select distinct t.member_id from bacenta_ticks t join mine on mine.id = t.bacenta where t.meeting_date >= current_date - 91)
+  select m.id, m.full_name, m.type, m.age_group,
          case when n.member_id is not null then m.phone end, case when n.member_id is not null then m.birthday end,
          case when n.member_id is not null then m.address end
-  from members m left join (select distinct member_id from near) n on n.member_id = m.id
+  from members m left join near n on n.member_id = m.id
   where app_role() = 'pastor' and exists (select 1 from mine)
     and coalesce(nullif(trim(m.church), ''), app_home_church()) = app_church()
   order by m.full_name $$;
 revoke all on function app_bacenta_people() from public, anon;
 grant execute on function app_bacenta_people() to authenticated;
+
+-- Only church admins and lead pastors put people under a shepherd (Edit, Set shepherd); shepherds can't add anyone themselves.
+drop function if exists app_care_add(text, text);
+drop function if exists app_care_names();
 
 -- Bacenta-only people: someone who comes to a Bacenta but not (yet) on Sundays. They are kept off the church's register
 -- (members), so they never show on Check-in for services, follow-up, reports, numbers or the Streamlit tracker. Once they
@@ -834,6 +835,20 @@ create table if not exists bacenta_guest_ticks (
   guest uuid not null references bacenta_guests(id) on delete cascade,
   checked_at text,
   primary key (bacenta, meeting_date, guest));
+-- Someone new added at a Bacenta by a shepherd, pastor or helper goes on the Bacenta's list straight away, and waits for a
+-- church admin to approve adding them to the church's Congregation list (status 'pending'). Approving puts them on the
+-- register with their Bacenta attendance; "Keep as Bacenta only" closes the request (status 'approved'). Added by an admin or
+-- church admin, there's no request.
+alter table bacenta_guests add column if not exists status text not null default 'approved' check (status in ('pending', 'approved'));
+alter table bacenta_guests add column if not exists approved_by text;
+create or replace function app_guest_status() returns trigger language plpgsql set search_path = public as $$
+begin
+  new.status := case when app_role() in ('admin', 'lead') then 'approved' else 'pending' end;  -- whatever was sent
+  new.approved_by := case when new.status = 'approved' then app_who() end;
+  return new;
+end $$;
+drop trigger if exists app_guest_status on bacenta_guests;
+create trigger app_guest_status before insert on bacenta_guests for each row execute function app_guest_status();
 alter table bacenta_guests enable row level security;
 alter table bacenta_guest_ticks enable row level security;
 drop policy if exists "app: see bacenta guests" on bacenta_guests;
@@ -870,7 +885,7 @@ begin
   insert into bacenta_ticks (bacenta, meeting_date, member_id, checked_at, from_guest)
     select t.bacenta, t.meeting_date, mid, t.checked_at, g from bacenta_guest_ticks t where t.guest = g on conflict do nothing;
   get diagnostics n = row_count;
-  update bacenta_guests set member_id = mid where id = g;
+  update bacenta_guests set member_id = mid, status = 'approved' where id = g;  -- already on the register: no request left
   return n;
 end $$;
 -- Undo a link (picked the wrong name): the copied check-ins come off the register entry and the person is Bacenta only again
@@ -888,6 +903,37 @@ begin
 end $$;
 revoke all on function app_bacenta_unlink(uuid) from public, anon;
 grant execute on function app_bacenta_unlink(uuid) to authenticated;
+-- Church admin: add a name from a Bacenta to the Congregation list (ok), or keep them Bacenta only (not ok)
+drop function if exists app_bacenta_review(uuid, boolean, text);
+create or replace function app_bacenta_review(g uuid, ok boolean, at_txt text default null, typ text default 'visitor') returns text
+language plpgsql security definer set search_path = public as $$
+declare x bacenta_guests; ch text; bn text; mid text;
+        stamp text := left(coalesce(nullif(trim(at_txt), ''), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF')), 40);
+begin
+  select * into x from bacenta_guests where id = g for update;
+  if not found then return null; end if;
+  select church, name into ch, bn from bacentas where id = x.bacenta;
+  if app_role() not in ('admin', 'lead') or app_role() is null or not app_can_see(ch) then raise exception 'not allowed'; end if;
+  if x.status <> 'pending' or x.member_id is not null then return null; end if;
+  if ok then
+    mid := substr(replace(gen_random_uuid()::text, '-', ''), 1, 12);
+    insert into members (id, full_name, phone, birthday, address, type, status, church, follow_up, created_at)
+    values (mid, regexp_replace(trim(x.full_name), '\s+', ' ', 'g'), trim(coalesce(x.phone, '')), x.birthday, x.address,
+            case when typ in ('member', 'visitor', 'first_timer') then typ else 'visitor' end, '',
+            case when ch = app_home_church() then null else ch end, 'Added from ' || bn || ' (Bacenta)', stamp);
+    insert into bacenta_ticks (bacenta, meeting_date, member_id, checked_at, from_guest)  -- their Bacenta attendance comes with them
+      select t.bacenta, t.meeting_date, mid, t.checked_at, g from bacenta_guest_ticks t where t.guest = g on conflict do nothing;
+    update bacenta_guests set status = 'approved', approved_by = app_who(), member_id = mid where id = g;
+  else
+    update bacenta_guests set status = 'approved', approved_by = app_who() where id = g;
+  end if;
+  insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+  values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), stamp, case when ok then 'bacenta_approved' else 'bacenta_rejected' end, null, mid,
+          left(x.full_name || ' · ' || bn || ' (added by ' || coalesce(x.added_by, '?') || ')', 300), app_who(), 'done');
+  return coalesce(mid, 'kept');
+end $$;
+revoke all on function app_bacenta_review(uuid, boolean, text, text) from public, anon;
+grant execute on function app_bacenta_review(uuid, boolean, text, text) to authenticated;
 revoke all on function app_bacenta_link(uuid, text) from public, anon;
 grant execute on function app_bacenta_link(uuid, text) to authenticated;
 
