@@ -3672,7 +3672,10 @@ async function admin(el) {
               .then(() => { S.shepherdList[church] = next; }).catch(() => toast(`Saved, but ${pastor} couldn't be added to the Shepherds list. Add them on the Shepherds page.`));
           }
         }
+        // Pastor ↔ Shepherd: their people (and Bacentas) are under their old name in the other field, so offer to bring them over
+        const oldKind = u?.pastor ? (u.role === "pastor" && u.title === "Shepherd" ? "shepherd" : "pastor") : null, newKind = pastor ? (pick === "shepherd" ? "shepherd" : "pastor") : null;
         close(); render();
+        if (u && oldKind && newKind && oldKind !== newKind) moveCare(u.pastor, oldKind, pastor, newKind, church || u.church);
       } catch (ex) { fail(/duplicate|already exists|23505/i.test(ex.message) ? "That email can already sign in." : /title|column/i.test(ex.message) ? `${title || (r3 ? "Reverend" : "This role")} needs the latest setup SQL: run it in Supabase once, then try again.` : ex.message); }
     };
   }
@@ -3761,6 +3764,41 @@ async function bacHome(box, page) {
   box.querySelectorAll("[data-bcpage]").forEach(x => x.onclick = () => { S.bacenta = x.dataset.bcpage; S.view = "bacentas"; render(); });
 }
 
+// After a sign-in changes between Pastor and Shepherd: their people are still under their old name (Pastor field, or
+// Shepherd field), so they'd see nobody. Offer to move them to the new field (taking the old one off), copy them (keeping
+// both), or leave them. Bacentas they looked after in the old role come along the same way when that slot is free.
+function moveCare(oldName, oldKind, newName, newKind, church) {
+  const F = {pastor: [pastorsOf, "pastor", "Pastor"], shepherd: [shepherdsOf, "shepherd", "Shepherd"]}, [ofOld, fOld, wOld] = F[oldKind], [ofNew, fNew, wNew] = F[newKind];
+  const people = S.members.filter(m => churchOf(m) === church && ofOld(m).some(n => norm(n) === norm(oldName)));
+  const bacs = (S.bacList || []).filter(b => b.church === church && norm(b[oldKind]) === norm(oldName));
+  if (!people.length && !bacs.length) return;
+  const what = [people.length ? `${people.length} ${people.length === 1 ? "person" : "people"}` : "", bacs.length ? `${bacs.length} ${bacs.length === 1 ? "Bacenta" : "Bacentas"}` : ""].filter(Boolean).join(" and ");
+  formDialog(`Bring their ${what} over?`, [{k: "how", label: `${oldName} had ${what} as ${wOld}. They're ${wNew} ${newName} now.`, type: "select", value: "move",
+      options: [["move", `Move them: make ${newName} their ${wNew}, and take ${oldName} off as ${wOld}`], ["copy", `Copy them: make ${newName} their ${wNew} too, and keep ${oldName} as ${wOld}`], ["leave", "Leave them as they are"]],
+      hint: `Without this, ${newName} won't see them: a ${wNew} sign-in only sees people with their name as ${wNew}.`}],
+    async v => {
+      if (v.how === "leave") return;
+      let done = 0, clash = 0, full = 0;
+      for (const m of people) {
+        const body = {[fNew]: [...new Set([...ofNew(m), newName])].join(", "), ...(v.how === "move" ? {[fOld]: ofOld(m).filter(n => norm(n) !== norm(oldName)).join(", ")} : {})};
+        const ver = Number(m.version) || 1;
+        const rows = await api(`members?id=eq.${encodeURIComponent(m.id)}&version=eq.${ver}`, {method: "PATCH", prefer: "return=representation", body: {...body, version: ver + 1}});
+        if (!rows?.length) { clash++; continue; }
+        Object.assign(m, body, {version: ver + 1}); done++;
+      }
+      for (const b of bacs) {  // a Bacenta has one shepherd and one pastor: only filled in when that slot is free
+        if (b[newKind] && norm(b[newKind]) !== norm(newName)) { full++; continue; }  // taken: left exactly as it is
+        const body = {...(!b[newKind] ? {[newKind]: newName} : {}), ...(v.how === "move" ? {[oldKind]: null} : {})};
+        if (!Object.keys(body).length) continue;
+        await api(`bacentas?id=eq.${b.id}`, {method: "PATCH", prefer: "return=minimal", body}).then(() => Object.assign(b, body)).catch(() => full++);
+      }
+      log("edit", "", "done", `${oldName} (${wOld}) → ${newName} (${wNew}): ${v.how === "move" ? "moved" : "copied"} ${done} ${done === 1 ? "person" : "people"}${bacs.length ? ` and ${bacs.length} Bacenta(s)` : ""}`);
+      if (clash) await load();
+      toast(`${v.how === "move" ? "Moved" : "Copied"} ${done} ${done === 1 ? "person" : "people"} to ${newName}.` + (clash ? ` ${clash} were being edited by someone else and were left alone.` : "")
+        + (full ? ` ${full} Bacenta${full === 1 ? " already has" : "s already have"} a ${wNew.toLowerCase()}: change ${full === 1 ? "it" : "them"} on the Bacentas page if needed.` : ""));
+      render();
+    }, "Save");
+}
 // ---------------------------------------------------------------- pastors: each pastor's people
 function careGroups(el, K) {  // the Pastors and Shepherds pages: each one's people, who came, who needs a call, and the list of names
   const NONE = "Not assigned yet", p = picture(), p0 = p, groups = {};
