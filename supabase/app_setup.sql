@@ -1684,3 +1684,94 @@ grant execute on function app_team_form(text), app_team_submit(text, text, json)
 grant execute on function app_can_team(text), app_team_link(text), app_team_approve(json, text), app_team_reject(uuid[]) to authenticated;
 
 notify pgrst, 'reload schema';
+
+-- ---------------------------------------------------------------- check-in reminders (notifications)
+-- Each person picks days and times in Settings → Check-in reminders; at that time their phone or computer gets a notification.
+-- push_subs: the devices that said yes to notifications. reminders: the times. The send-reminders Edge Function, called every
+-- 5 minutes by pg_cron (below), sends the ones that are due. Safe to run again.
+create table if not exists push_subs (endpoint text primary key, email text not null, p256dh text not null, auth text not null,
+  created_at timestamptz not null default now());
+create table if not exists reminders (id uuid primary key default gen_random_uuid(), email text not null, church text,
+  dow int not null check (dow between 0 and 6), at time not null, tz text not null default 'Pacific/Auckland', last_sent date,
+  created_at timestamptz not null default now());
+alter table push_subs enable row level security;
+alter table reminders enable row level security;
+drop policy if exists push_subs_own on push_subs;
+create policy push_subs_own on push_subs for select to authenticated using (lower(email) = lower(auth.jwt() ->> 'email'));
+drop policy if exists reminders_own_read on reminders;
+create policy reminders_own_read on reminders for select to authenticated using (lower(email) = lower(auth.jwt() ->> 'email'));
+drop policy if exists reminders_own_delete on reminders;
+create policy reminders_own_delete on reminders for delete to authenticated using (lower(email) = lower(auth.jwt() ->> 'email'));
+revoke all on push_subs, reminders from anon;
+grant select on push_subs to authenticated;
+grant select, delete on reminders to authenticated;
+
+-- this device, for the signed-in person (a shared phone moves to whoever turned notifications on last)
+create or replace function app_save_push(endpoint text, p256dh text, auth text) returns boolean language plpgsql security definer set search_path = public as $$
+#variable_conflict use_column
+declare em text := lower(auth.jwt() ->> 'email');
+begin
+  if app_role() is null or em is null then raise exception 'not allowed'; end if;
+  if length(endpoint) > 1000 or endpoint !~ '^https://' then raise exception 'not a push address'; end if;
+  insert into push_subs as s (endpoint, email, p256dh, auth) values (app_save_push.endpoint, em, app_save_push.p256dh, app_save_push.auth)
+    on conflict (endpoint) do update set email = excluded.email, p256dh = excluded.p256dh, auth = excluded.auth;
+  return true;
+end $$;
+
+-- a new reminder for the signed-in person: a day of the week (0 = Sunday), a time, and their time zone
+create or replace function app_add_reminder(dow int, at time, tz text, ch text default null) returns uuid language plpgsql security definer set search_path = public as $$
+declare em text := lower(auth.jwt() ->> 'email'); z text := coalesce(nullif(trim(tz), ''), 'Pacific/Auckland'); rid uuid;
+begin
+  if app_role() is null or em is null then raise exception 'not allowed'; end if;
+  if dow not between 0 and 6 then raise exception 'not a day'; end if;
+  begin perform now() at time zone z; exception when others then z := 'Pacific/Auckland'; end;  -- an unknown time zone: New Zealand
+  if (select count(*) from reminders r where lower(r.email) = em) >= 10 then raise exception 'ten reminders at most'; end if;
+  insert into reminders (email, church, dow, at, tz) values (em, nullif(trim(ch), ''), app_add_reminder.dow, app_add_reminder.at, z) returning id into rid;
+  return rid;
+end $$;
+
+-- the admin's one-time setup: the public key and where the sender lives (the private key is kept as a Supabase secret)
+create or replace function app_set_push(pub text, url text) returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if app_role() is distinct from 'admin' then raise exception 'not allowed'; end if;
+  if pub !~ '^[A-Za-z0-9_-]{80,100}$' or url !~ '^https://[^ ]+/functions/v1/send-reminders$' then raise exception 'not a valid key or address'; end if;
+  insert into settings (key, value) values ('push_public_key', pub) on conflict (key) do update set value = excluded.value;
+  insert into settings (key, value) values ('push_url', url) on conflict (key) do update set value = excluded.value;
+  insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+  values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF'), 'edit', null, null, 'notifications set up', app_who(), 'done');
+  return true;
+end $$;
+
+-- for the sender only: the reminders due now (each once a day, up to 2 hours late), marked as sent, with their devices
+create or replace function app_due_reminders() returns table (endpoint text, p256dh text, auth text, church text) language plpgsql security definer set search_path = public as $$
+begin
+  return query
+  with due as (
+    update reminders r set last_sent = (now() at time zone r.tz)::date
+     where extract(dow from now() at time zone r.tz) = r.dow
+       and (now() at time zone r.tz)::time >= r.at and (now() at time zone r.tz)::time - r.at < interval '2 hours'
+       and (r.last_sent is null or r.last_sent < (now() at time zone r.tz)::date)
+    returning r.email, r.church)
+  select s.endpoint, s.p256dh, s.auth, d.church from due d join push_subs s on lower(s.email) = lower(d.email);
+end $$;
+
+revoke all on function app_save_push(text, text, text), app_add_reminder(int, time, text, text), app_set_push(text, text), app_due_reminders() from public, anon;
+grant execute on function app_save_push(text, text, text), app_add_reminder(int, time, text, text), app_set_push(text, text) to authenticated;
+revoke execute on function app_due_reminders() from authenticated;
+grant execute on function app_due_reminders() to service_role;
+
+-- every 5 minutes, ask the sender to send what's due (only once an admin has set notifications up). If pg_cron or pg_net
+-- can't be turned on here, the rest of this file still works and this part says so.
+do $$
+begin
+  create extension if not exists pg_net;
+  create extension if not exists pg_cron;
+  perform cron.unschedule(jobid) from cron.job where jobname = 'fcc-reminders';
+  perform cron.schedule('fcc-reminders', '*/5 * * * *', $c$
+    select net.http_post(url := s.value, body := '{}'::jsonb, headers := '{"Content-Type": "application/json"}'::jsonb)
+      from public.settings s where s.key = 'push_url' and s.value like 'https://%' $c$);
+exception when others then
+  raise notice 'Reminders are not scheduled: %', sqlerrm;
+end $$;
+
+notify pgrst, 'reload schema';
