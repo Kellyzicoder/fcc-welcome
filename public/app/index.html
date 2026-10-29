@@ -247,6 +247,7 @@ button.status-row:last-child {border-bottom: 0;} button.status-row:hover, button
 .badge.yellow {background: var(--yellow-bg);} .badge.yellow::before {background: var(--yellow);}
 .badge.red {background: var(--red-bg);} .badge.red::before {background: var(--red);}
 .badge[title] {cursor: help;} .flag-key {display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: -4px 2px 12px; font-size: 13px; color: var(--ink-2);} .flag-key span:not(.badge) {margin-right: 8px;}
+.fu-narrow {display: none;} @media (max-width: 700px) { .fu-wide {display: none !important;} .fu-narrow {display: block;} }  /* Follow-up: pills on wider screens, one dropdown on phones */
 
 /* services strip */
 .strip {display: flex; gap: 14px; overflow-x: auto; padding-bottom: 4px;}
