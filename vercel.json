@@ -31,5 +31,11 @@
       "destination": "/app/index.html?demo",
       "permanent": false
     }
+  ],
+  "crons": [
+    {
+      "path": "/first-timer-thanks",
+      "schedule": "0 20 * * *"
+    }
   ]
 }
