@@ -50,9 +50,9 @@ body {
 main {
   min-height: 100dvh;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding: 24px 16px 48px;
+  padding: 24px 16px;
 }
 
 .card {
