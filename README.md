@@ -16,6 +16,7 @@ with the [FCC Attendance Tracker](https://fcc-attendance.streamlit.app) (Streaml
 | Phone app | `public/app/` | Plain HTML + JavaScript, no build step. Installable with *Add to Home Screen*. |
 | Welcome form | `app/page.tsx`, `app/WelcomeForm.tsx`, `app/registration.ts` | First-timers fill it in (e.g. from a QR code). Sign-ups wait as *pending* until a leader approves them. |
 | Server routes | `app/app-config`, `app/app-send`, `app/app-help`, `app/app-live` | Public Supabase settings for the app; sending the attendance report email; Help → Contact the admin; livestream viewer counts for the Livestream widget. |
+| Thank-you email | `app/first-timer-thanks`, `app/thank-you-email.ts`, `supabase/thank_you_email.sql` | Every morning (Vercel Cron, 9am NZ summer time) emails a thank-you to people who filled in the welcome form the day before, gave an email and ticked "happy for someone to get in touch". Needs `CRON_SECRET` on Vercel. |
 | Database rules | `supabase/app_setup.sql` | Tables, helper functions and Row Level Security. Safe to run again. |
 | Test database | `supabase/test_1_tables.sql`, `supabase/test_2_sample_data.sql` | A separate Supabase project with made-up people, used by Vercel previews. |
 | Guide | `docs/FCC-Attendance-Guide.pdf` | How it fits together, design decisions, common fixes. |
