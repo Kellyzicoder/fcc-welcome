@@ -1558,24 +1558,34 @@ function chart(el, rows, pick, active) {  // one bar per service: everyone who c
 const hueOf = s => 1 + [...norm(s)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % 6;
 const avaStyle = s => `style="background:var(--h${hueOf(s)}b);color:var(--h${hueOf(s)}t)"`;
 const whoBtn = m => `<button class="who" data-person="${esc(m.id)}" title="See their attendance history"><span ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</button>`;
-function donut(el, parts) {  // parts: [flag, label, count]; a ring with a gap between segments and the total in the middle
+function donut(el, parts) {  // parts: [flag, label, count]; a ring with a gap between segments. The middle shows the total,
+  // or, for the colour hovered or tapped (or the row beside it), its share, its name and how many. Tap it again, or the middle, for the total.
   const total = parts.reduce((n, x) => n + x[2], 0), R = 54, C = 2 * Math.PI * R, gap = total && parts.filter(x => x[2]).length > 1 ? 3 : 0;
   let at = 0, s = `<svg viewBox="0 0 140 140" role="img" aria-label="Pastoral care: ${parts.map(x => `${x[2]} ${x[1]}`).join(", ")}">
     <circle cx="70" cy="70" r="${R}" fill="none" stroke="var(--line)" stroke-width="16"/>`;
   parts.forEach(([f, label, n], i) => {
     if (!n) return;
     const len = C * n / total;
-    s += `<circle class="seg" tabindex="0" data-i="${i}" cx="70" cy="70" r="${R}" fill="none" stroke="var(--${f === "blue" ? "info" : f})" stroke-width="16"
+    s += `<circle class="seg" tabindex="0" role="button" aria-label="${esc(FLAG[f])}: ${n}" data-i="${i}" cx="70" cy="70" r="${R}" fill="none" stroke="var(--${f === "blue" ? "info" : f})" stroke-width="16"
       stroke-dasharray="${Math.max(len - gap, 1)} ${C}" stroke-dashoffset="${-at}" transform="rotate(-90 70 70)"/>`;
     at += len;
   });
-  el.innerHTML = `<div class="tip"></div>${s}<text class="big" x="70" y="68" text-anchor="middle">${total}</text><text x="70" y="86" text-anchor="middle">${total === 1 ? "person" : "people"}</text></svg>`;
-  const tip = el.querySelector(".tip");
+  el.innerHTML = `${s}<text class="big" x="70" y="68" text-anchor="middle"></text><text class="lbl" x="70" y="85" text-anchor="middle"></text><text class="cnt" x="70" y="99" text-anchor="middle"></text></svg>`;
+  const svgEl = el.querySelector("svg"), [big, lbl, cnt] = el.querySelectorAll("text");
+  let held = null;
+  const show = i => {
+    svgEl.classList.toggle("picked", i != null); el.querySelectorAll(".seg").forEach(c => c.classList.toggle("on", c.dataset.i === String(i)));
+    if (i == null) { big.textContent = total; lbl.textContent = total === 1 ? "person" : "people"; cnt.textContent = ""; return; }
+    const [f, , n] = parts[i]; big.textContent = (total ? Math.round(100 * n / total) : 0) + "%"; lbl.textContent = FLAG[f]; cnt.textContent = `${n} of ${total}`;
+  };
   el.querySelectorAll(".seg").forEach(c => {
-    const show = () => { const [f, label, n] = parts[c.dataset.i]; tip.innerHTML = `<b>${esc(FLAG[f])}</b><br>${n} of ${total} · ${Math.round(100 * n / total)}%<br>${esc(label)}`;
-      tip.style.left = "50%"; tip.style.top = "8px"; tip.style.opacity = 1; };
-    c.onpointerenter = c.onfocus = show; c.onpointerleave = c.onblur = () => tip.style.opacity = 0;
+    c.onpointerenter = c.onfocus = () => show(c.dataset.i); c.onpointerleave = c.onblur = () => show(held);
+    c.onclick = e => { e.stopPropagation(); held = held === c.dataset.i ? null : c.dataset.i; show(held); };
+    c.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); c.onclick(e); } };
   });
+  svgEl.onclick = () => { held = null; show(null); };
+  el.showPart = i => show(i ?? held);  // the rows beside the ring light up their colour
+  show(null);
 }
 function calendar(el, p) {  // a month of services: days with a service show how many came; tapping a day opens Check-in for it
   const [y, m] = S.cal.split("-").map(Number), first = new Date(y, m - 1, 1), days = new Date(y, m, 0).getDate(), now = today();
@@ -1999,9 +2009,17 @@ const WIDGETS = {
   stands: {name: "Pastoral care", sub: "Came, missed once, or need a call", size: "narrow", icon: "people", hue: 5,
     draw(el, p) {
       const stands = [["ok", "came this service"], ["blue", "missed this service"], ["yellow", `missed ${YELLOW_AT}–${RED_AT - 1} in a row`], ["red", `missed ${RED_AT} or more`]].map(([f, t]) => [f, t, p.count(f)]);
+      // each row opens Follow-up on that list (for anyone who has Follow-up)
+      const FU = {ok: "came", blue: "once", yellow: "yellow", red: "red"}, can = pages().some(g => g[1].some(x => x[0] === "followup"));
       el.innerHTML = `<div class="stand"><div class="donut"></div><div class="stand-rows">
-        ${stands.map(([f, t, n]) => `<div class="status-row">${badge(f)}<span class="txt"><small>${t}</small></span><b>${n}</b></div>`).join("")}</div></div>`;
-      donut(el.querySelector(".donut"), stands);
+        ${stands.map(([f, t, n], i) => can
+          ? `<button type="button" class="status-row go" data-st="${f}" data-i="${i}" title="See them in Follow-up">${badge(f)}<span class="txt"><small>${t}</small></span><b>${n}</b>${svg("next")}</button>`
+          : `<div class="status-row">${badge(f)}<span class="txt"><small>${t}</small></span><b>${n}</b></div>`).join("")}</div></div>`;
+      const ring = el.querySelector(".donut"); donut(ring, stands);
+      el.querySelectorAll("[data-st]").forEach(b => {
+        b.onclick = () => { S.filter = FU[b.dataset.st]; S.fuDay = ""; S.view = "followup"; render(); scrollTo(0, 0); };
+        b.onpointerenter = () => ring.showPart(b.dataset.i); b.onpointerleave = () => ring.showPart(null);
+      });
     }},
 };
 // Two boards share each person's saved list: the Dashboard's widgets as "key", the All-churches page's as "c:key"
@@ -2619,8 +2637,9 @@ function followup(el) {
   const p0 = picture(), day = S.fuDay && S.fuDay !== p0.last ? S.fuDay : p0.last, had = !!day && p0.dates.includes(day);
   const p = had && day !== p0.last ? picture(day) : p0;
   const started = x => ([x.date_joined, x.first_visit].filter(Boolean).sort()[0] || (x.created_at || "").slice(0, 10) || "0000") <= day;
-  const tabs = {need: "Needs follow-up", red: `Needs a call (${RED_AT}+ missed)`, yellow: `Check in (${YELLOW_AT}–${RED_AT - 1} missed)`, blue: "Missed this service", all: "Everyone"};
-  const pick = {need: x => x.level !== "ok", red: x => x.flag === "red", yellow: x => x.flag === "yellow", blue: x => !p.here[x.id] && started(x), all: () => true};
+  const tabs = {need: "Needs follow-up", red: `Needs a call (${RED_AT}+ missed)`, yellow: `Check in (${YELLOW_AT}–${RED_AT - 1} missed)`, once: "Missed this one", blue: "Missed this service", came: "Came", all: "Everyone"};
+  const pick = {need: x => x.level !== "ok", red: x => x.flag === "red", yellow: x => x.flag === "yellow", once: x => x.flag === "blue", blue: x => !p.here[x.id] && started(x), came: x => !!p.here[x.id], all: () => true};
+  if (!tabs[S.filter]) S.filter = "need";
   const list = had ? p.people.filter(pick[S.filter]) : [];
   el.innerHTML = head("Follow-up", esc(S.church),
     `<button class="pill-btn" id="dl">Download this list</button>`) + `

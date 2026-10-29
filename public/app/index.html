@@ -220,9 +220,12 @@ details.table table {margin-top: 8px;}
 .status-row {display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line);}
 .status-row:last-child {border-bottom: 0;}
 .stand {display: flex; flex-direction: column; gap: 10px;} .stand-rows {min-width: 0;}
-.donut {position: relative; align-self: center;} .donut svg {display: block; width: 150px; height: 150px;}
+.donut {position: relative; display: flex; justify-content: center; width: 100%;} .donut svg {display: block; width: min(100%, 230px); height: auto; aspect-ratio: 1;}  /* grows and shrinks with the card */
 .donut text {fill: var(--ink-3); font-size: 11px; pointer-events: none;} .donut text.big {fill: var(--ink); font-size: 26px; font-weight: 600;}
-.donut .seg {cursor: pointer; outline: none; transition: stroke-width .12s;} .donut .seg:hover, .donut .seg:focus-visible {stroke-width: 20;}
+.donut .seg {cursor: pointer; outline: none; transition: stroke-width .12s, opacity .15s;} .donut .seg:hover, .donut .seg:focus-visible, .donut .seg.on {stroke-width: 20;}
+.donut svg.picked .seg:not(.on) {opacity: .3;} .donut text.lbl {fill: var(--ink-2); font-weight: 600;} .donut text.cnt {font-size: 10px;}
+button.status-row {width: 100%; border: 0; border-bottom: 1px solid var(--line); background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 0;}
+button.status-row:last-child {border-bottom: 0;} button.status-row:hover, button.status-row:focus-visible {background: var(--soft);} button.status-row > svg {width: 16px; height: 16px; flex: none; opacity: .45;}
 .donut .tip {transform: translate(-50%, -100%); white-space: nowrap;}
 .cal {display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; text-align: center;}
 .cal b {font-size: 12px; font-weight: 500; color: var(--ink-3); padding: 4px 0 8px;}
