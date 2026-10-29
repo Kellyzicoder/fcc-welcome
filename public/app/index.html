@@ -1189,6 +1189,45 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 </head>
 <body>
 <div id="root"><div class="center"><p class="empty">Loading…</p></div></div>
+<script>
+// If the app can't start (a mistake in its code, or still on "Loading…" after 30 seconds), show this instead of a blank
+// page: Try again, and the tech admin's WhatsApp and email (saved on this device the last time the app worked).
+// It also tells the admins, at most once an hour from this device, through Help → Contact the admin.
+(function () {
+  var done = false, why = "";
+  function stuck() { var r = document.getElementById("root"); return !r || !r.textContent.trim() || r.textContent.trim() === "Loading…"; }
+  function show(reason) {
+    if (done || !stuck()) return; done = true;
+    var c = {}; try { c = JSON.parse(localStorage.getItem("fcc-tech-contact") || "{}") || {}; } catch (e) {}
+    var wa = String(c.whatsapp || "").replace(/\D/g, ""), em = String(c.email || "").trim(), say = "The FCC Attendance app isn't loading for me.";
+    var btn = "display:inline-block;margin:6px;padding:12px 20px;border-radius:999px;font:600 15px system-ui,sans-serif;text-decoration:none;border:0;cursor:pointer;";
+    var html = '<div style="max-width:420px;margin:10vh auto;padding:28px 22px;background:#fff;color:#1f2933;border-radius:22px;box-shadow:0 10px 40px rgba(0,0,0,.12);text-align:center;font-family:system-ui,sans-serif">' +
+      '<div style="width:52px;height:52px;margin:0 auto;border-radius:14px;background:linear-gradient(#2f5a63,#4a8473);color:#f1ca26;font-size:30px;line-height:52px">&#10013;</div>' +
+      '<h1 style="font-size:21px;margin:16px 0 8px">The app isn&rsquo;t loading right now</h1>' +
+      '<p style="margin:0 0 16px;color:#5b6675;line-height:1.5">Sorry about that. We&rsquo;re fixing it: please try again in a few minutes.</p>' +
+      '<button type="button" onclick="location.reload()" style="' + btn + 'background:#1f6fe5;color:#fff">Try again</button>' +
+      (wa || em ? '<p style="margin:20px 0 4px;color:#5b6675;font-size:14px">Need help now? Contact the tech admin:</p>' : '') +
+      (wa ? '<a href="https://wa.me/' + wa + '?text=' + encodeURIComponent(say) + '" style="' + btn + 'background:#25d366;color:#fff">WhatsApp</a>' : '') +
+      (em ? '<a href="mailto:' + encodeURIComponent(em) + '?subject=' + encodeURIComponent("App not loading") + '&body=' + encodeURIComponent(say) + '" style="' + btn + 'background:#eef2f7;color:#1f2933">Email</a>' : '') +
+      '</div>';
+    var root = document.getElementById("root"); if (root) root.innerHTML = html; else document.body.innerHTML = html;
+    try {  // tell the admins (needs this device to be signed in)
+      if (Date.now() - (+localStorage.getItem("fcc-crash-told") || 0) < 36e5) return;
+      var s = JSON.parse(localStorage.getItem("fcc-session") || "null"); if (!s || !s.access_token) return;
+      localStorage.setItem("fcc-crash-told", String(Date.now()));
+      fetch("/app-help", {method: "POST", headers: {"Content-Type": "application/json", Authorization: "Bearer " + s.access_token},
+        body: JSON.stringify({topic: "App not loading", message: "Sent by itself: the app didn't start on this device.\n\nWhy: " + reason + "\nPage: " + location.href + "\nPhone or browser: " + navigator.userAgent})}).catch(function () {});
+    } catch (e) {}
+  }
+  addEventListener("error", function (e) {  // the app's code didn't load, or has a mistake
+    var src = (e.target && e.target.src) || e.filename || "";
+    if (String(src).indexOf("/app/app.js") < 0) return;
+    why = e.message || "the app's code didn't download";
+    setTimeout(function () { show(why); }, 1500);
+  }, true);
+  setTimeout(function () { show(why || "still loading after 30 seconds"); }, 30000);
+})();
+</script>
 <script type="module" src="/app/app.js"></script>
 </body>
 </html>

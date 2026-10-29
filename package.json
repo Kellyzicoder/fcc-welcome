@@ -5,6 +5,7 @@
   "description": "FCC Attendance phone app for Favourite Child Church: check-in, congregation, follow-up and church dashboards, plus the first-timer welcome form (Supabase + Vercel).",
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/check-app.mjs",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit"
