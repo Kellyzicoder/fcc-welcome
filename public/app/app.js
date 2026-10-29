@@ -1032,6 +1032,7 @@ async function load() {
     all(`service_ticks?select=service_date,part,member_id&service_date=gte.${since}`).catch(() => [])]);
   S.pastorList = Object.fromEntries(lists.map(r => [r.key.slice(8), (r.value || "").split("\n").map(x => x.trim()).filter(Boolean)]));
   S.statusRules = await api("rpc/app_status_rules", {method: "POST", body: {}}).catch(() => S.statusRules || {});  // Settings → Statuses, per church
+  api("settings?select=value&key=eq.tech_contact").then(r => { try { localStorage.setItem("fcc-tech-contact", r?.[0]?.value || "{}"); } catch {} }).catch(() => {});  // kept on this phone for the "app isn't loading" page
   S.shepherdList = await api("settings?select=key,value&key=like.shepherds:*")
     .then(r => Object.fromEntries(r.map(x => [x.key.slice(10), (x.value || "").split("\n").map(y => y.trim()).filter(Boolean)]))).catch(() => ({}));
   S.seen = seen && Object.fromEntries(seen.map(r => [r.member_id, r.last_seen]));
@@ -3577,7 +3578,7 @@ async function admin(el) {
   const tab = k => `data-at="${k}" ${S.adminTab === k ? "" : "hidden"}`;
   el.innerHTML = head("Admin", "Who can sign in, messages from Help, and database space") + `<div class="atabs" role="tablist" aria-label="Admin">${TABS.map(([k, name, n]) =>
       `<button role="tab" data-atab="${k}" aria-selected="${S.adminTab === k}">${name}${k === "messages" && n ? ` <span class="anum new">${n}</span>` : ""}</button>`).join("")}</div>
-    <section ${tab("messages")}>${inboxCard}</section><section ${tab("backup")}>${backupCard}</section><section ${tab("space")}>${spaceCard}</section><section ${tab("push")}><div id="push-card"></div></section>
+    <section ${tab("messages")}>${inboxCard}</section><section ${tab("backup")}>${backupCard}</section><section ${tab("space")}>${spaceCard}</section><section ${tab("push")}><div id="push-card"></div><div id="tech-card"></div></section>
     <section ${tab("names")}>
     <div class="tiles">${[["Total sign-ins", users.length, "Across all churches"], ["Church admins", users.filter(u => u.role === "lead").length, "Run a church"],
         ["Team", users.filter(u => u.role === "team").length, "Ushers ticking people in"], ["Pastors", users.filter(u => u.role === "pastor" || u.pastor).length, "Including admins who pastor"]]
@@ -3613,7 +3614,7 @@ async function admin(el) {
     d.querySelector("#bk-copy").onclick = ev => navigator.clipboard?.writeText(code).then(() => { ev.target.textContent = "Copied"; toast("Script copied."); })
       .catch(() => { d.querySelector(".bk-code").select(); toast("Couldn't copy: select the script and copy it."); });
   });
-  pushSetup(el.querySelector("#push-card"));
+  pushSetup(el.querySelector("#push-card")); techCard(el.querySelector("#tech-card"));
   el.querySelectorAll("[data-atab]").forEach(b => b.onclick = () => {
     S.adminTab = b.dataset.atab;
     el.querySelectorAll("[data-atab]").forEach(x => x.setAttribute("aria-selected", x === b));
@@ -5072,6 +5073,22 @@ async function remindersCard(el) {
 }
 // Admin → Notifications: the one-time setup. The keys are made here in the browser; the private one is shown once,
 // to copy into Supabase, and is never saved anywhere.
+// Admin → Notifications (tech admin): the WhatsApp and email people see on the "app isn't loading" page
+async function techCard(el) {
+  if (!el) return;
+  const c = await api("settings?select=value&key=eq.tech_contact").then(r => { try { return JSON.parse(r?.[0]?.value || "{}") || {}; } catch { return {}; } }).catch(() => null);
+  if (c === null) { el.innerHTML = ""; return; }
+  el.innerHTML = `<div class="card" style="margin-top:14px"><div class="card-head"><h2>If the app won't load</h2></div>
+    <p class="note" style="margin:0 2px 10px">People see a page with Try again and these ways to reach you. The admins are also told by email.</p>
+    <div class="bk-two"><div><label class="f" for="tc-wa">WhatsApp number</label><input class="in" id="tc-wa" inputmode="tel" maxlength="25" placeholder="+64 21 555 0101" value="${esc(c.whatsapp || "")}"></div>
+      <div><label class="f" for="tc-em">Email</label><input class="in" id="tc-em" type="email" maxlength="120" placeholder="you@example.com" value="${esc(c.email || "")}"></div></div>
+    <button type="button" class="pill-btn" id="tc-save" style="margin-top:10px">Save</button></div>`;
+  el.querySelector("#tc-save").onclick = async () => {
+    const whatsapp = el.querySelector("#tc-wa").value.trim(), email = el.querySelector("#tc-em").value.trim();
+    try { await api("rpc/app_set_tech_contact", {method: "POST", body: {whatsapp, email}}); try { localStorage.setItem("fcc-tech-contact", JSON.stringify({whatsapp, email})); } catch {} toast("Saved."); }
+    catch (e) { toast(/app_set_tech_contact|function/i.test(e.message) ? "Run the latest setup SQL in Supabase once, then try again." : "Not saved: " + e.message); }
+  };
+}
 async function pushSetup(el) {
   if (!el) return;
   const info = await pushInfo();
