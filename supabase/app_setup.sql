@@ -1785,3 +1785,22 @@ exception when others then
 end $$;
 
 notify pgrst, 'reload schema';
+
+-- ---------------------------------------------------------------- "the app isn't loading" page: how to reach the tech admin
+-- The tech admin saves a WhatsApp number and an email (Admin → Notifications). Everyone signed in can read them, and the
+-- app keeps a copy on each phone so that page can show them even when the app itself won't start. Safe to run again.
+drop policy if exists "app: see the tech contact" on settings;
+create policy "app: see the tech contact" on settings for select to authenticated using (key = 'tech_contact' and app_role() is not null);
+create or replace function app_set_tech_contact(whatsapp text, email text) returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if not coalesce(app_is_tech(), false) then raise exception 'not allowed'; end if;
+  if length(coalesce(whatsapp, '')) > 25 or length(coalesce(email, '')) > 120 then raise exception 'too long'; end if;
+  if coalesce(trim(email), '') <> '' and trim(email) !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' then raise exception 'not an email address'; end if;
+  insert into settings (key, value) values ('tech_contact', json_build_object('whatsapp', trim(coalesce(whatsapp, '')), 'email', trim(coalesce(email, '')))::text)
+    on conflict (key) do update set value = excluded.value;
+  return true;
+end $$;
+revoke all on function app_set_tech_contact(text, text) from public, anon;
+grant execute on function app_set_tech_contact(text, text) to authenticated;
+
+notify pgrst, 'reload schema';
