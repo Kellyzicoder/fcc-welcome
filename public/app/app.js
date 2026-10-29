@@ -3571,7 +3571,8 @@ async function admin(el) {
           <button class="pill-btn sm" data-done="${m.id}" data-v="${!m.done}">${m.done ? "Mark as new" : "Mark done"}</button>
           <button class="x" data-mdel="${m.id}">Delete</button></div></div>`).join("")}</div>`;
   // Tabs: one area at a time. Opens on Messages when there are new ones, otherwise on Sign-ins; then remembers the choice.
-  const TABS = [["messages", "Messages", fresh.length], ["names", "Sign-ins", users.length], ["backup", "Backups", 0], ["push", "Notifications", 0], ["space", "Space", 0]];  // churches are managed on the Churches page
+  const TABS = [["messages", "Messages", fresh.length], ["names", "Sign-ins", users.length], ["backup", "Backups", 0], ["push", "Notifications", 0], ["space", "Space", 0]]
+    .filter(([k]) => !["backup", "push"].includes(k) || (S.me.title === "Tech admin" && !S.preview));  // Backups and Notifications: the tech admin only  // churches are managed on the Churches page
   if (!TABS.some(t => t[0] === S.adminTab)) S.adminTab = fresh.length ? "messages" : "names";
   const tab = k => `data-at="${k}" ${S.adminTab === k ? "" : "hidden"}`;
   el.innerHTML = head("Admin", "Who can sign in, messages from Help, and database space") + `<div class="atabs" role="tablist" aria-label="Admin">${TABS.map(([k, name, n]) =>
@@ -5033,7 +5034,7 @@ async function remindersCard(el) {
   const can = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
   const say = t => { el.innerHTML = `<p class="note" style="margin:0 2px">${t}</p>`; };
   if (!info) return say("Run the latest setup SQL in Supabase, then open this page again.");
-  if (!info.push_public_key) return say(S.me.role === "admin" ? "Not set up yet: Admin → Notifications." : "Not turned on yet. Ask the admin to set up notifications.");
+  if (!info.push_public_key) return say(S.me.title === "Tech admin" ? "Not set up yet: Admin → Notifications." : "Not turned on yet. Ask the tech admin to set up notifications.");
   if (!can) return say(ios && !home ? "On iPhone, add the app to your home screen first (Share → Add to Home Screen), then open it from there." : "This browser can't show notifications.");
   const reg = await navigator.serviceWorker.ready; let sub = await reg.pushManager.getSubscription();
   const on = !!sub && Notification.permission === "granted";
