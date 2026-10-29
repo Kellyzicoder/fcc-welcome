@@ -2644,7 +2644,7 @@ function followup(el) {
   el.innerHTML = head("Follow-up", esc(S.church),
     `<button class="pill-btn" id="dl">Download this list</button>`) + `
     <div class="row sortbar"><div style="flex:0 0 200px"><label class="f" for="fu-day">Service date</label><input class="in" id="fu-day" type="date" value="${day || today()}" max="${today()}"></div>
-      ${had ? `<p class="note" style="margin:0 0 4px;flex:1">${esc(S.names[day] || "Service")} · ${esc(nice(day, true))}${day !== p0.last ? ` · <button class="link" id="fu-latest" style="margin:0">Back to the latest service</button>` : ""}</p>` : ""}</div>
+      ${had ? `<p class="note" style="margin:0 0 4px;flex:1">${esc(S.names[day] || "Service")}${day !== p0.last ? ` · <button class="link" id="fu-latest" style="margin:0">Back to the latest service</button>` : ""}</p>` : ""}</div>
     <div style="max-width:340px;margin:0 0 14px"><label class="f" for="fu-f">Show</label><select class="in" id="fu-f">${Object.entries(tabs).map(([k, t]) =>  // one dropdown instead of a row of pills, each list with its count
       `<option value="${k}" ${S.filter === k ? "selected" : ""}>${t} (${had ? p.people.filter(pick[k]).length : 0})</option>`).join("")}</select></div>
     <div class="card"><div class="card-head"><h2>${tabs[S.filter]}</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${list.length} people</span></div>
