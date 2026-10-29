@@ -1746,6 +1746,12 @@ begin
   return true;
 end $$;
 
+-- everyone signed in can read the public half of the setup (the public key and the sender's address), so their
+-- Settings can turn reminders on. Neither is secret: the private key stays in Supabase's secrets.
+drop policy if exists "app: see the notification setup" on settings;
+create policy "app: see the notification setup" on settings for select to authenticated
+  using (key in ('push_public_key', 'push_url') and app_role() is not null);
+
 -- for the sender only: the reminders due now (each once a day, up to 2 hours late), marked as sent, with their devices
 create or replace function app_due_reminders() returns table (endpoint text, p256dh text, auth text, church text) language plpgsql security definer set search_path = public as $$
 begin
