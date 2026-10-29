@@ -26,8 +26,8 @@ export function thankYouEmail(fullName: string, firstVisit: string) {
     "God bless you,",
     `The ${CHURCH} family`,
   ].join("\n");
-  const html = `<!doctype html><html><body style="margin:0;background:#f2f6f7;padding:24px 12px;font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif;color:#14233a">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+  const html = `<!doctype html><html style="height:100%"><body style="margin:0;height:100%;background:#f2f6f7;font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif;color:#14233a">
+  <table role="presentation" width="100%" height="100%" cellpadding="0" cellspacing="0" style="height:100%;min-height:100vh"><tr><td align="center" valign="middle" style="padding:24px 12px;vertical-align:middle">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #d5e0e6">
       <tr><td style="background:#287586;background-image:linear-gradient(140deg,#2d4d79 0%,#287586 50%,#2aa87a 100%);padding:28px 24px;text-align:center">
         <div style="color:#ffffff;font-size:12px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;opacity:.9">${esc(CHURCH)}</div>
