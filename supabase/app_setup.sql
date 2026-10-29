@@ -55,6 +55,10 @@ $$ select coalesce((select value from settings where key = 'home_church'), 'Auck
 create or replace function app_role() returns text language sql stable security definer set search_path = public as
 $$ select role from app_users where email = lower(auth.jwt() ->> 'email') $$;
 
+-- the tech admin: an admin with the title Tech admin. Backups and Notifications are theirs only.
+create or replace function app_is_tech() returns boolean language sql stable security definer set search_path = public as
+$$ select exists (select 1 from app_users where email = lower(auth.jwt() ->> 'email') and role = 'admin' and title = 'Tech admin') $$;
+
 create or replace function app_church() returns text language sql stable security definer set search_path = public as
 $$ select church from app_users where email = lower(auth.jwt() ->> 'email') $$;
 
@@ -1028,7 +1032,7 @@ revoke all on function app_backup_data() from public, anon, authenticated;
 create or replace function app_backup_key() returns text language plpgsql security definer set search_path = public as $$
 declare k text := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
 begin
-  if app_role() is distinct from 'admin' then raise exception 'not allowed'; end if;
+  if not app_is_tech() then raise exception 'not allowed'; end if;
   insert into backup_keys (id, hash, made_by) values (1, sha256(convert_to(k, 'UTF8')), app_who())
   on conflict (id) do update set hash = excluded.hash, made_at = now(), made_by = excluded.made_by, last_used = null;
   return k;
@@ -1039,7 +1043,7 @@ grant execute on function app_backup_key() to authenticated;
 -- when the key was made and when the sheet last copied (admin)
 create or replace function app_backup_status() returns json language plpgsql stable security definer set search_path = public as $$
 begin
-  if app_role() is distinct from 'admin' then raise exception 'not allowed'; end if;
+  if not app_is_tech() then raise exception 'not allowed'; end if;
   return (select json_build_object('made_at', made_at, 'made_by', made_by, 'last_used', last_used) from backup_keys where id = 1);
 end $$;
 revoke all on function app_backup_status() from public, anon;
@@ -1733,7 +1737,7 @@ end $$;
 -- the admin's one-time setup: the public key and where the sender lives (the private key is kept as a Supabase secret)
 create or replace function app_set_push(pub text, url text) returns boolean language plpgsql security definer set search_path = public as $$
 begin
-  if app_role() is distinct from 'admin' then raise exception 'not allowed'; end if;
+  if not app_is_tech() then raise exception 'not allowed'; end if;
   if pub !~ '^[A-Za-z0-9_-]{80,100}$' or url !~ '^https://[^ ]+/functions/v1/send-reminders$' then raise exception 'not a valid key or address'; end if;
   insert into settings (key, value) values ('push_public_key', pub) on conflict (key) do update set value = excluded.value;
   insert into settings (key, value) values ('push_url', url) on conflict (key) do update set value = excluded.value;
