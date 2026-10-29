@@ -5019,7 +5019,7 @@ function setBadge() {
     (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
   }, 800);
 }
-const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const REM_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const b64u = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), c => c.charCodeAt(0));
 const toB64u = u => btoa(String.fromCharCode(...u)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 async function pushInfo() {  // the admin's setup: the public key and the sender's address (null before the setup SQL is run)
@@ -5043,8 +5043,8 @@ async function remindersCard(el) {
   el.innerHTML = `<p class="note" style="margin:0 2px 8px">A notification on this ${matchMedia("(max-width: 1080px)").matches ? "phone" : "computer"} at the times you pick. Tap it to open Check-in.</p>
     ${Notification.permission === "denied" ? `<p class="note">Notifications are blocked for this app. Allow them in your settings, then come back.</p>`
       : on ? "" : `<button type="button" class="pill-btn primary" id="rem-on" style="margin:0 0 8px">Turn on notifications</button>`}
-    ${list.map(r => `<div class="set-row"><div><b>${DAYS[r.dow]}</b><small>${esc(String(r.at).slice(0, 5))}</small></div><div class="set-ctl"><button type="button" class="pill-btn sm" data-rem-del="${esc(r.id)}">Remove</button></div></div>`).join("")}
-    <div class="set-row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select class="in" id="rem-day" style="flex:1;min-width:120px" aria-label="Day">${DAYS.map((d, i) => `<option value="${i}">${d}</option>`).join("")}</select>
+    ${list.map(r => `<div class="set-row"><div><b>${REM_DAYS[r.dow]}</b><small>${esc(String(r.at).slice(0, 5))}</small></div><div class="set-ctl"><button type="button" class="pill-btn sm" data-rem-del="${esc(r.id)}">Remove</button></div></div>`).join("")}
+    <div class="set-row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select class="in" id="rem-day" style="flex:1;min-width:120px" aria-label="Day">${REM_DAYS.map((d, i) => `<option value="${i}">${d}</option>`).join("")}</select>
       <input class="in" id="rem-at" type="time" value="09:45" style="flex:1;min-width:110px" aria-label="Time"><button type="button" class="pill-btn" id="rem-add">Add</button></div>
     ${on ? `<div class="set-row"><span style="flex:1"></span><button type="button" class="pill-btn sm" id="rem-test">Send a test</button></div>` : ""}`;
   const $ = q => el.querySelector(q);
@@ -5058,7 +5058,7 @@ async function remindersCard(el) {
       if (Notification.permission !== "granted" || !sub) { if (!(await turnOn())) return; }
       const day = +$("#rem-day").value, at = $("#rem-at").value || "09:45";
       await api("rpc/app_add_reminder", {method: "POST", body: {dow: day, at, tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ch: S.church}});
-      toast(`Reminder set: ${DAYS[day]} at ${at}.`); remindersCard(el);
+      toast(`Reminder set: ${REM_DAYS[day]} at ${at}.`); remindersCard(el);
     } catch (e) { toast("Not saved: " + e.message); }
   };
   el.querySelectorAll("[data-rem-del]").forEach(b => b.onclick = async () => {
