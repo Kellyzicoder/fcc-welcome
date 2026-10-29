@@ -899,7 +899,8 @@ async function start() {
     if (as && PREVIEW[as.role]) { S.preview = as; S.canSwitch = false; Object.assign(S.me, {role: as.role === "shepherd" ? "pastor" : as.role, church: as.church || null,  // a Shepherd is a pastor sign-in titled Shepherd
       pastor: ["pastor", "shepherd"].includes(as.role) ? as.pastor : S.me.pastor, title: as.role === "shepherd" ? "Shepherd" : null}); } }
   S.view = S.me.role === "bishop" ? "overview" : S.view;
-  if (!S.landed) { S.landed = true; const st = look().start; if (st) S.view = st; }  // the start page this person picked in Settings
+  if (!S.landed) { S.landed = true; const go = new URLSearchParams(location.search).get("go"), st = look().start;  // ?go=checkin: from a reminder
+    if (go) { S.view = go; history.replaceState(null, "", location.pathname); } else if (st) S.view = st; }  // the start page this person picked in Settings
   let back = null; try { back = JSON.parse(sessionStorage.getItem("fcc-back") || "null"); sessionStorage.removeItem("fcc-back"); } catch {}
   if (back) {  // just loaded a newer version: open where they were
     if (back.view) S.view = back.view; if (back.date) S.date = back.date; if (back.repTab) S.repTab = back.repTab; if (back.church) S.church = back.church;
@@ -1068,7 +1069,7 @@ async function freshen() {
   for (const s of services) S.names[s.service_date] = s.name;
   if (parts) { for (const k of Object.keys(S.parts)) if (k >= since) delete S.parts[k]; for (const r of parts) (S.parts[r.service_date] ??= []).push({part: r.part, name: r.name}); }
   if (pticks) S.pticks = S.pticks.filter(t => t.service_date < since).concat(pticks);
-  S.pending = pending; S.teamPending = teamPending; freshAt = Date.now();
+  S.pending = pending; S.teamPending = teamPending; freshAt = Date.now(); S.msgNew = undefined;
   return changed;  // true when anything is different from last time (the first time too)
 }
 // A day split into services (two or more): each one's name and how many of this church's people came to it.
@@ -1231,6 +1232,7 @@ function setMode(mode, remember) {
   document.querySelectorAll("[data-mode]").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === mode));
 }
 function render() {
+  setBadge();  // the number on the app icon
   clearInterval(S.poll); S.poll = 0; S.unwatch?.(); S.unwatch = null; S.onShow = null;  // the last page's listening stops
   const moved = S.shown !== S.view;  // a different page: it eases in (see pageIn)
   if (S.shown && S.shown !== S.view && !S.goingBack) {  // moved to another page: remember where from
@@ -3569,12 +3571,12 @@ async function admin(el) {
           <button class="pill-btn sm" data-done="${m.id}" data-v="${!m.done}">${m.done ? "Mark as new" : "Mark done"}</button>
           <button class="x" data-mdel="${m.id}">Delete</button></div></div>`).join("")}</div>`;
   // Tabs: one area at a time. Opens on Messages when there are new ones, otherwise on Sign-ins; then remembers the choice.
-  const TABS = [["messages", "Messages", fresh.length], ["names", "Sign-ins", users.length], ["backup", "Backups", 0], ["space", "Space", 0]];  // churches are managed on the Churches page
+  const TABS = [["messages", "Messages", fresh.length], ["names", "Sign-ins", users.length], ["backup", "Backups", 0], ["push", "Notifications", 0], ["space", "Space", 0]];  // churches are managed on the Churches page
   if (!TABS.some(t => t[0] === S.adminTab)) S.adminTab = fresh.length ? "messages" : "names";
   const tab = k => `data-at="${k}" ${S.adminTab === k ? "" : "hidden"}`;
   el.innerHTML = head("Admin", "Who can sign in, messages from Help, and database space") + `<div class="atabs" role="tablist" aria-label="Admin">${TABS.map(([k, name, n]) =>
       `<button role="tab" data-atab="${k}" aria-selected="${S.adminTab === k}">${name}${k === "messages" && n ? ` <span class="anum new">${n}</span>` : ""}</button>`).join("")}</div>
-    <section ${tab("messages")}>${inboxCard}</section><section ${tab("backup")}>${backupCard}</section><section ${tab("space")}>${spaceCard}</section>
+    <section ${tab("messages")}>${inboxCard}</section><section ${tab("backup")}>${backupCard}</section><section ${tab("space")}>${spaceCard}</section><section ${tab("push")}><div id="push-card"></div></section>
     <section ${tab("names")}>
     <div class="tiles">${[["Total sign-ins", users.length, "Across all churches"], ["Church admins", users.filter(u => u.role === "lead").length, "Run a church"],
         ["Team", users.filter(u => u.role === "team").length, "Ushers ticking people in"], ["Pastors", users.filter(u => u.role === "pastor" || u.pastor).length, "Including admins who pastor"]]
@@ -3610,6 +3612,7 @@ async function admin(el) {
     d.querySelector("#bk-copy").onclick = ev => navigator.clipboard?.writeText(code).then(() => { ev.target.textContent = "Copied"; toast("Script copied."); })
       .catch(() => { d.querySelector(".bk-code").select(); toast("Couldn't copy: select the script and copy it."); });
   });
+  pushSetup(el.querySelector("#push-card"));
   el.querySelectorAll("[data-atab]").forEach(b => b.onclick = () => {
     S.adminTab = b.dataset.atab;
     el.querySelectorAll("[data-atab]").forEach(x => x.setAttribute("aria-selected", x === b));
@@ -5000,6 +5003,133 @@ function account(el) {
 }
 
 // Settings: how the app looks and behaves for this person. Nothing here changes what anyone else sees.
+// ---------------------------------------------------------------- notifications
+// The number on the app icon (where the phone or computer supports it): people needing a call, new sign-ups and team forms,
+// and, for the admin, new Help messages. Worked out shortly after each page is drawn.
+let badgeT = 0;
+function setBadge() {
+  if (!("setAppBadge" in navigator) || !S.me || S.preview || S.me.role === "bishop") return;
+  clearTimeout(badgeT); badgeT = setTimeout(async () => {
+    let n = (S.pending || 0) + (S.teamPending || 0);
+    try { n += picture().count("red"); } catch {}
+    if (S.me.role === "admin") {
+      if (S.msgNew === undefined) S.msgNew = await api("help_messages?select=id&or=(done.is.null,done.is.false)").then(r => r.length).catch(() => 0);
+      n += S.msgNew;
+    }
+    (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
+  }, 800);
+}
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const b64u = s => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), c => c.charCodeAt(0));
+const toB64u = u => btoa(String.fromCharCode(...u)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+async function pushInfo() {  // the admin's setup: the public key and the sender's address (null before the setup SQL is run)
+  const r = await api("settings?select=key,value&key=in.(push_public_key,push_url)").catch(() => null);
+  return r && Object.fromEntries(r.map(x => [x.key, x.value]));
+}
+// Settings → Check-in reminders: turn notifications on for this phone or computer, then pick days and times
+async function remindersCard(el) {
+  if (!el) return;
+  const info = await pushInfo(), ios = /iP(hone|ad|od)/.test(navigator.userAgent), home = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  const can = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  const say = t => { el.innerHTML = `<p class="note" style="margin:0 2px">${t}</p>`; };
+  if (!info) return say("Run the latest setup SQL in Supabase, then open this page again.");
+  if (!info.push_public_key) return say(S.me.role === "admin" ? "Not set up yet: Admin → Notifications." : "Not turned on yet. Ask the admin to set up notifications.");
+  if (!can) return say(ios && !home ? "On iPhone, add the app to your home screen first (Share → Add to Home Screen), then open it from there." : "This browser can't show notifications.");
+  const reg = await navigator.serviceWorker.ready; let sub = await reg.pushManager.getSubscription();
+  const on = !!sub && Notification.permission === "granted";
+  const save = s => { const j = s.toJSON(); return api("rpc/app_save_push", {method: "POST", body: {endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth}}); };
+  if (on) save(sub).catch(() => {});  // keeps this device linked to whoever is signed in on it
+  const list = await api("reminders?select=id,dow,at&order=dow,at").catch(() => []);
+  el.innerHTML = `<p class="note" style="margin:0 2px 8px">A notification on this ${matchMedia("(max-width: 1080px)").matches ? "phone" : "computer"} at the times you pick. Tap it to open Check-in.</p>
+    ${Notification.permission === "denied" ? `<p class="note">Notifications are blocked for this app. Allow them in your settings, then come back.</p>`
+      : on ? "" : `<button type="button" class="pill-btn primary" id="rem-on" style="margin:0 0 8px">Turn on notifications</button>`}
+    ${list.map(r => `<div class="set-row"><div><b>${DAYS[r.dow]}</b><small>${esc(String(r.at).slice(0, 5))}</small></div><div class="set-ctl"><button type="button" class="pill-btn sm" data-rem-del="${esc(r.id)}">Remove</button></div></div>`).join("")}
+    <div class="set-row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select class="in" id="rem-day" style="flex:1;min-width:120px" aria-label="Day">${DAYS.map((d, i) => `<option value="${i}">${d}</option>`).join("")}</select>
+      <input class="in" id="rem-at" type="time" value="09:45" style="flex:1;min-width:110px" aria-label="Time"><button type="button" class="pill-btn" id="rem-add">Add</button></div>
+    ${on ? `<div class="set-row"><span style="flex:1"></span><button type="button" class="pill-btn sm" id="rem-test">Send a test</button></div>` : ""}`;
+  const $ = q => el.querySelector(q);
+  const turnOn = async () => {
+    if (await Notification.requestPermission() !== "granted") { toast("Notifications weren't allowed."); return false; }
+    sub = await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64u(info.push_public_key)}); await save(sub); return true;
+  };
+  $("#rem-on")?.addEventListener("click", async () => { try { if (await turnOn()) { toast("Notifications are on."); remindersCard(el); } } catch (e) { toast("Couldn't turn them on: " + e.message); } });
+  $("#rem-add").onclick = async () => {
+    try {
+      if (Notification.permission !== "granted" || !sub) { if (!(await turnOn())) return; }
+      const day = +$("#rem-day").value, at = $("#rem-at").value || "09:45";
+      await api("rpc/app_add_reminder", {method: "POST", body: {dow: day, at, tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ch: S.church}});
+      toast(`Reminder set: ${DAYS[day]} at ${at}.`); remindersCard(el);
+    } catch (e) { toast("Not saved: " + e.message); }
+  };
+  el.querySelectorAll("[data-rem-del]").forEach(b => b.onclick = async () => {
+    try { await api(`reminders?id=eq.${b.dataset.remDel}`, {method: "DELETE"}); remindersCard(el); } catch (e) { toast("Not removed: " + e.message); } });
+  $("#rem-test")?.addEventListener("click", async () => {
+    try { const r = await fetch(info.push_url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({test: sub.endpoint})}), j = await r.json().catch(() => ({}));
+      toast(r.ok && j.sent ? "Sent. It should show in a few seconds." : "Not sent. Check the setup in Admin → Notifications."); }
+    catch { toast("Not sent. Check the setup in Admin → Notifications."); }
+  });
+}
+// Admin → Notifications: the one-time setup. The keys are made here in the browser; the private one is shown once,
+// to copy into Supabase, and is never saved anywhere.
+async function pushSetup(el) {
+  if (!el) return;
+  const info = await pushInfo();
+  el.innerHTML = `<div class="card"><div class="card-head"><h2>Notifications</h2></div>
+    ${!info ? `<p class="note">Run the latest setup SQL in Supabase first.</p>` : info.push_public_key
+      ? `<p class="note" style="margin:0 2px 10px">Set up. Everyone can add check-in reminders in Settings.</p><button type="button" class="pill-btn sm" id="push-make">Set up again</button>`
+      : `<p class="note" style="margin:0 2px 10px">Lets people get a check-in reminder on their phone. A one-time setup of about 5 minutes.</p><button type="button" class="pill-btn primary" id="push-make">Start setup</button>`}
+    <div id="push-steps"></div></div>`;
+  const make = el.querySelector("#push-make"); if (!make) return;
+  make.onclick = async () => {
+    if (info.push_public_key && make.dataset.sure !== "1") { make.dataset.sure = "1"; make.textContent = "Tap again: new keys stop everyone's reminders until they turn them on again"; return; }
+    try {
+      const k = await crypto.subtle.generateKey({name: "ECDSA", namedCurve: "P-256"}, true, ["sign"]), j = await crypto.subtle.exportKey("jwk", k.privateKey);
+      const pub = toB64u(new Uint8Array([4, ...b64u(j.x), ...b64u(j.y)])), url = S.cfg.url.replace(/\/$/, "") + "/functions/v1/send-reminders";
+      await api("rpc/app_set_push", {method: "POST", body: {pub, url}});
+      el.querySelector("#push-steps").innerHTML = `<ol class="push-steps">
+        <li>In Supabase, open <b>Edge Functions</b> → <b>Deploy a new function</b> → <b>Via editor</b>. Name it <b>send-reminders</b>, replace the code with this one <button type="button" class="pill-btn sm" data-copy="fn">Copy code</button> and press <b>Deploy</b>.</li>
+        <li>In the function's <b>Details</b>, turn off <b>Verify JWT</b> and save.</li>
+        <li>In <b>Edge Functions</b> → <b>Secrets</b>, add these two:<br><b>VAPID_PUBLIC_KEY</b> <button type="button" class="pill-btn sm" data-copy="pub">Copy</button><br><b>VAPID_PRIVATE_KEY</b> <button type="button" class="pill-btn sm" data-copy="priv">Copy</button></li>
+        <li>Done. In <b>Settings → Check-in reminders</b>, turn on notifications and press <b>Send a test</b>.</li></ol>
+        <p class="note">The private key is only shown now and isn't saved anywhere: copy it before leaving this page.</p>`;
+      const vals = {fn: PUSH_FN, pub, priv: j.d};
+      el.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(vals[b.dataset.copy]); toast("Copied."); } catch { toast("Couldn't copy."); } });
+      make.remove(); toast("Keys made. Follow the steps below.");
+    } catch (e) { toast("Not set up: " + e.message); }
+  };
+}
+const PUSH_FN = String.raw`// send-reminders (FCC Attendance): every 5 minutes pg_cron asks this to send the check-in reminders that are due.
+// It can also send a test to one device that has turned notifications on. Secrets: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY.
+import webpush from "npm:web-push@3.6.7";
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+const cors = {"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "content-type", "Access-Control-Allow-Methods": "POST, OPTIONS"};
+const json = (x: unknown, status = 200) => new Response(JSON.stringify(x), {status, headers: {...cors, "Content-Type": "application/json"}});
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", {headers: cors});
+  const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  webpush.setVapidDetails("mailto:" + (Deno.env.get("VAPID_EMAIL") || "admin@example.com"), Deno.env.get("VAPID_PUBLIC_KEY")!, Deno.env.get("VAPID_PRIVATE_KEY")!);
+  const body = await req.json().catch(() => ({}));
+  let rows: any[] = [];
+  if (body.test) {  // "Send a test" in Settings: only to a device that is already signed up
+    const { data } = await db.from("push_subs").select("endpoint, p256dh, auth").eq("endpoint", String(body.test));
+    rows = (data || []).map((r: any) => ({...r, test: true}));
+  } else {
+    const { data, error } = await db.rpc("app_due_reminders");
+    if (error) return json({error: error.message}, 500);
+    rows = data || [];
+  }
+  let sent = 0;
+  for (const r of rows) {
+    const msg = r.test ? {title: "Notifications are on", body: "Check-in reminders will show like this.", url: "/app/"}
+      : {title: "Time to check people in", body: (r.church ? r.church + ": " : "") + "tap to open Check-in.", url: "/app/?go=checkin"};
+    try { await webpush.sendNotification({endpoint: r.endpoint, keys: {p256dh: r.p256dh, auth: r.auth}}, JSON.stringify(msg), {TTL: 3600}); sent++; }
+    catch (e: any) { if (e?.statusCode === 404 || e?.statusCode === 410) await db.from("push_subs").delete().eq("endpoint", r.endpoint); }  // the device said no or is gone
+  }
+  return json({sent});
+});
+`;
 function settings(box) {
   const v = look(), saved = (() => { try { return localStorage.getItem("fcc-mode"); } catch { return null; } })();
   const theme = v.theme || saved || "system", acc = v.accent || ACCENTS[0][0], own = !ACCENTS.some(a => a[0] === acc);
@@ -5042,6 +5172,8 @@ function settings(box) {
     ${Object.entries(statusRules()).map(([k, v]) => row(esc(k), "", `<select class="in" data-st="${esc(k)}" aria-label="${esc(k)}">${[["in", "Stays on the lists"], ["out", "Off the lists (back if ticked)"], ["gone", "Off for good"]]
       .map(([a, t]) => `<option value="${a}" ${v === a ? "selected" : ""}>${t}</option>`).join("")}</select>${STATUS0[k] ? "" : `<button type="button" class="pill-btn sm" data-st-del="${esc(k)}">Remove</button>`}`)).join("")}
     <div class="set-row st-add" style="display:flex;gap:8px;align-items:center"><input class="in" id="st-new" style="flex:1;min-width:0" maxlength="30" placeholder="Add a status, e.g. Studying abroad" aria-label="New status"><button type="button" class="pill-btn" id="st-add">Add</button></div></div>`);
+  // Check-in reminders (not for the Bishop, and not while viewing as someone else)
+  if (S.me.role !== "bishop" && !S.preview) { box.insertAdjacentHTML("beforeend", `<div class="card set-card"><div class="card-head"><h2>Check-in reminders</h2></div><div id="rem-body"><p class="empty">Loading…</p></div></div>`); remindersCard(box.querySelector("#rem-body")); }
   const redo = () => settings(box), $ = q => box.querySelector(q);
   if (canStatus) {
     const saveSt = async rules => { try { await api("rpc/app_set_status_rules", {method: "POST", body: {ch: S.church, rules}}); (S.statusRules ??= {})[S.church] = rules; toast("Saved."); redo(); }
