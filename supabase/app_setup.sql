@@ -134,7 +134,7 @@ create policy "app: untick own church's people" on attendance for delete to auth
 
 drop policy if exists "app: write the activity log" on activity_log;
 create policy "app: write the activity log" on activity_log for insert to authenticated
-  with check (app_role() in ('admin', 'lead', 'team', 'pastor'));
+  with check (app_role() in ('admin', 'lead', 'team', 'pastor') or (app_role() = 'bishop' and kind = 'download'));  -- the Bishop: only noting a download
 drop policy if exists "app: admin reads the activity log" on activity_log;
 create policy "app: admin reads the activity log" on activity_log for select to authenticated using (app_role() = 'admin');
 
@@ -1088,6 +1088,8 @@ begin
   if coalesce(backup_key, '') = '' or not exists (select 1 from backup_keys where hash = sha256(convert_to(backup_key, 'UTF8'))) then
     raise exception 'not allowed'; end if;
   update backup_keys set last_used = now() where id = 1;
+  insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)  -- each copy shows in the Activity log
+  values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF'), 'backup', null, null, 'everything, to the backup', 'Backup', 'done');
   return app_backup_data();
 end $$;
 revoke all on function app_backup(text) from public;
@@ -1875,5 +1877,73 @@ create policy "app: remove visits" on visits for delete to authenticated
   using (exists (select 1 from members m where m.id = visits.member_id) and (added_by = lower(auth.jwt() ->> 'email') or app_role() in ('admin', 'lead')));
 revoke all on visits from anon;
 grant select, insert, delete on visits to authenticated;
+
+-- ---------------------------------------------------------------- privacy: wiping old details, unused sign-ins
+-- Someone not seen for five years has their name, phone, email, address and birthday wiped, and the same on their
+-- sign-up and Bacenta entries, with any notes about them. Their attendance stays, so past numbers don't change; they
+-- show as "Removed person". It runs every night, or straight away from the Archive (admin and church admin, Wipe now).
+alter table members add column if not exists wiped_at timestamptz;
+create or replace function app_wipe_member(mid text) returns void language plpgsql security definer set search_path = public as $$
+begin
+  update members set full_name = 'Removed person', phone = null, email = null, address = null, birthday = null,
+         invited_by = null, follow_up = null, group_name = null, wiped_at = now(), version = version + 1
+   where id = mid and wiped_at is null;
+  update registrations set full_name = 'Removed person', phone = null, email = null, invited_by = null, how_heard = null, notes = null
+   where member_id = mid;
+  update bacenta_guests set full_name = 'Removed person', phone = null, address = null, birthday = null where member_id = mid;
+  update visits set note = null where member_id = mid and note is not null;
+  update activity_log set detail = '' where member_id = mid and coalesce(detail, '') <> '';
+end $$;
+revoke all on function app_wipe_member(text) from public, anon, authenticated;
+-- Archive → Wipe now
+create or replace function app_wipe_person(mid text) returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce(app_role(), '') not in ('admin', 'lead')
+     or not exists (select 1 from members m where m.id = mid and app_can_see(coalesce(nullif(trim(m.church), ''), app_home_church()))) then
+    raise exception 'not allowed'; end if;
+  perform app_wipe_member(mid);
+  insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+  values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF'), 'wipe', null, mid, '', app_who(), 'done');
+  return true;
+end $$;
+revoke all on function app_wipe_person(text) from public, anon;
+grant execute on function app_wipe_person(text) to authenticated;
+-- every night: everyone not seen (Sunday, midweek or Bacenta) for five years, counting from when they joined or were added
+create or replace function app_wipe_old() returns int language plpgsql security definer set search_path = public as $$
+declare n int := 0; r record;
+begin
+  for r in select m.id from members m where m.wiped_at is null
+     and greatest((select max(a.service_date) from attendance a where a.member_id = m.id),
+                  (select max(t.meeting_date) from bacenta_ticks t where t.member_id = m.id),
+                  m.date_joined, m.first_visit,
+                  case when m.created_at ~ '^\d{4}-\d{2}-\d{2}' then left(m.created_at, 10)::date end) < current_date - 1826
+  loop perform app_wipe_member(r.id); n := n + 1; end loop;
+  if n > 0 then
+    insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+    values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF'), 'wipe', null, null,
+            n || case when n = 1 then ' person' else ' people' end || ' not seen for five years', 'Automatic', 'done');
+  end if;
+  return n;
+end $$;
+revoke all on function app_wipe_old() from public, anon, authenticated;
+do $$
+begin
+  create extension if not exists pg_cron;
+  perform cron.unschedule(jobid) from cron.job where jobname = 'fcc-wipe';
+  perform cron.schedule('fcc-wipe', '17 14 * * *', 'select public.app_wipe_old()');  -- about 3am in New Zealand
+exception when others then
+  raise notice 'Old details are not wiped automatically: %', sqlerrm;
+end $$;
+
+-- Admin → Sign-ins: when each sign-in was last used (signing in, or the app keeping them signed in), for the admin only,
+-- so people who have left can be removed. Never signed in: when they were added.
+create or replace function app_signin_last() returns table (email text, last_used timestamptz, ever boolean)
+language sql stable security definer set search_path = public as $$
+  select u.email, coalesce(greatest(a.last_sign_in_at, (select max(s.updated_at) from auth.sessions s where s.user_id = a.id)), u.created_at),
+         a.last_sign_in_at is not null
+  from app_users u left join auth.users a on lower(a.email) = lower(u.email)
+  where app_role() = 'admin' $$;
+revoke all on function app_signin_last() from public, anon;
+grant execute on function app_signin_last() to authenticated;
 
 notify pgrst, 'reload schema';
