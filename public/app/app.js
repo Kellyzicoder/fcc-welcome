@@ -1044,7 +1044,8 @@ async function load() {
   S.pticks = pticks;
   S.bacList = await all("bacentas?select=id,church,name,shepherd,pastor,meet_day,active,created_at&order=name").catch(() => null);  // for Check-in's Service | Bacenta switch
   S.bacHelp = await all("bacenta_helpers?select=bacenta,email,role").catch(() => []);  // who leads or assists which Bacenta
-  S.visits = await all(`visits?select=id,member_id,visit_date,visited_by,note,added_by,created_at&visit_date=gte.${since}&order=visit_date.desc`).catch(() => null);  // null until the setup SQL with visits is run
+  S.visits = await all(`visits?select=id,member_id,visit_date,visited_by,note,outcome,added_by,created_at&visit_date=gte.${since}&order=visit_date.desc`)
+    .catch(() => all(`visits?select=id,member_id,visit_date,visited_by,note,added_by,created_at&visit_date=gte.${since}&order=visit_date.desc`)).catch(() => null);  // null until the setup SQL with visits is run
   // names added at a Bacenta waiting for a church admin to approve (the count on the Bacentas menu item)
   S.bacPending = ["admin", "lead"].includes(S.me.role) ? newSince((await all("bacenta_guests?select=id,bacenta,created_at&status=eq.pending").catch(() => []))
     .filter(g => (S.bacList || []).some(b => b.id === g.bacenta && b.church === S.church)), "bacentas") : 0;
@@ -1092,7 +1093,7 @@ function picture(upTo = today()) {  // everything the pages show, as things stoo
   for (const t of S.ticks) if (ids.has(t.member_id) && t.service_date <= upTo) (byDate[t.service_date] ??= {})[t.member_id] = t.checked_at;
   const dates = Object.keys(byDate).sort(), cutoff = new Date(Date.now() - ARCHIVE_DAYS * 864e5).toISOString().slice(0, 10);
   const people = [], archived = [], vis = {};  // vis: each person's latest visit (Visits page), up to upTo
-  for (const v of S.visits || []) if (v.visit_date <= upTo && !(vis[v.member_id] >= v.visit_date)) vis[v.member_id] = v.visit_date;
+  for (const v of S.visits || []) if (v.outcome !== "not_seen" && v.visit_date <= upTo && !(vis[v.member_id] >= v.visit_date)) vis[v.member_id] = v.visit_date;
   for (const m of mine) {
     if (ruleOf(m) !== "in") continue;  // only statuses set to stay on the lists are in Follow-up (Settings → Statuses)
     const start = [m.date_joined, m.first_visit, dates.find(d => byDate[d][m.id]), (m.created_at || "").slice(0, 10)].filter(Boolean).sort()[0] || "0000";  // no join date: count from their first tick or the day they were added, not every Sunday on record
@@ -3313,7 +3314,8 @@ const CWIDGETS = {
   follow: {name: "Follow-up", sub: "Missing services · no names", size: "full", icon: "followup", hue: 3,
     draw(el, c) {
       if (!c.had && c.day) { el.innerHTML = `<p class="empty">No service that day.</p>`; return; }
-      el.innerHTML = c.fu.map(([f, t, n]) => `<div class="b-bar"><span><i class="b-key ${f}"></i>${esc(t)}</span><span class="b-track"><i class="${f}" style="width:${n ? Math.max(4, n / c.fuMax * 100) : 0}%"></i></span><b>${n}</b></div>`).join("");
+      el.innerHTML = c.fu.map(([f, t, n]) => `<div class="b-bar"><span><i class="b-key ${f}"></i>${esc(t)}</span><span class="b-track"><i class="${f}" style="width:${n ? Math.max(4, n / c.fuMax * 100) : 0}%"></i></span><b>${n}</b></div>`).join("")
+        + (c.visits != null ? `<p class="note" style="margin:10px 2px 0">${c.visits} ${c.visits === 1 ? "visit" : "visits"} in the last 30 days</p>` : "");
     }},
   churches: {name: "Churches side by side", sub: "Tap one to open it", desc: "Present at each church's latest service, side by side.", size: "full", icon: "bars", hue: 4,
     draw(el, c) {
@@ -3371,9 +3373,10 @@ async function bishop(el, rows, text, newest) {
     try { rows = await api("rpc/church_numbers", {method: "POST", body: {upto: day}}); }
     catch (err) { S.bDay = ""; toast(/church_numbers|upto|schema cache/i.test(err.message) ? "Run the latest setup SQL in Supabase once to look at an earlier day." : err.message); return render(); }
   }
-  const [trend, days, bac] = await Promise.all([api("rpc/church_trend", {method: "POST", body: day ? {upto: day} : {}}).catch(() => null),  // null until the newer setup SQL has been run
+  const [trend, days, bac, blist] = await Promise.all([api("rpc/church_trend", {method: "POST", body: day ? {upto: day} : {}}).catch(() => null),  // null until the newer setup SQL has been run
     api("rpc/church_days", {method: "POST", body: {}}).catch(() => null),
-    api("rpc/bacenta_numbers", {method: "POST", body: {upto: day || today()}}).catch(() => null)]);  // Bacentas as numbers only
+    api("rpc/bacenta_numbers", {method: "POST", body: {upto: day || today()}}).catch(() => null),  // Bacentas as numbers only
+    api("rpc/bacenta_list", {method: "POST", body: {upto: day || today()}}).catch(() => null)]);  // and each one by name (null until the setup SQL is run)
   if (S.view !== "overview") return;
   if (S.bChurch && !rows.some(r => r.church === S.bChurch)) S.bChurch = "";
   const sum = (list, k) => list.reduce((n, r) => n + (r[k] || 0), 0);
@@ -3403,7 +3406,8 @@ async function bishop(el, rows, text, newest) {
   const reg = sum(pick, "register"), rate = reg ? Math.round(nowN / reg * 100) : 0;
   const latest = day || (one ? one.latest : newest);
   const fu = [["red", `Missed ${RED_AT}+ in a row`, sum(pick, "red")], ["yellow", `Missed ${YELLOW_AT}–${RED_AT - 1} in a row`, sum(pick, "yellow")],
-              ["blue", day ? "Missed that service" : "Missed the latest service", sum(pick, "missed_this")]];
+              ["blue", day ? "Missed that service" : "Missed the latest service", sum(pick, "missed_this")],
+              ...(rows.some(r => r.visited != null) ? [["visited", "Visited, not missed since", sum(pick, "visited")]] : [])];  // after the setup SQL with visits
   const fuMax = Math.max(1, ...fu.map(f => f[2]));
   const when = !latest ? "No services yet" : day && !had ? nice(day, true) : `${S.names?.[latest] || svcName(latest)} · ${nice(latest, true)}`;
   el.innerHTML = head(admin ? "Churches" : "All churches", admin ? "Every church's numbers; open one to work in it, or manage the list at the bottom" : "Numbers only", `${admin ? `<button class="pill-btn" id="go-manage">${svg("edit")}Manage churches</button>` : ""}<button class="pill-btn" id="addcw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
@@ -3417,6 +3421,7 @@ async function bishop(el, rows, text, newest) {
         <div class="wgrid c2" id="cgrid"></div>
       </section></div>
     ${bac ? bacentaNumbers(bac, S.bChurch, day) : ""}
+    ${blist ? bacentaByName(blist, S.bChurch, day) : ""}
     ${admin ? `<div class="card ch-manage" id="ch-manage"></div>` : ""}`;
   const wireBac = () => el.querySelector("#b-bac")?.addEventListener("click", e => {  // sort the Bacentas table in place
     const h = e.target.closest("[data-bsort]"); if (!h) return; const k = h.dataset.bsort, was = S.bacSort || {k: "came", up: false};
@@ -3451,7 +3456,7 @@ async function bishop(el, rows, text, newest) {
   drawCal();
   await loadPrefs();
   if (S.view !== "overview") return;
-  drawBoard(el.querySelector("#cgrid"), "church", {rows, pick, one, had, day, served, sum, series, trend, delta, nowN, reg, rate, fu, fuMax, when, pickDay});
+  drawBoard(el.querySelector("#cgrid"), "church", {rows, pick, one, had, day, served, sum, series, trend, delta, nowN, reg, rate, fu, fuMax, when, pickDay, visits: rows.some(r => r.visits_month != null) ? sum(pick, "visits_month") : null});
   el.querySelector("#addcw").onclick = () => addWidget("church");
   el.querySelectorAll("[data-b]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.b; S.bJump = narrow(); render(); });
   if (narrow()) { const on = el.querySelector(".b-item.on"), row = el.querySelector(".b-list"); if (on && row) row.scrollLeft = on.offsetLeft - (row.clientWidth - on.offsetWidth) / 2; }  // keep the chosen church in view in the row
@@ -3468,9 +3473,9 @@ async function bishop(el, rows, text, newest) {
   if (S.bJump) { S.bJump = false; el.querySelector(".b-list")?.scrollIntoView({behavior: "smooth", block: "start"}); }  // church row and dashboard in view
   el.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { S.church = b.dataset.open; S.view = "dashboard"; render(); });  // admin: work in that church
   el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text, {day: latest || newest});
-  el.querySelector("#dl").onclick = () => download(`all_churches_${day || today()}.csv`, [["Church", "Service", "Present", "Adults", "Kids", "First-timers", "On the register", "Needs a call (red)", "Check in (amber)", "Missed this service"],
-    ...rows.map(r => served(r) ? [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this]
-      : [r.church, `No service on ${day}`, "", "", "", "", r.register, "", "", ""])]);
+  el.querySelector("#dl").onclick = () => download(`all_churches_${day || today()}.csv`, [["Church", "Service", "Present", "Adults", "Kids", "First-timers", "On the register", "Needs a call (red)", "Check in (amber)", "Missed this service", "Visited, not missed since", "Visits in the last 30 days"],
+    ...rows.map(r => served(r) ? [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this, r.visited ?? "", r.visits_month ?? ""]
+      : [r.church, `No service on ${day}`, "", "", "", "", r.register, "", "", "", "", ""])]);
 }
 // Bacentas on the All churches page, numbers only (no names): for each church, its Bacentas, how many people came last
 // week (Monday to Sunday), the last 8 weeks as little bars, and how many Bacentas didn't fill in last week.
@@ -3490,6 +3495,19 @@ function bacentaNumbers(rows, only, day) {
         <td>${r.behind ? `<span class="badge yellow">${r.behind} of ${r.bacentas}</span>` : r.bacentas ? `<span class="badge ok">All filled in</span>` : `<span class="muted">No Bacentas</span>`}</td></tr>`).join("")}
       ${list.length > 1 ? `<tr><td><b>All churches</b></td><td><b>${tot("bacentas")}</b></td><td><b>${tot("came")}</b></td><td></td><td>${tot("behind") ? `<b>${tot("behind")}</b>` : ""}</td></tr>` : ""}
       </tbody></table></div>` : `<p class="empty">No Bacentas yet${only ? " in " + esc(only) : ""}.</p>`}</div>`;
+}
+// …and each Bacenta by name (still no member names): its shepherd, the day it meets, how many came last week, the last
+// 8 weeks as little bars, and whether last week was filled in
+function bacentaByName(rows, only, day) {
+  const list = only ? rows.filter(r => r.church === only) : rows;
+  if (!list.length) return "";
+  const top = Math.max(1, ...list.flatMap(r => r.weeks || []));
+  const bars = w => (w || []).map(n => `<i style="height:${Math.max(2, Math.round(22 * n / top))}px" title="${n}"></i>`).join("");
+  const LW = {met: `<span class="badge ok">Met</span>`, skipped: `<span class="badge">Didn't meet</span>`, missing: `<span class="badge yellow">Not filled in</span>`, new: `<span class="muted">New</span>`};
+  return `<div class="card" style="margin-top:14px"><div class="card-head"><h2>Each Bacenta</h2><span class="gap"></span><span class="muted" style="font-size:13px">${list.length} ${list.length === 1 ? "Bacenta" : "Bacentas"}${day ? " · before " + esc(nice(day)) : ""}</span></div>
+    <div class="scroll"><table><thead><tr><th>Bacenta</th>${only ? "" : "<th>Church</th>"}<th class="hide-sm">Shepherd</th><th class="hide-sm">Meets</th><th>Came last week</th><th class="hide-sm">Last 8 weeks</th><th>Last week</th></tr></thead><tbody>
+    ${list.map(r => `<tr><td><b>${esc(r.name)}</b></td>${only ? "" : `<td>${esc(r.church)}</td>`}<td class="hide-sm">${esc(r.shepherd || "–")}</td><td class="hide-sm">${r.meet_day == null ? "–" : esc(DAYS[r.meet_day])}</td>
+      <td>${r.came}</td><td class="hide-sm"><span class="spark" aria-label="People each week: ${(r.weeks || []).join(", ")}">${bars(r.weeks)}</span></td><td>${LW[r.last_week] || ""}</td></tr>`).join("")}</tbody></table></div></div>`;
 }
 // Churches page (admin): every church in one list, with Rename and Delete, and a box to add a new one.
 // A church can only be deleted when nobody is on its register and nobody signs in to it; the home church can't be deleted.
@@ -4359,8 +4377,8 @@ async function person(el) {
   el.innerHTML = top + `
     <div class="card" style="margin-bottom:14px"><div class="card-head"><div class="who big"><span>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</div><span class="gap"></span>${state}</div>
       <p class="facts">${[typeName(m), isKid(m) ? "Child" : "Adult", m.phone || ""].filter(Boolean).map(esc).join(" · ")}${pastorsOf(m).length ? `<br>Pastor: ${pastorsOf(m).map(pastorBtn).join(", ")}` : ""}${shepherdsOf(m).length ? `<br>Shepherd: ${shepherdsOf(m).map(esc).join(", ")}` : ""}</p></div>
-    ${S.visits ? (() => { const vs = S.visits.filter(v => v.member_id === m.id); return `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Visits</h2><span class="gap"></span>${canVisit() ? `<button class="pill-btn sm" id="pe-visit">Visited</button>` : ""}</div>
-      ${vs.length ? `<ul class="vlist">${vs.map(v => `<li><b>${esc(full(v.visit_date))}</b> · ${esc(v.visited_by)}${v.note ? `<br><span class="muted">${esc(v.note)}</span>` : ""}</li>`).join("")}</ul>` : `<p class="empty" style="margin:0">No visits recorded.</p>`}</div>`; })() : ""}
+    ${S.visits ? (() => { const vs = S.visits.filter(v => v.member_id === m.id); return `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Visits</h2><span class="gap"></span>${canVisit() ? `<button class="pill-btn sm" id="pe-visit">Log visit</button>` : ""}</div>
+      ${vs.length ? `<ul class="vlist">${vs.map(v => `<li><b>${esc(full(v.visit_date))}</b> · ${esc(v.visited_by)}${v.outcome === "not_seen" ? " · they weren't in" : ""}${v.note ? `<br><span class="muted">${esc(v.note)}</span>` : ""}</li>`).join("")}</ul>` : `<p class="empty" style="margin:0">No visits recorded.</p>`}</div>`; })() : ""}
     ${flock.length || asPastor ? `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Their people</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${flock.length} ${flock.length === 1 ? "person" : "people"}</span>
         ${asPastor ? `<button class="pill-btn sm" data-to-pastor="${esc(asPastor)}">Open in Pastors</button>` : ""}</div>
       ${flock.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Came${p.last ? " · " + esc(nice(p.last)) : ""}</th><th>Status</th><th>Missed in a row</th><th>Phone</th></tr></thead><tbody>
@@ -4395,16 +4413,18 @@ const flagBadge = p => p.visited ? `<span class="badge visited" title="${esc(`Vi
 const canVisit = () => ["admin", "lead", "pastor"].includes(S.me.role) && !S.preview && !!S.visits;
 function visitDialog(m) {
   const names = [...new Set([...(S.pastorList?.[S.church] || []), ...(S.shepherdList?.[S.church] || []), ...(S.visits || []).map(v => v.visited_by)])].sort();
-  formDialog(`Visited ${m.full_name}`, [
+  formDialog(`Log a visit: ${m.full_name}`, [
+    {k: "outcome", label: "Did you see them?", type: "select", value: "visited", options: [["visited", "Yes, we saw them"], ["not_seen", "No, they weren't in"]]},
     {k: "date", label: "Date", type: "date", value: today(), required: true},
     {k: "by", label: "Who visited", value: S.me.name || "", required: true, suggest: names, many: true},
     {k: "note", label: "Note (optional)", value: ""}],
     async v => {
       if (!v.date || v.date > today()) throw new Error("Pick today or an earlier day.");
       const by = v.by.replace(/[,\s]+$/, ""); if (!by) throw new Error("Say who visited.");
-      const row = await api("visits", {method: "POST", body: {member_id: m.id, visit_date: v.date, visited_by: by, note: v.note || null}, prefer: "return=representation"});
+      const row = await api("visits", {method: "POST", body: {member_id: m.id, visit_date: v.date, visited_by: by, note: v.note || null, ...(v.outcome === "not_seen" ? {outcome: "not_seen"} : {})}, prefer: "return=representation"});
       S.visits = [...(Array.isArray(row) ? row : [row]), ...(S.visits || [])].sort((a, b) => b.visit_date.localeCompare(a.visit_date));
-      toast(`Saved: ${m.full_name} was visited.`); render();
+      // only a visit where they were seen takes them off the call list; a try where they weren't in is kept as a record
+      toast(v.outcome === "not_seen" ? `Saved: ${m.full_name} wasn't in. They stay on the list.` : `Saved: ${m.full_name} was visited.`); render();
     }, "Save");
 }
 function visits(el) {
@@ -4416,14 +4436,14 @@ function visits(el) {
   const tab = S.visTab === "done" ? "done" : "need", mineEm = (S.me.email || "").toLowerCase();
   const tel = x => x.phone ? `<a href="tel:${esc(x.phone.replace(/[^0-9+]/g, ""))}">${esc(x.phone)}</a>` : "";
   el.innerHTML = head("Visits", esc(S.church)) + (S.visits ? "" : `<div class="msg" style="margin:0 0 14px">Run the latest setup SQL in Supabase once to record visits.</div>`) + `
-    <div class="chips"><button class="chip ${tab === "need" ? "on" : ""}" data-vt="need">To visit (${need.length})</button><button class="chip ${tab === "done" ? "on" : ""}" data-vt="done">Visited (${done.length})</button></div>
+    <div class="chips"><button class="chip ${tab === "need" ? "on" : ""}" data-vt="need">To visit (${need.length})</button><button class="chip ${tab === "done" ? "on" : ""}" data-vt="done">Visits (${done.length})</button></div>
     <div class="card">${tab === "need"
       ? need.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th class="hide-sm">Missed in a row</th><th class="hide-sm">Last seen</th><th>Phone</th><th></th></tr></thead><tbody>
         ${need.map(x => `<tr><td>${whoBtn(x)}</td><td>${flagBadge(x)}</td><td class="hide-sm">${x.missed}</td><td class="muted hide-sm">${esc(nice(x.seen))}</td><td>${tel(x)}</td>
-          <td>${canVisit() ? `<button class="pill-btn sm primary" data-visit="${esc(x.id)}">Visited</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`
+          <td>${canVisit() ? `<button class="pill-btn sm primary" data-visit="${esc(x.id)}">Log visit</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`
         : `<p class="empty">Nobody needs a visit right now.</p>`
       : done.length ? `<div class="scroll"><table><thead><tr><th>Date</th><th>Name</th><th>Visited by</th><th class="hide-sm">Note</th><th></th></tr></thead><tbody>
-        ${done.map(v => `<tr><td>${esc(full(v.visit_date))}</td><td>${whoBtn(byId[v.member_id])}</td><td>${esc(v.visited_by)}</td><td class="muted hide-sm">${esc(v.note || "")}</td>
+        ${done.map(v => `<tr><td>${esc(full(v.visit_date))}${v.outcome === "not_seen" ? ` <span class="badge yellow">Not in</span>` : ""}</td><td>${whoBtn(byId[v.member_id])}</td><td>${esc(v.visited_by)}</td><td class="muted hide-sm">${esc(v.note || "")}</td>
           <td>${!S.preview && (v.added_by === mineEm || ["admin", "lead"].includes(S.me.role)) ? `<button class="x" data-vdel="${esc(v.id)}">Remove</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`
         : `<p class="empty">No visits recorded yet.</p>`}</div>`;
   el.querySelectorAll("[data-vt]").forEach(b => b.onclick = () => { S.visTab = b.dataset.vt; render(); });

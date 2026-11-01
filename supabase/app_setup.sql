@@ -323,9 +323,10 @@ revoke all on function app_status_rule(text, text) from public, anon;
 grant execute on function app_status_rule(text, text) to authenticated;
 
 drop function if exists church_numbers();
+drop function if exists church_numbers(date);  -- its columns changed (visits); made again just below
 create or replace function church_numbers(upto date default null) returns table (
   church text, latest date, present int, adults int, kids int, first_timers int, register int,
-  red int, yellow int, missed_this int, trend int[]
+  red int, yellow int, missed_this int, trend int[], visited int, visits_month int
 ) language plpgsql stable security definer set search_path = public as $$
 begin
   if app_role() is null or app_role() not in ('admin', 'bishop') then
@@ -344,17 +345,20 @@ begin
   svc as (select t.ch, t.service_date, count(*)::int as n from ticks t group by 1, 2),
   latest as (select s.ch, max(s.service_date) as d from svc s group by 1),
   seen as (select p.id, max(t.service_date) as d from people p left join ticks t on t.id = p.id group by 1),
+  -- a visit (Visits page): only the Sundays after it count as missed, as on Follow-up
+  vis as (select v.member_id as id, max(v.visit_date) as d from visits v where v.outcome = 'visited' and v.visit_date <= coalesce(upto, current_date + 1) group by 1),
   streak as (
     select p.id, p.ch,
            -- only Sunday services count as missed; midweek services still count as being seen
            -- visitors are never chased, so they never count as missing
            case when p.type = 'visitor' then 0 else
-           (select count(*) from svc s where s.ch = p.ch and s.service_date > coalesce(sn.d, date '0001-01-01')
+           (select count(*) from svc s where s.ch = p.ch and s.service_date > greatest(coalesce(sn.d, date '0001-01-01'), coalesce(vv.d, date '0001-01-01'))
               and s.service_date >= coalesce(least(p.started, (select min(t.service_date) from ticks t where t.id = p.id),  -- no join date: from their first tick or the day they were added
                                                    case when p.added ~ '^\d{4}-\d{2}-\d{2}$' then p.added::date end), date '0001-01-01')
               and extract(dow from s.service_date) = 0)::int end as missed,
-           coalesce(sn.d::text, p.started::text, p.added) as last_sign
-    from people p join seen sn on sn.id = p.id
+           coalesce(sn.d::text, p.started::text, p.added) as last_sign,
+           vv.d is not null and (sn.d is null or sn.d <= vv.d) as visited  -- visited, and not at church since
+    from people p join seen sn on sn.id = p.id left join vis vv on vv.id = p.id
   ),
   active as (select * from streak where last_sign is null or last_sign >= (current_date - 730)::text),
   all_ch as (select name as ch from churches union select ch from people)
@@ -368,7 +372,10 @@ begin
          (select count(*) from active a where a.ch = c.ch and a.missed between 3 and 4)::int,
          (select count(*) from active a where a.ch = c.ch and a.missed between 1 and 2)::int,
          coalesce((select array_agg(x.n order by x.service_date) from
-                   (select s.service_date, s.n from svc s where s.ch = c.ch order by s.service_date desc limit 12) x), '{}')
+                   (select s.service_date, s.n from svc s where s.ch = c.ch order by s.service_date desc limit 12) x), '{}'),
+         (select count(*) from active a where a.ch = c.ch and a.visited and a.missed = 0)::int,  -- visited and not missed a Sunday since
+         (select count(*) from visits v join people p on p.id = v.member_id
+            where p.ch = c.ch and v.outcome = 'visited' and v.visit_date between coalesce(upto, current_date) - 30 and coalesce(upto, current_date))::int  -- visits in the last 30 days
   from all_ch c left join latest l on l.ch = c.ch
   order by (c.ch <> app_home_church()), c.ch;
 end $$;
@@ -980,6 +987,32 @@ begin
 end $$;
 revoke all on function bacenta_numbers(date) from public, anon;
 grant execute on function bacenta_numbers(date) to authenticated;
+
+-- All churches page (Bishop and admin): each Bacenta by name, numbers only (no member names): who leads it, the day it
+-- meets, how many came last week (Monday to Sunday, the last finished week), people each week for the last 8 weeks
+-- (oldest first), and last week: met, didn't meet (marked), not filled in, or too new to count.
+create or replace function bacenta_list(upto date default null) returns table (
+  church text, name text, shepherd text, pastor text, meet_day smallint, came int, weeks int[], last_week text)
+language plpgsql stable security definer set search_path = public as $$
+declare mon date := date_trunc('week', coalesce(upto, current_date))::date - 7;  -- Monday of the last finished week
+begin
+  if app_role() is null or app_role() not in ('admin', 'bishop') then raise exception 'not allowed'; end if;
+  return query
+  with t as (  -- every Bacenta check-in: people on the register and Bacenta-only people
+    select k.bacenta, k.meeting_date, 'm' || k.member_id as who from bacenta_ticks k
+    union all select k.bacenta, k.meeting_date, 'g' || k.guest from bacenta_guest_ticks k
+      join bacenta_guests g on g.id = k.guest where g.member_id is null)
+  select b.church, b.name, b.shepherd, b.pastor, b.meet_day,
+    (select count(distinct t.who)::int from t where t.bacenta = b.id and t.meeting_date between mon and mon + 6),
+    array(select (select count(distinct t.who)::int from t where t.bacenta = b.id and t.meeting_date between mon - 7 * k and mon - 7 * k + 6)
+          from generate_series(7, 0, -1) k),
+    case when exists (select 1 from t where t.bacenta = b.id and t.meeting_date between mon and mon + 6) then 'met'
+         when exists (select 1 from bacenta_skips s where s.bacenta = b.id and s.meeting_date between mon and mon + 6) then 'skipped'
+         when b.created_at::date > mon + 6 then 'new' else 'missing' end
+  from bacentas b where b.active order by b.church, b.name;
+end $$;
+revoke all on function bacenta_list(date) from public, anon;
+grant execute on function bacenta_list(date) to authenticated;
 
 -- The first Bacenta: Saved - City Bacenta, in Auckland (only when the Auckland church is there; never added twice)
 insert into bacentas (church, name)
@@ -1827,6 +1860,8 @@ create table if not exists visits (
   added_by text not null default lower(auth.jwt() ->> 'email'),
   created_at timestamptz not null default now());
 create index if not exists visits_member on visits (member_id, visit_date desc);
+-- visited: they were seen (takes them off the call list); not_seen: someone went but they weren't in (a record only)
+alter table visits add column if not exists outcome text not null default 'visited' check (outcome in ('visited', 'not_seen'));
 alter table visits enable row level security;
 drop policy if exists "app: see visits" on visits;
 create policy "app: see visits" on visits for select to authenticated
