@@ -3409,6 +3409,7 @@ async function bishop(el, rows, text, newest) {
               ["blue", day ? "Missed that service" : "Missed the latest service", sum(pick, "missed_this")],
               ...(rows.some(r => r.visited != null) ? [["visited", "Visited, not missed since", sum(pick, "visited")]] : [])];  // after the setup SQL with visits
   const fuMax = Math.max(1, ...fu.map(f => f[2]));
+  const bacView = S.bView === "bac" && !!(bac || blist);  // Services or Bacentas, beside the church list
   const when = !latest ? "No services yet" : day && !had ? nice(day, true) : `${S.names?.[latest] || svcName(latest)} · ${nice(latest, true)}`;
   el.innerHTML = head(admin ? "Churches" : "All churches", admin ? "Every church's numbers; open one to work in it, or manage the list at the bottom" : "Numbers only", `${admin ? `<button class="pill-btn" id="go-manage">${svg("edit")}Manage churches</button>` : ""}<button class="pill-btn" id="addcw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
     <div class="bish">
@@ -3417,17 +3418,19 @@ async function bishop(el, rows, text, newest) {
       <nav class="card b-list" aria-label="Churches">${list}</nav>
       <section class="b-detail">
         <div class="b-title"><h2>${esc(S.bChurch || "All churches")}</h2><span class="muted">${esc(when)}</span>
+          ${bac || blist ? `<div class="seg ci-seg b-view" role="group" aria-label="Show"><button type="button" data-bv="svc" aria-pressed="${!bacView}">${svg("checkin")}Services</button><button type="button" data-bv="bac" aria-pressed="${bacView}">${svg("bacentas")}Bacentas</button></div>` : ""}
           ${admin && S.bChurch ? `<span class="gap" style="flex:1"></span><button class="pill-btn primary sm" data-open="${esc(S.bChurch)}">Open ${esc(S.bChurch)}</button>` : ""}</div>
-        <div class="wgrid c2" id="cgrid"></div>
+        <div class="wgrid c2" id="cgrid" ${bacView ? "hidden" : ""}></div>
+        <div id="b-bacs" ${bacView ? "" : "hidden"}>${bac ? bacentaNumbers(bac, S.bChurch, day) : ""}${blist ? bacentaByName(blist, S.bChurch, day) : ""}</div>
       </section></div>
-    ${bac ? bacentaNumbers(bac, S.bChurch, day) : ""}
-    ${blist ? bacentaByName(blist, S.bChurch, day) : ""}
     ${admin ? `<div class="card ch-manage" id="ch-manage"></div>` : ""}`;
   const wireBac = () => el.querySelector("#b-bac")?.addEventListener("click", e => {  // sort the Bacentas table in place
     const h = e.target.closest("[data-bsort]"); if (!h) return; const k = h.dataset.bsort, was = S.bacSort || {k: "came", up: false};
     S.bacSort = {k, up: was.k === k ? !was.up : k === "church"};  // a new column: highest first (names A to Z)
     el.querySelector("#b-bac").outerHTML = bacentaNumbers(bac, S.bChurch, day); wireBac(); el.querySelector(`#b-bac [data-bsort="${k}"]`)?.focus(); });
   wireBac();
+  el.querySelectorAll("[data-bv]").forEach(b => b.onclick = () => { S.bView = b.dataset.bv; const on = S.bView === "bac";
+    el.querySelector("#cgrid").hidden = on; el.querySelector("#b-bacs").hidden = !on; el.querySelectorAll("[data-bv]").forEach(x => x.setAttribute("aria-pressed", x === b)); });
   if (admin) { manageChurches(el.querySelector("#ch-manage"), rows);
     el.querySelector("#go-manage").onclick = () => el.querySelector("#ch-manage")?.scrollIntoView({behavior: "smooth", block: "start"}); }
   // the month calendar: days with a service show how many came (for the chosen church, or all churches added up)
