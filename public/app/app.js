@@ -34,6 +34,7 @@ const baseName = () => roleName({role: S.me.base, title: S.me.title});
 // What each colour means, in words (the colour alone was hard to read): red and amber are the people to call.
 const FLAG = {red: "Needs a call", yellow: "Check in", blue: "Missed this one", ok: "On track"};
 const root = document.getElementById("root");
+window.__fccStarted = true;  // for the "not loading" page in index.html: the app's code has started
 const S = {cfg: null, session: null, me: null, churches: [], church: "", members: [], ticks: [], names: {}, view: "dashboard",
            back: "", cal: today().slice(0, 7), filter: "need", date: today(), q: "", poll: null, numbers: null, users: null,
            seen: null, pastorList: {}, pending: 0, person: "", pq: "", roleF: "", pastor: "", actDay: today(), actShow: "all", emoji: true};
