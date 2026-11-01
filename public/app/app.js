@@ -213,6 +213,7 @@ function download(name, rows) {
   const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
   const a = Object.assign(document.createElement("a"), {href: URL.createObjectURL(new Blob(["﻿" + csv], {type: "text/csv"})), download: name});
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  if (S.me && !S.preview) log("download", null, "done", `${name} · ${Math.max(0, rows.length - 1)} ${rows.length === 2 ? "row" : "rows"}`);  // who took a copy (Activity log)
 }
 // A popup form. fields: [{k, label, value, type?: "text"|"tel"|"select", options?: [[value, label]], hint?}].
 // save(values) does the work and may throw; the popup shows the message and stays open so nothing typed is lost.
@@ -828,8 +829,19 @@ function pwChecks(box, p1, p2, go) {
   p1.addEventListener("input", draw); p2.addEventListener("input", draw); draw();
   return draw;
 }
+// Has this password turned up in a known data leak elsewhere? Only the first 5 characters of its scrambled form (SHA-1)
+// are sent to Have I Been Pwned, never the password itself. If the check can't run, nobody is blocked.
+async function pwLeaked(pw) {
+  try {
+    const h = [...new Uint8Array(await crypto.subtle.digest("SHA-1", new TextEncoder().encode(pw)))].map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase();
+    const r = await fetch("https://api.pwnedpasswords.com/range/" + h.slice(0, 5));
+    if (!r.ok) return false;
+    return (await r.text()).split("\n").some(l => { const [s, n] = l.trim().split(":"); return s === h.slice(5) && +n > 0; });
+  } catch { return false; }
+}
 async function savePassword(a, b) {
   const wrong = pwProblem(a, b); if (wrong) throw new Error(wrong === "Both passwords match" ? "The two passwords don't match." : `The password needs: ${wrong.toLowerCase()}.`);
+  if (await pwLeaked(a)) throw new Error("That password has turned up in a data leak somewhere else, so it's easy to guess. Please choose a different one.");
   if (S.session.expires_at - Date.now() < 60000) await refresh();
   const r = await fetch(S.cfg.url + "/auth/v1/user", {method: "PUT", body: JSON.stringify({password: a}),
     headers: {apikey: S.cfg.key, "Content-Type": "application/json", Authorization: "Bearer " + S.session.access_token}});
@@ -3562,6 +3574,8 @@ async function admin(el) {
   const snames = [...new Set(Object.values(S.shepherdList || {}).flat())].sort();  // and shepherd list
   const space = await api("rpc/app_db_size", {method: "POST", body: {}}).catch(() => null);  // null until the newer setup SQL has been run
   const inbox = await api("help_messages?select=*&order=created_at.desc&limit=50").catch(() => null);  // messages sent from Help
+  const lastUse = Object.fromEntries((await api("rpc/app_signin_last", {method: "POST", body: {}}).catch(() => []) || []).map(x => [x.email, x]));  // when each sign-in was last used
+  const idle = u => u.email !== S.me.email && lastUse[u.email] && Date.parse(lastUse[u.email].last_used) < Date.now() - 182 * 864e5;
   if (S.view !== "admin") return;
   const LIMIT = 500 * 1024 * 1024, mb = b => b >= 1024 * 1024 ? `${(b / 1048576).toFixed(b < 10 * 1048576 ? 1 : 0)} MB` : `${Math.max(1, Math.round(b / 1024))} kB`;
   const LABEL = {activity_log: "Activity log", attendance: "Ticks", members: "People", registrations: "Sign-ups", email_log: "Emails sent", services: "Services", settings: "Settings", app_users: "Sign-ins", churches: "Churches", help_messages: "Help messages"};
@@ -3619,7 +3633,7 @@ async function admin(el) {
         })()}</div>
         <div class="u-tools"><select class="in" id="u-ch" aria-label="Church"><option value="">All churches</option>${S.churches.map(c => `<option ${S.uCh === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
           <input class="in" id="u-q" type="search" placeholder="Search by name or email" value="${esc(S.uQ || "")}"></div></div>
-      <div id="u-list"></div>
+      <div id="u-idle"></div><div id="u-list"></div>
       </div></section>`;
   el.querySelector("#bk-make")?.addEventListener("click", async e => {
     e.target.disabled = true; let key;
@@ -3666,17 +3680,23 @@ async function admin(el) {
   // Sign-ins: role pills, church picker, search and 10 per page
   const PER = 10, roleCls = r => "r-" + r;
   const drawUsers = () => {
-    const q = norm(S.uQ || ""), list = users.filter(u => (!S.uRole || inKind(u, S.uRole)) && (!S.uCh || u.church === S.uCh)
+    const nIdle = users.filter(u => idle(u)).length;  // sign-ins nobody has used for 6 months
+    el.querySelector("#u-idle").innerHTML = nIdle || S.uIdle ? `<div class="msg" style="margin:0 0 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span>${S.uIdle
+        ? `Showing the ${nIdle} not used for 6 months. Remove anyone who has left.` : `${nIdle} ${nIdle === 1 ? "sign-in hasn't" : "sign-ins haven't"} been used for 6 months.`}</span>
+      <button type="button" class="pill-btn sm" id="u-idle-tg">${S.uIdle ? "Show everyone" : "Show them"}</button></div>` : "";
+    el.querySelector("#u-idle-tg")?.addEventListener("click", () => { S.uIdle = !S.uIdle; S.uPage = 1; drawUsers(); });
+    const q = norm(S.uQ || ""), list = users.filter(u => (!S.uRole || inKind(u, S.uRole)) && (!S.uCh || u.church === S.uCh) && (!S.uIdle || idle(u))
       && (!q || norm(u.name).includes(q) || norm(u.email).includes(q) || norm(u.pastor).includes(q)))
       .sort((a, b) => norm(a.name || a.email).localeCompare(norm(b.name || b.email)));
     const pages = Math.max(1, Math.ceil(list.length / PER)); S.uPage = Math.min(Math.max(1, S.uPage || 1), pages);
     const shown = list.slice((S.uPage - 1) * PER, S.uPage * PER);
     const nums = [...new Set([1, S.uPage - 1, S.uPage, S.uPage + 1, pages])].filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
     el.querySelector("#u-list").innerHTML = !list.length ? `<p class="empty">Nobody matches. Try another role, church or name.</p>` : `
-      <div class="scroll"><table class="utable"><thead><tr><th>Name</th><th>Role</th><th>Church</th><th class="hide-sm">Pastor name</th><th></th></tr></thead><tbody>
+      <div class="scroll"><table class="utable"><thead><tr><th>Name</th><th>Role</th><th>Church</th><th class="hide-sm">Pastor name</th><th class="hide-sm">Last used</th><th></th></tr></thead><tbody>
       ${shown.map(u => `<tr><td><div class="who-cell"><span class="ava" ${avaStyle(u.name || u.email)}>${esc(initials(u.name || u.email))}</span><span><b>${esc(u.name || u.email.split("@")[0])}</b><small>${esc(u.email)}</small></span></div></td>
         <td><span class="rbadge ${roleCls(ukind(u))}">${esc(roleName(u))}</span>${second(u) ? ` <span class="rbadge r-${second(u)}">+ ${second(u) === "reverend" ? "Reverend" : "Pastor"}</span>` : ""}</td>
         <td class="muted">${esc(u.church || "All churches")}</td><td class="muted hide-sm">${esc(shortTitle(u.pastor) || (u.role === "pastor" ? "Not set yet" : ""))}</td>
+        <td class="muted hide-sm">${lastUse[u.email] ? (lastUse[u.email].ever ? esc(full(String(lastUse[u.email].last_used).slice(0, 10))) : "Never") : ""}</td>
         <td style="white-space:nowrap;text-align:right">${u.email === S.me.email ? (u.role === "admin" && !S.preview  // your own row: only switch between Admin and Tech admin (same rights), never lose admin by mistake
             ? `<span class="muted">You</span> <button class="pill-btn sm" data-me-title="${u.title === "Tech admin" ? "" : "Tech admin"}" title="Same rights either way: this only changes how you're named">${svg("edit")}Show me as ${u.title === "Tech admin" ? "Admin" : "Tech admin"}</button>`
             : `<span class="muted">You</span>`) : `<button class="pill-btn sm" data-chg="${esc(u.email)}">${svg("edit")}Change</button> <button class="x" data-del="${esc(u.email)}">Remove</button>`}</td></tr>`).join("")}</tbody></table></div>
@@ -4684,13 +4704,22 @@ async function teamforms(el) {
 
 // ---------------------------------------------------------------- archive: not seen for two years
 function archive(el) {
-  const p = picture(), list = p.archived.slice().sort(byName);
+  const p = picture(), list = p.archived.slice().sort(byName), canWipe = ["admin", "lead"].includes(S.me.role) && !S.preview;
   el.innerHTML = head("Archive", `${esc(S.church)} · not seen for two years`, list.length ? `<button class="pill-btn" id="dl">Download</button>` : "") + `
     ${S.seen ? "" : `<div class="msg" style="margin:0 0 14px">Run the latest setup SQL in Supabase to see further back than a year.</div>`}
-    <div class="card">${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Last seen</th><th>Type</th><th>Age group</th><th>Phone</th></tr></thead><tbody>
-      ${list.map(m => `<tr><td>${whoBtn(m)}</td><td class="muted">${esc(full(m.seen))}</td><td class="muted">${typeName(m)}</td><td class="muted">${m.kid ? "Child" : "Adult"}</td><td class="muted">${esc(m.phone || "")}</td></tr>`).join("")}
+    <div class="card">${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Last seen</th><th>Type</th><th>Age group</th><th>Phone</th>${canWipe ? "<th></th>" : ""}</tr></thead><tbody>
+      ${list.map(m => `<tr><td>${whoBtn(m)}</td><td class="muted">${esc(full(m.seen))}</td><td class="muted">${typeName(m)}</td><td class="muted">${m.kid ? "Child" : "Adult"}</td><td class="muted">${esc(m.phone || "")}</td>${canWipe
+        ? `<td>${m.full_name === "Removed person" ? `<span class="muted">Wiped</span>` : `<button class="x" data-wipe="${esc(m.id)}">Wipe details</button>`}</td>` : ""}</tr>`).join("")}
       </tbody></table></div>` : `<p class="empty">Nobody is in the archive.</p>`}
-      <p class="note">They come back when ticked in again.</p></div>`;
+      <p class="note">They come back when ticked in again. After five years away their details are wiped automatically (name, phone, email, address and birthday); their attendance still counts in the numbers.</p></div>`;
+  el.querySelectorAll("[data-wipe]").forEach(b => { let armed = false; b.onclick = async () => {  // a second tap wipes, and it can't be undone
+    if (!armed) { armed = true; b.textContent = "Tap again: can't be undone"; setTimeout(() => { armed = false; b.textContent = "Wipe details"; }, 4000); return; }
+    b.disabled = true;
+    try { await api("rpc/app_wipe_person", {method: "POST", body: {mid: b.dataset.wipe}});
+      const m = S.members.find(x => x.id === b.dataset.wipe); if (m) Object.assign(m, {full_name: "Removed person", phone: null, email: null, address: null, birthday: null});
+      toast("Their details are wiped."); render(); }
+    catch (e) { b.disabled = false; toast(/app_wipe_person|function/i.test(e.message) ? "Run the latest setup SQL in Supabase once, then try again." : "Not wiped: " + e.message); }
+  }; });
   const dl = el.querySelector("#dl");
   if (dl) dl.onclick = () => download(`archive_${S.church}_${today()}.csv`, [["Church", "Name", "Last seen", "Type", "Age group", "Phone"],
     ...list.map(m => [S.church, m.full_name, m.seen || "", typeName(m), m.kid ? "Child" : "Adult", m.phone || ""])]);
@@ -4699,7 +4728,8 @@ function archive(el) {
 // ---------------------------------------------------------------- activity: who did what, and when
 const KIND = {lock: "Locked a service", unlock: "Unlocked a service", delete: "Deleted from register", rename_church: "Renamed a church", role_change: "Changed a sign-in", tick: "Ticked in", untick: "Unticked", clear_service: "Unticked everyone", edit: "Edited", add_person: "Added",
               signup_approved: "Approved sign-up", signup_rejected: "Rejected sign-up", bacenta_approved: "Added a Bacenta name to Congregation", bacenta_rejected: "Kept a Bacenta name as Bacenta only",
-              bacenta_link: "Linked a Bacenta-only person", bacenta_unlink: "Undid a Bacenta link"};
+              bacenta_link: "Linked a Bacenta-only person", bacenta_unlink: "Undid a Bacenta link",
+              download: "Downloaded a file", backup: "Backup copied", wipe: "Wiped someone's details"};
 const RESULT = {done: "Done", already: "No change (already done)", changed: "Blocked: someone else changed it first"};
 async function activity(el) {
   const sub = `${esc(S.church)} · every tick, untick, edit and approval.`;
@@ -4855,6 +4885,14 @@ function helpTopics() {
       ["I need to see more than I can", "Send a message to the admin below and say what you need."],
     ]],
   ];
+  if (r === "admin" && !S.preview) t.push(["breach", "If data leaks", [  // for the admins: what to do if people's details get out
+    ["What counts as a data leak?", "Anyone who shouldn't see people's details may have seen them: a lost phone that was signed in, a password someone else knows, a list or download sent to the wrong person, or a problem in the app or the database."],
+    ["First: stop it", "1. Remove or change the sign-in involved (Admin → Sign-ins → Remove), or change the password.\n2. If the database itself may be exposed: in Supabase, make new API keys, put the new key in Vercel and redeploy. Ask the tech admin.\n3. Make a new backup key in Admin → Backups so the old one stops working.\n4. Write down what happened, when you found out, and whose details may be affected. The Activity log shows downloads and changes."],
+    ["Who must we tell? (New Zealand)", "If it has caused, or may cause, serious harm, the Privacy Act says you must tell the Privacy Commissioner and the people affected as soon as you can. They suggest within 72 hours.\nUse NotifyUs on privacy.org.nz: its self-check helps you decide if it's serious, and you can describe what happened without sending anyone's details."],
+    ["Who must we tell? (Australia)", "Small not-for-profits (under $3 million a year) are usually outside the breach scheme. Tell the people affected anyway. If unsure, check oaic.gov.au."],
+    ["Telling the people affected", "A short text or email: what happened, which details were involved, what you've done about it, what they can do (for example, watch for scam calls), and who to contact. Keep a note of who you told and when."],
+    ["Afterwards", "Fix what let it happen, and note what you'd do differently. This isn't legal advice: for anything serious, ask a lawyer."],
+  ]]);
   return t;
 }
 
