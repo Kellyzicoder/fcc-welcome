@@ -1352,6 +1352,7 @@ function render() {
   root.querySelectorAll("[data-back]").forEach(b => b.onclick = () => history.back());  // same as the phone's back gesture
   if (moved) pageIn(view);
   ({mine, dashboard, checkin, bacentas, summary: summaryPage, followup, pastors, shepherds, people, person, signups, teamforms, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
+  pushNudge(view);  // the 6am Sunday reminder: a one-time ask
 }
 // Smooth movement. A new page eases in for a moment only, so ticking or editing later never makes things flicker.
 const stillMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.classList.contains("calm");
@@ -5030,6 +5031,30 @@ async function pushInfo() {  // the admin's setup: the public key and the sender
   return r && Object.fromEntries(r.map(x => [x.key, x.value]));
 }
 // Settings → Check-in reminders: turn notifications on for this phone or computer, then pick days and times
+// A one-time ask for anyone who checks people in (on Home, Dashboard and Check-in): turn on notifications to get the
+// 6am Sunday reminder. It goes once they turn them on, or tap Not now (on this phone or computer).
+async function pushNudge(view) {
+  if (!view || !["dashboard", "mine", "checkin"].includes(S.view) || S.preview || !["admin", "lead", "team", "pastor"].includes(S.me?.role)) return;
+  try { if (localStorage.getItem("fcc-nudge-off:" + S.me.email)) return; } catch {}
+  const ios = /iP(hone|ad|od)/.test(navigator.userAgent), home = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  const needHome = ios && !home, can = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  if (!needHome && (!can || Notification.permission !== "default")) return;
+  if (S.pushInfo === undefined) S.pushInfo = await pushInfo().catch(() => null);
+  if (!S.pushInfo?.push_public_key || !view.isConnected || view.querySelector(".push-nudge")) return;
+  const d = document.createElement("div"); d.className = "push-nudge";
+  d.innerHTML = `${svg("followup")}<span><b>Get a 6am Sunday reminder</b><small>${needHome ? "On iPhone, add the app to your home screen first (Share → Add to Home Screen), then open it from there." : "A notification at 6am on Sundays. You can change the time in Settings."}</small></span>
+    ${needHome ? "" : `<button type="button" class="pill-btn sm primary" data-nudge-on>Turn on</button>`}<button type="button" class="pill-btn sm" data-nudge-off>Not now</button>`;
+  const head = view.querySelector(".head"); if (head) head.after(d); else view.prepend(d);
+  d.querySelector("[data-nudge-off]").onclick = () => { try { localStorage.setItem("fcc-nudge-off:" + S.me.email, "1"); } catch {} d.remove(); };
+  d.querySelector("[data-nudge-on]")?.addEventListener("click", async () => {
+    try {
+      if (await Notification.requestPermission() !== "granted") { toast("Notifications weren't allowed. You can turn them on later in Settings."); d.remove(); return; }
+      const reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription() || await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64u(S.pushInfo.push_public_key)}), j = sub.toJSON();
+      await api("rpc/app_save_push", {method: "POST", body: {endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, tz: Intl.DateTimeFormat().resolvedOptions().timeZone}});
+      d.remove(); toast("Done: you'll get a reminder at 6am on Sundays.");
+    } catch (e) { toast("Couldn't turn them on: " + e.message); }
+  });
+}
 async function remindersCard(el) {
   if (!el) return;
   const info = await pushInfo(), ios = /iP(hone|ad|od)/.test(navigator.userAgent), home = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
@@ -5040,7 +5065,7 @@ async function remindersCard(el) {
   if (!can) return say(ios && !home ? "On iPhone, add the app to your home screen first (Share → Add to Home Screen), then open it from there." : "This browser can't show notifications.");
   const reg = await navigator.serviceWorker.ready; let sub = await reg.pushManager.getSubscription();
   const on = !!sub && Notification.permission === "granted";
-  const save = s => { const j = s.toJSON(); return api("rpc/app_save_push", {method: "POST", body: {endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth}}); };
+  const save = s => { const j = s.toJSON(); return api("rpc/app_save_push", {method: "POST", body: {endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, tz: Intl.DateTimeFormat().resolvedOptions().timeZone}}); };
   if (on) save(sub).catch(() => {});  // keeps this device linked to whoever is signed in on it
   const list = await api("reminders?select=id,dow,at&order=dow,at").catch(() => []);
   el.innerHTML = `<p class="note" style="margin:0 2px 8px">A notification on this ${matchMedia("(max-width: 1080px)").matches ? "phone" : "computer"} at the times you pick. Tap it to open Check-in.</p>
