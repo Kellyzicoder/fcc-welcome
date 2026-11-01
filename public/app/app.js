@@ -1254,6 +1254,7 @@ function setMode(mode, remember) {
 }
 function render() {
   setBadge();  // the number on the app icon
+  if (S.view !== "checkin") S.ciOnly = "";  // a list picked from the dashboard (e.g. first-timers) is only for that visit to Check-in
   clearInterval(S.poll); S.poll = 0; S.unwatch?.(); S.unwatch = null; S.onShow = null;  // the last page's listening stops
   const moved = S.shown !== S.view;  // a different page: it eases in (see pageIn)
   if (S.shown && S.shown !== S.view && !S.goingBack) {  // moved to another page: remember where from
@@ -1653,9 +1654,10 @@ const WIDGETS = {
       const c = p.last ? countsOn(p, p.last) : {present: 0, adults: 0, kids: 0, first: 0, visitors: 0}, pc = n => c.present ? Math.round(n / c.present * 100) + "% of those here" : "";
       el.innerHTML = `<div class="ov">${[["Present", c.present, 5, `of ${p.mine.filter(m => !AWAY.has(norm(m.status))).length} on the register`], ["Adults", c.adults, 1, pc(c.adults)],
         ["Kids", c.kids, 2, pc(c.kids)], ["First-timers", c.first, 3, c.visitors ? `+ ${c.visitors} ${c.visitors === 1 ? "visitor" : "visitors"}` : "at this service"]]
-        .map(([t, n, h, sub]) => `<button type="button" class="ov-cell" title="Open Check-in for this service"><b>${n}</b><span>${t}</span><small><i style="background:var(--h${h})"></i>${esc(sub)}</small></button>`).join("")}</div>
+        .map(([t, n, h, sub], i) => `<button type="button" class="ov-cell" data-only="${["here", "adult", "kid", "first"][i]}" title="See who on Check-in"><b>${n}</b><span>${t}</span><small><i style="background:var(--h${h})"></i>${esc(sub)}</small></button>`).join("")}</div>
         ${p.last && partsOf(p.last).length ? `<p class="ov-parts">${partCounts(p, p.last).map(x => `${esc(x.name)}: <b>${x.n}</b>`).join(" · ")} · someone at both counts once in Present</p>` : ""}`;
-      el.querySelectorAll(".ov-cell").forEach(t => t.onclick = () => { S.date = p.last || today(); S.view = "checkin"; render(); });
+      // opens Check-in for that service showing just those people (e.g. only the first-timers), with Show everyone to go back
+      el.querySelectorAll(".ov-cell").forEach(t => t.onclick = () => { S.date = p.last || today(); S.ciOnly = t.dataset.only; S.ciRole = ""; S.q = ""; S.ciPage = 1; S.view = "checkin"; render(); });
     }},
   compare: {name: "Compared with last time", sub: p => { const prev = p.last && sameDayBefore(p, p.last); return prev ? `Against ${svcName(prev)} · ${nice(prev, true)}` : "The same day last week"; }, desc: "Each number against the last service on the same day.", size: "wide", icon: "compare", hue: 4,
     draw(el, p) {
@@ -2253,6 +2255,7 @@ function checkin(el) {
       <div class="card tile"><div class="label">Not yet</div><div class="num" id="n-not">0</div></div></div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span>${pastor ? "" : `<button type="button" class="pill-btn sm primary" id="ci-new">${svg("plus")}Add someone new</button>`}<button type="button" class="pill-btn sm" id="ci-list">${svg("checkin")}Tick from a list</button><button type="button" class="pill-btn sm" id="ci-lock">${svg("lock")}Save &amp; lock</button></div>
       <label class="find-bar">${svg("search")}<input id="q" type="search" placeholder="Search by name, phone or team" value="${esc(S.q)}" aria-label="Search by name, phone or team" autocomplete="off"></label>
+      <div id="ci-only"></div>
       <div class="rpills ci-teams" id="ci-teams" aria-label="Teams" hidden></div>
       <div class="bulk" id="ci-bulk" hidden style="position:static;box-shadow:none"><b id="ci-count"></b><span class="gap"></span><button type="button" class="pill-btn sm primary" id="ci-all">Tick all</button><button type="button" class="pill-btn sm" id="ci-none">Untick all</button></div>
       <div class="msg locked" id="ci-locked" hidden></div>
@@ -2367,8 +2370,11 @@ function checkin(el) {
   drawTeams();
   const PER = 60;  // three columns of 20
   let armed = false, armedAll = false, busy = false;
+  const ONLY = {here: ["Everyone ticked in", m => !!here[m.id]], adult: ["Adults ticked in", m => !!here[m.id] && !isKid(m)], kid: ["Kids ticked in", m => !!here[m.id] && isKid(m)],
+                first: ["First-timers at this service", m => !!here[m.id] && m.type === "first_timer"]};
+  if (!ONLY[S.ciOnly]) S.ciOnly = "";
   const narrowedTo = () => { const q = norm(S.q);  // team and search; the pills then pick within these
-    return (q ? [...mine, ...back] : mine).filter(m => (!S.ciRole || rolesOf(m).some(r => norm(r) === S.ciRole)) && (!q || norm(m.full_name).includes(q) || norm(m.phone).includes(q) || rolesOf(m).some(r => norm(r).includes(q)))); };
+    return (q ? [...mine, ...back] : mine).filter(m => (!S.ciOnly || ONLY[S.ciOnly][1](m)) && (!S.ciRole || rolesOf(m).some(r => norm(r) === S.ciRole)) && (!q || norm(m.full_name).includes(q) || norm(m.phone).includes(q) || rolesOf(m).some(r => norm(r).includes(q)))); };
   const showing = () => narrowedTo();
   const draw = () => {
     const shown = narrowedTo(), narrowed = !!(S.ciRole || norm(S.q)), ticked = shown.filter(m => here[m.id]).length;
@@ -2383,7 +2389,10 @@ function checkin(el) {
         ${nums.map((n, i) => (i && n - nums[i - 1] > 1 ? `<span class="muted">…</span>` : "") + `<button class="pg ${n === S.ciPage ? "on" : ""}" data-cpg="${n}">${n}</button>`).join("")}
         <button class="pg" data-cpg="${S.ciPage + 1}" ${S.ciPage === pages ? "disabled" : ""} aria-label="Next page">${svg("next")}</button></div>` : shown.length ? `<p class="note" style="margin:10px 2px 0">Showing ${shown.length} of ${mine.length}</p>` : "";
     el.querySelectorAll("[data-cpg]").forEach(b => b.onclick = () => { S.ciPage = +b.dataset.cpg; draw(); });
-    el.querySelector("#ci-title").textContent = S.ciRole ? teams[S.ciRole].label : "Names A to Z";
+    el.querySelector("#ci-title").textContent = S.ciOnly ? ONLY[S.ciOnly][0] : S.ciRole ? teams[S.ciRole].label : "Names A to Z";
+    const only = el.querySelector("#ci-only");
+    only.innerHTML = S.ciOnly ? `<div class="msg" style="margin:10px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span>Showing only <b>${esc(ONLY[S.ciOnly][0].toLowerCase())}</b> (${shown.length}).</span><button type="button" class="pill-btn sm" id="ci-only-x">Show everyone</button></div>` : "";
+    only.querySelector("#ci-only-x")?.addEventListener("click", () => { S.ciOnly = ""; S.ciPage = 1; draw(); });
     // ticking a whole group is only offered once the list is narrowed to a team, a search or a pill, never for the whole church
     const bar = el.querySelector("#ci-bulk"); bar.hidden = !narrowed || !shown.length;
     el.querySelector("#ci-count").textContent = `${ticked} of ${shown.length} here`;
