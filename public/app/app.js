@@ -3313,7 +3313,8 @@ const CWIDGETS = {
   follow: {name: "Follow-up", sub: "Missing services · no names", size: "full", icon: "followup", hue: 3,
     draw(el, c) {
       if (!c.had && c.day) { el.innerHTML = `<p class="empty">No service that day.</p>`; return; }
-      el.innerHTML = c.fu.map(([f, t, n]) => `<div class="b-bar"><span><i class="b-key ${f}"></i>${esc(t)}</span><span class="b-track"><i class="${f}" style="width:${n ? Math.max(4, n / c.fuMax * 100) : 0}%"></i></span><b>${n}</b></div>`).join("");
+      el.innerHTML = c.fu.map(([f, t, n]) => `<div class="b-bar"><span><i class="b-key ${f}"></i>${esc(t)}</span><span class="b-track"><i class="${f}" style="width:${n ? Math.max(4, n / c.fuMax * 100) : 0}%"></i></span><b>${n}</b></div>`).join("")
+        + (c.visits != null ? `<p class="note" style="margin:10px 2px 0">${c.visits} ${c.visits === 1 ? "visit" : "visits"} in the last 30 days</p>` : "");
     }},
   churches: {name: "Churches side by side", sub: "Tap one to open it", desc: "Present at each church's latest service, side by side.", size: "full", icon: "bars", hue: 4,
     draw(el, c) {
@@ -3371,9 +3372,10 @@ async function bishop(el, rows, text, newest) {
     try { rows = await api("rpc/church_numbers", {method: "POST", body: {upto: day}}); }
     catch (err) { S.bDay = ""; toast(/church_numbers|upto|schema cache/i.test(err.message) ? "Run the latest setup SQL in Supabase once to look at an earlier day." : err.message); return render(); }
   }
-  const [trend, days, bac] = await Promise.all([api("rpc/church_trend", {method: "POST", body: day ? {upto: day} : {}}).catch(() => null),  // null until the newer setup SQL has been run
+  const [trend, days, bac, blist] = await Promise.all([api("rpc/church_trend", {method: "POST", body: day ? {upto: day} : {}}).catch(() => null),  // null until the newer setup SQL has been run
     api("rpc/church_days", {method: "POST", body: {}}).catch(() => null),
-    api("rpc/bacenta_numbers", {method: "POST", body: {upto: day || today()}}).catch(() => null)]);  // Bacentas as numbers only
+    api("rpc/bacenta_numbers", {method: "POST", body: {upto: day || today()}}).catch(() => null),  // Bacentas as numbers only
+    api("rpc/bacenta_list", {method: "POST", body: {upto: day || today()}}).catch(() => null)]);  // and each one by name (null until the setup SQL is run)
   if (S.view !== "overview") return;
   if (S.bChurch && !rows.some(r => r.church === S.bChurch)) S.bChurch = "";
   const sum = (list, k) => list.reduce((n, r) => n + (r[k] || 0), 0);
@@ -3403,7 +3405,8 @@ async function bishop(el, rows, text, newest) {
   const reg = sum(pick, "register"), rate = reg ? Math.round(nowN / reg * 100) : 0;
   const latest = day || (one ? one.latest : newest);
   const fu = [["red", `Missed ${RED_AT}+ in a row`, sum(pick, "red")], ["yellow", `Missed ${YELLOW_AT}–${RED_AT - 1} in a row`, sum(pick, "yellow")],
-              ["blue", day ? "Missed that service" : "Missed the latest service", sum(pick, "missed_this")]];
+              ["blue", day ? "Missed that service" : "Missed the latest service", sum(pick, "missed_this")],
+              ...(rows.some(r => r.visited != null) ? [["visited", "Visited, not missed since", sum(pick, "visited")]] : [])];  // after the setup SQL with visits
   const fuMax = Math.max(1, ...fu.map(f => f[2]));
   const when = !latest ? "No services yet" : day && !had ? nice(day, true) : `${S.names?.[latest] || svcName(latest)} · ${nice(latest, true)}`;
   el.innerHTML = head(admin ? "Churches" : "All churches", admin ? "Every church's numbers; open one to work in it, or manage the list at the bottom" : "Numbers only", `${admin ? `<button class="pill-btn" id="go-manage">${svg("edit")}Manage churches</button>` : ""}<button class="pill-btn" id="addcw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
@@ -3417,6 +3420,7 @@ async function bishop(el, rows, text, newest) {
         <div class="wgrid c2" id="cgrid"></div>
       </section></div>
     ${bac ? bacentaNumbers(bac, S.bChurch, day) : ""}
+    ${blist ? bacentaByName(blist, S.bChurch, day) : ""}
     ${admin ? `<div class="card ch-manage" id="ch-manage"></div>` : ""}`;
   const wireBac = () => el.querySelector("#b-bac")?.addEventListener("click", e => {  // sort the Bacentas table in place
     const h = e.target.closest("[data-bsort]"); if (!h) return; const k = h.dataset.bsort, was = S.bacSort || {k: "came", up: false};
@@ -3451,7 +3455,7 @@ async function bishop(el, rows, text, newest) {
   drawCal();
   await loadPrefs();
   if (S.view !== "overview") return;
-  drawBoard(el.querySelector("#cgrid"), "church", {rows, pick, one, had, day, served, sum, series, trend, delta, nowN, reg, rate, fu, fuMax, when, pickDay});
+  drawBoard(el.querySelector("#cgrid"), "church", {rows, pick, one, had, day, served, sum, series, trend, delta, nowN, reg, rate, fu, fuMax, when, pickDay, visits: rows.some(r => r.visits_month != null) ? sum(pick, "visits_month") : null});
   el.querySelector("#addcw").onclick = () => addWidget("church");
   el.querySelectorAll("[data-b]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.b; S.bJump = narrow(); render(); });
   if (narrow()) { const on = el.querySelector(".b-item.on"), row = el.querySelector(".b-list"); if (on && row) row.scrollLeft = on.offsetLeft - (row.clientWidth - on.offsetWidth) / 2; }  // keep the chosen church in view in the row
@@ -3468,9 +3472,9 @@ async function bishop(el, rows, text, newest) {
   if (S.bJump) { S.bJump = false; el.querySelector(".b-list")?.scrollIntoView({behavior: "smooth", block: "start"}); }  // church row and dashboard in view
   el.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { S.church = b.dataset.open; S.view = "dashboard"; render(); });  // admin: work in that church
   el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text, {day: latest || newest});
-  el.querySelector("#dl").onclick = () => download(`all_churches_${day || today()}.csv`, [["Church", "Service", "Present", "Adults", "Kids", "First-timers", "On the register", "Needs a call (red)", "Check in (amber)", "Missed this service"],
-    ...rows.map(r => served(r) ? [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this]
-      : [r.church, `No service on ${day}`, "", "", "", "", r.register, "", "", ""])]);
+  el.querySelector("#dl").onclick = () => download(`all_churches_${day || today()}.csv`, [["Church", "Service", "Present", "Adults", "Kids", "First-timers", "On the register", "Needs a call (red)", "Check in (amber)", "Missed this service", "Visited, not missed since", "Visits in the last 30 days"],
+    ...rows.map(r => served(r) ? [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this, r.visited ?? "", r.visits_month ?? ""]
+      : [r.church, `No service on ${day}`, "", "", "", "", r.register, "", "", "", "", ""])]);
 }
 // Bacentas on the All churches page, numbers only (no names): for each church, its Bacentas, how many people came last
 // week (Monday to Sunday), the last 8 weeks as little bars, and how many Bacentas didn't fill in last week.
@@ -3490,6 +3494,19 @@ function bacentaNumbers(rows, only, day) {
         <td>${r.behind ? `<span class="badge yellow">${r.behind} of ${r.bacentas}</span>` : r.bacentas ? `<span class="badge ok">All filled in</span>` : `<span class="muted">No Bacentas</span>`}</td></tr>`).join("")}
       ${list.length > 1 ? `<tr><td><b>All churches</b></td><td><b>${tot("bacentas")}</b></td><td><b>${tot("came")}</b></td><td></td><td>${tot("behind") ? `<b>${tot("behind")}</b>` : ""}</td></tr>` : ""}
       </tbody></table></div>` : `<p class="empty">No Bacentas yet${only ? " in " + esc(only) : ""}.</p>`}</div>`;
+}
+// …and each Bacenta by name (still no member names): its shepherd, the day it meets, how many came last week, the last
+// 8 weeks as little bars, and whether last week was filled in
+function bacentaByName(rows, only, day) {
+  const list = only ? rows.filter(r => r.church === only) : rows;
+  if (!list.length) return "";
+  const top = Math.max(1, ...list.flatMap(r => r.weeks || []));
+  const bars = w => (w || []).map(n => `<i style="height:${Math.max(2, Math.round(22 * n / top))}px" title="${n}"></i>`).join("");
+  const LW = {met: `<span class="badge ok">Met</span>`, skipped: `<span class="badge">Didn't meet</span>`, missing: `<span class="badge yellow">Not filled in</span>`, new: `<span class="muted">New</span>`};
+  return `<div class="card" style="margin-top:14px"><div class="card-head"><h2>Each Bacenta</h2><span class="gap"></span><span class="muted" style="font-size:13px">${list.length} ${list.length === 1 ? "Bacenta" : "Bacentas"}${day ? " · before " + esc(nice(day)) : ""}</span></div>
+    <div class="scroll"><table><thead><tr><th>Bacenta</th>${only ? "" : "<th>Church</th>"}<th class="hide-sm">Shepherd</th><th class="hide-sm">Meets</th><th>Came last week</th><th class="hide-sm">Last 8 weeks</th><th>Last week</th></tr></thead><tbody>
+    ${list.map(r => `<tr><td><b>${esc(r.name)}</b></td>${only ? "" : `<td>${esc(r.church)}</td>`}<td class="hide-sm">${esc(r.shepherd || "–")}</td><td class="hide-sm">${r.meet_day == null ? "–" : esc(DAYS[r.meet_day])}</td>
+      <td>${r.came}</td><td class="hide-sm"><span class="spark" aria-label="People each week: ${(r.weeks || []).join(", ")}">${bars(r.weeks)}</span></td><td>${LW[r.last_week] || ""}</td></tr>`).join("")}</tbody></table></div></div>`;
 }
 // Churches page (admin): every church in one list, with Rename and Delete, and a box to add a new one.
 // A church can only be deleted when nobody is on its register and nobody signs in to it; the home church can't be deleted.
