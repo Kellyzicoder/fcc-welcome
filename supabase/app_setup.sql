@@ -1700,6 +1700,9 @@ create table if not exists reminders (id uuid primary key default gen_random_uui
   created_at timestamptz not null default now());
 alter table push_subs enable row level security;
 alter table reminders enable row level security;
+-- who has had the automatic 6am Sunday reminder (so it's only added once)
+create table if not exists push_defaults (email text primary key, added_at timestamptz not null default now());
+alter table push_defaults enable row level security;
 drop policy if exists push_subs_own on push_subs;
 create policy push_subs_own on push_subs for select to authenticated using (lower(email) = lower(auth.jwt() ->> 'email'));
 drop policy if exists reminders_own_read on reminders;
@@ -1711,14 +1714,23 @@ grant select on push_subs to authenticated;
 grant select, delete on reminders to authenticated;
 
 -- this device, for the signed-in person (a shared phone moves to whoever turned notifications on last)
-create or replace function app_save_push(endpoint text, p256dh text, auth text) returns boolean language plpgsql security definer set search_path = public as $$
+drop function if exists app_save_push(text, text, text);
+create or replace function app_save_push(endpoint text, p256dh text, auth text, tz text default null) returns boolean language plpgsql security definer set search_path = public as $$
 #variable_conflict use_column
-declare em text := lower(auth.jwt() ->> 'email');
+declare em text := lower(auth.jwt() ->> 'email'); z text := coalesce(nullif(trim(app_save_push.tz), ''), 'Pacific/Auckland');
 begin
   if app_role() is null or em is null then raise exception 'not allowed'; end if;
   if length(endpoint) > 1000 or endpoint !~ '^https://' then raise exception 'not a push address'; end if;
   insert into push_subs as s (endpoint, email, p256dh, auth) values (app_save_push.endpoint, em, app_save_push.p256dh, app_save_push.auth)
     on conflict (endpoint) do update set email = excluded.email, p256dh = excluded.p256dh, auth = excluded.auth;
+  -- the first time someone who checks people in turns notifications on: a 6am Sunday reminder, once (they can change or remove it)
+  if app_role() in ('admin', 'lead', 'team', 'pastor') and not exists (select 1 from push_defaults d where d.email = em) then
+    begin perform now() at time zone z; exception when others then z := 'Pacific/Auckland'; end;
+    insert into push_defaults (email) values (em);
+    if not exists (select 1 from reminders r where lower(r.email) = em and r.dow = 0) then
+      insert into reminders (email, church, dow, at, tz) values (em, app_church(), 0, '06:00', z);
+    end if;
+  end if;
   return true;
 end $$;
 
@@ -1765,8 +1777,8 @@ begin
   select s.endpoint, s.p256dh, s.auth, d.church from due d join push_subs s on lower(s.email) = lower(d.email);
 end $$;
 
-revoke all on function app_save_push(text, text, text), app_add_reminder(int, time, text, text), app_set_push(text, text), app_due_reminders() from public, anon;
-grant execute on function app_save_push(text, text, text), app_add_reminder(int, time, text, text), app_set_push(text, text) to authenticated;
+revoke all on function app_save_push(text, text, text, text), app_add_reminder(int, time, text, text), app_set_push(text, text), app_due_reminders() from public, anon;
+grant execute on function app_save_push(text, text, text, text), app_add_reminder(int, time, text, text), app_set_push(text, text) to authenticated;
 revoke execute on function app_due_reminders() from authenticated;
 grant execute on function app_due_reminders() to service_role;
 
