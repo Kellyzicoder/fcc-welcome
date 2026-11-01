@@ -6,7 +6,7 @@ self.addEventListener("fetch", () => {});
 self.addEventListener("push", event => {
   let m = {}; try { m = event.data ? event.data.json() : {}; } catch { m = {body: event.data ? event.data.text() : ""}; }
   event.waitUntil(self.registration.showNotification(m.title || "FCC Attendance", {body: m.body || "", icon: "/app/icon-192.png", badge: "/app/icon-192.png",
-    tag: m.tag || "checkin", data: {url: m.url || "/app/"}}));
+    tag: m.tag || "checkin", renotify: true, silent: false, vibrate: [200, 100, 200], data: {url: m.url || "/app/"}}));  // with sound and a buzz, as the phone allows
 });
 // tapping it opens the app (on Check-in), using an open window if there is one
 self.addEventListener("notificationclick", event => {
