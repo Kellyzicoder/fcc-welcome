@@ -688,7 +688,7 @@ async function api(path, opts = {}) {
   try { return await api0(path, opts); } finally { busyOff(write); }
 }
 async function api0(path, {method = "GET", body, prefer, retry = true} = {}) {
-  if (S.preview && method !== "GET" && !/^rpc\/(app_(me|ask|db_size|last_seen|set_my_name)|church_(numbers|trend|days))\b/.test(path)) throw new Error(viewOnly());  // View as: look, don't change (the church_ ones only read)
+  if (S.preview && method !== "GET" && !/^rpc\/(app_(me|ask|db_size|last_seen|set_my_name)|church_(numbers|trend|days)|bacenta_(numbers|list))\b/.test(path)) throw new Error(viewOnly());  // View as: look, don't change (the church_ ones only read)
   if (S.session && S.session.expires_at - Date.now() < 60000) await refresh();
   const r = await fetch(S.cfg.url + "/rest/v1/" + path, {method, body: body === undefined ? undefined : JSON.stringify(body),
     headers: {apikey: S.cfg.key, Authorization: "Bearer " + (S.session?.access_token || S.cfg.key), "Content-Type": "application/json",
@@ -1165,6 +1165,7 @@ const ICON = {
   eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
   bars: '<path d="M5 20V10M12 20V4M19 20v-7"/>',
   trend: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
   gauge: '<path d="M4 16a8 8 0 0 1 16 0"/><path d="M12 16l4-5"/>',
@@ -3424,9 +3425,11 @@ async function bishop(el, rows, text, newest) {
   const bacView = S.bView === "bac" && !!(bac || blist);  // Services or Bacentas, beside the church list
   const when = !latest ? "No services yet" : day && !had ? nice(day, true) : `${S.names?.[latest] || svcName(latest)} · ${nice(latest, true)}`;
   // Dashboard or Grid: the Grid shows every church as a box of numbers, nothing else; tap a box for that church's dashboard
-  const layout = `<div class="seg" role="group" aria-label="Layout"><button type="button" data-bl="dash" aria-pressed="${!S.bGrid}">Dashboard</button><button type="button" data-bl="grid" aria-pressed="${!!S.bGrid}">Grid</button></div>`;
-  const wireLayout = () => el.querySelectorAll("[data-bl]").forEach(b => b.onclick = () => { S.bGrid = b.dataset.bl === "grid"; render(); });
-  if (S.bGrid) {
+  // opens on At a glance; a big switch at the top moves between the two, and Church details has a way back too
+  const grid = S.bGrid !== false;
+  const layout = `<div class="b-mode"><div class="seg ci-seg" role="group" aria-label="How to show the churches"><button type="button" data-bl="grid" aria-pressed="${grid}">${svg("grid")}At a glance</button><button type="button" data-bl="dash" aria-pressed="${!grid}">${svg("bars")}Church details</button></div></div>`;
+  const wireLayout = () => el.querySelectorAll("[data-bl]").forEach(b => b.onclick = () => { S.bGrid = b.dataset.bl === "grid"; render(); scrollTo(0, 0); });
+  if (grid) {
     const bacCame = ch => { const x = (bac || []).find(r => r.church === ch); return bac ? (x ? x.came : 0) : "–"; };
     const box = (r, all) => { const on = all || served(r), dash = n => on ? n : "–";
       return `<button type="button" class="card cg-card${all ? " all" : ""}" data-gb="${all ? "" : esc(r.church)}">
@@ -3436,7 +3439,7 @@ async function bishop(el, rows, text, newest) {
         <span class="cg-row"><span class="cg-red">${r.red}<small>Need a call</small></span><span class="cg-yel">${r.yellow}<small>Check in</small></span><span>${all ? (bac ? sum(bac, "came") : "–") : bacCame(r.church)}<small>At Bacenta last week</small></span></span>
         ${all ? "" : `<span class="spark" aria-hidden="true">${sparkOf(r.trend)}</span>`}</button>`; };
     const on = rows.filter(served), tot = {present: sum(on, "present"), adults: sum(on, "adults"), kids: sum(on, "kids"), first_timers: sum(on, "first_timers"), red: sum(rows, "red"), yellow: sum(rows, "yellow")};
-    el.innerHTML = head(admin ? "Churches" : "All churches", day ? `Numbers only · ${esc(nice(day, true))}` : "Numbers only", layout + `<button class="pill-btn" id="wa">Summary for WhatsApp</button>`) + `
+    el.innerHTML = head(admin ? "Churches" : "All churches", day ? `Numbers only · ${esc(nice(day, true))}` : "Numbers only", `<button class="pill-btn" id="wa">Summary for WhatsApp</button>`) + layout + `
       <div class="cg-grid">${box(tot, true)}${rows.map(r => box(r)).join("")}</div>
       ${day ? `<p class="note" style="margin:12px 2px 0">Showing ${esc(nice(day, true))}. <button class="link" id="b-latest" style="margin:0">Back to the latest</button></p>` : ""}`;
     wireLayout();
@@ -3445,13 +3448,13 @@ async function bishop(el, rows, text, newest) {
     el.querySelector("#b-latest")?.addEventListener("click", () => { S.bDay = ""; render(); });
     return;
   }
-  el.innerHTML = head(admin ? "Churches" : "All churches", admin ? "Every church's numbers; open one to work in it, or manage the list at the bottom" : "Numbers only", `${layout}${admin ? `<button class="pill-btn" id="go-manage">${svg("edit")}Manage churches</button>` : ""}<button class="pill-btn" id="addcw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
+  el.innerHTML = head(admin ? "Churches" : "All churches", admin ? "Every church's numbers; open one to work in it, or manage the list at the bottom" : "Numbers only", `${admin ? `<button class="pill-btn" id="go-manage">${svg("edit")}Manage churches</button>` : ""}<button class="pill-btn" id="addcw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + layout + `
     <div class="bish">
       <div class="card b-cal" id="b-cal"></div>
       <div class="b-swipe"><span><b>${rows.length} ${rows.length === 1 ? "church" : "churches"}</b> · swipe or tap the arrows</span><button type="button" class="icon-btn sm" data-bs="-1" aria-label="Previous churches">${svg("prev")}</button><button type="button" class="icon-btn sm" data-bs="1" aria-label="More churches">${svg("next")}</button></div>
       <nav class="card b-list" aria-label="Churches">${list}</nav>
       <section class="b-detail">
-        <div class="b-title"><h2>${esc(S.bChurch || "All churches")}</h2><span class="muted">${esc(when)}</span>
+        <div class="b-title"><button type="button" class="pill-btn sm" data-bl="grid" title="Back to every church at a glance">${svg("back")}At a glance</button><h2>${esc(S.bChurch || "All churches")}</h2><span class="muted">${esc(when)}</span>
           ${bac || blist ? `<div class="seg ci-seg b-view" role="group" aria-label="Show"><button type="button" data-bv="svc" aria-pressed="${!bacView}">${svg("checkin")}Services</button><button type="button" data-bv="bac" aria-pressed="${bacView}">${svg("bacentas")}Bacentas</button></div>` : ""}
           ${admin && S.bChurch ? `<span class="gap" style="flex:1"></span><button class="pill-btn primary sm" data-open="${esc(S.bChurch)}">Open ${esc(S.bChurch)}</button>` : ""}</div>
         <div class="wgrid c2" id="cgrid" ${bacView ? "hidden" : ""}></div>
