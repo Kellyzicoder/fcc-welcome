@@ -1044,6 +1044,7 @@ async function load() {
   S.pticks = pticks;
   S.bacList = await all("bacentas?select=id,church,name,shepherd,pastor,meet_day,active,created_at&order=name").catch(() => null);  // for Check-in's Service | Bacenta switch
   S.bacHelp = await all("bacenta_helpers?select=bacenta,email,role").catch(() => []);  // who leads or assists which Bacenta
+  S.visits = await all(`visits?select=id,member_id,visit_date,visited_by,note,added_by,created_at&visit_date=gte.${since}&order=visit_date.desc`).catch(() => null);  // null until the setup SQL with visits is run
   // names added at a Bacenta waiting for a church admin to approve (the count on the Bacentas menu item)
   S.bacPending = ["admin", "lead"].includes(S.me.role) ? (await all("bacenta_guests?select=id,bacenta&status=eq.pending").catch(() => []))
     .filter(g => (S.bacList || []).some(b => b.id === g.bacenta && b.church === S.church)).length : 0;
@@ -1090,18 +1091,21 @@ function picture(upTo = today()) {  // everything the pages show, as things stoo
   const ids = new Set(mine.map(m => m.id)), byDate = {};
   for (const t of S.ticks) if (ids.has(t.member_id) && t.service_date <= upTo) (byDate[t.service_date] ??= {})[t.member_id] = t.checked_at;
   const dates = Object.keys(byDate).sort(), cutoff = new Date(Date.now() - ARCHIVE_DAYS * 864e5).toISOString().slice(0, 10);
-  const people = [], archived = [];
+  const people = [], archived = [], vis = {};  // vis: each person's latest visit (Visits page), up to upTo
+  for (const v of S.visits || []) if (v.visit_date <= upTo && !(vis[v.member_id] >= v.visit_date)) vis[v.member_id] = v.visit_date;
   for (const m of mine) {
     if (ruleOf(m) !== "in") continue;  // only statuses set to stay on the lists are in Follow-up (Settings → Statuses)
     const start = [m.date_joined, m.first_visit, dates.find(d => byDate[d][m.id]), (m.created_at || "").slice(0, 10)].filter(Boolean).sort()[0] || "0000";  // no join date: count from their first tick or the day they were added, not every Sunday on record
     let missed = 0, seen = null;
     // only Sunday services count as missed; coming to any service (midweek too) counts as being seen
-    for (let i = dates.length - 1; i >= 0 && dates[i] >= start; i--) { if (byDate[dates[i]][m.id]) { seen = dates[i]; break; } if (isSunday(dates[i])) missed++; }
+    const vd = vis[m.id] || "";  // after a visit, only the Sundays since then count as missed
+    for (let i = dates.length - 1; i >= 0 && dates[i] >= start && !(vd && dates[i] <= vd); i--) { if (byDate[dates[i]][m.id]) { seen = dates[i]; break; } if (isSunday(dates[i])) missed++; }
     if (!seen) seen = [...dates].reverse().find(d => byDate[d][m.id]) || S.seen?.[m.id] || null;
     const sign = seen || (start !== "0000" ? start : (m.created_at || "").slice(0, 10));
     if (sign && sign < cutoff) { archived.push({...m, seen, kid: isKid(m)}); continue; }  // not seen for two years
     const level = m.type === "visitor" ? "ok" : missed >= RED_AT ? "red" : missed >= YELLOW_AT ? "yellow" : "ok";
-    people.push({...m, missed, seen, level, flag: level !== "ok" ? level : missed && m.type !== "visitor" ? "blue" : "ok", kid: isKid(m)});
+    people.push({...m, missed, seen, level, flag: level !== "ok" ? level : missed && m.type !== "visitor" ? "blue" : "ok", kid: isKid(m),
+                 visited: vd && !missed && !(seen && seen > vd) ? vd : ""});  // visited, and not missed a Sunday since
   }
   const last = dates[dates.length - 1], here = last ? byDate[last] : {};
   const present = mine.filter(m => here[m.id]);
@@ -1125,6 +1129,7 @@ const ICON = {
   dashboard: '<path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   live: '<circle cx="12" cy="12" r="2"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/>',
   checkin: '<path d="M5 12l5 5 9-10"/>',
+  visits: '<path d="M3 11l9-7 9 7"/><path d="M5 9.5V20h14V9.5"/><path d="M9 14.5l2 2 4-4"/>',
   followup: '<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/>',
   people: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   overview: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
@@ -1184,9 +1189,9 @@ function navGroup(h, items, btns) {
 function pages() {  // the menu, in groups; what each role can actually load is decided by the database
   const r = S.me.role;
   if (r === "bishop") return [["", [["overview", "All churches"], ["help", "Help"]]]];
-  if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ...((S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people (and the Bacentas they oversee or shepherd)
+  if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ["visits", "Visits"], ...((S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people (and the Bacentas they oversee or shepherd)
   // Grouped by what people come to do: take attendance, look after people, share the numbers, run the churches, settings
-  return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["followup", "Follow-up"]]],
+  return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["followup", "Follow-up"], ...(r === "team" ? [] : [["visits", "Visits"]])]],
           ["PEOPLE", [["people", "Congregation"], ["pastors", "Pastors"], ["shepherds", "Shepherds"], ...(["admin", "lead"].includes(r) || (S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ...(canApprove() ? [["signups", "Sign-ups"]] : []), ...(canTeam() ? [["teamforms", "Team forms"]] : []), ["archive", "Archive"]]],
           ["SHARE", [["reports", "Reports"]]],
           ...(r === "admin" ? [["CHURCHES", [["overview", "Churches"]]]] : []),
@@ -1351,7 +1356,7 @@ function render() {
   };
   root.querySelectorAll("[data-back]").forEach(b => b.onclick = () => history.back());  // same as the phone's back gesture
   if (moved) pageIn(view);
-  ({mine, dashboard, checkin, bacentas, summary: summaryPage, followup, pastors, shepherds, people, person, signups, teamforms, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
+  ({mine, dashboard, checkin, bacentas, summary: summaryPage, followup, visits, pastors, shepherds, people, person, signups, teamforms, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
   pushNudge(view);  // the 6am Sunday reminder: a one-time ask
 }
 // Smooth movement. A new page eases in for a moment only, so ticking or editing later never makes things flicker.
@@ -1419,9 +1424,9 @@ addEventListener("popstate", () => {
   if (!S.me || !S.hist?.length) return;
   S.view = S.hist.pop(); S.goingBack = true; document.querySelectorAll(".modal").forEach(m => m.remove()); render();
 });
-const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", pastors: "Pastors", shepherds: "Shepherds", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", teamforms: "Team forms", archive: "Archive",
+const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", visits: "Visits", pastors: "Pastors", shepherds: "Shepherds", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", teamforms: "Team forms", archive: "Archive",
                activity: "Activity", reports: "Reports", overview: "All churches", admin: "Admin"};
-const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, bacentas: 3, summary: 6, followup: 3, pastors: 4, shepherds: 2, people: 5, signups: 6, teamforms: 3, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
+const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, bacentas: 3, summary: 6, followup: 3, visits: 4, pastors: 4, shepherds: 2, people: 5, signups: 6, teamforms: 3, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
 // A greeting on the home pages: "Good morning, Kelvin", or "Welcome back, Pastor Grace" after a day or more away.
 // Pastors and bishops are greeted with their title; a title already in their name (Pastor, Rev, Elder...) is kept.
 const GREET_TITLES = /^(pastor|ps|bishop|reverend|rev|elder|deacon|deaconess|lady|prophet|prophetess|apostle|evangelist|dr|mrs?|ms|minister)\.?$/i;
@@ -1609,7 +1614,7 @@ function calendar(el, p) {  // a month of services: days with a service show how
   el.querySelectorAll("[data-day]").forEach(b => b.onclick = () => { S.date = b.dataset.day; S.view = "checkin"; render(); });
 }
 function rowsHtml(list, cols) {
-  return list.map(p => `<tr><td>${whoBtn(p)}</td><td>${badge(p.flag)}</td><td>${p.missed}</td>
+  return list.map(p => `<tr><td>${whoBtn(p)}</td><td>${flagBadge(p)}</td><td>${p.missed}</td>
     <td class="muted hide-sm">${esc(nice(p.seen))}</td>${cols ? `<td class="muted hide-sm">${esc(p.pastor || "")}</td>` : ""}<td class="muted">${esc(p.phone || "")}</td></tr>`).join("");
 }
 // ---------------------------------------------------------------- dashboard: widgets each person can add, remove, drag and resize
@@ -2642,8 +2647,8 @@ function followup(el) {
   const p0 = picture(), day = S.fuDay && S.fuDay !== p0.last ? S.fuDay : p0.last, had = !!day && p0.dates.includes(day);
   const p = had && day !== p0.last ? picture(day) : p0;
   const started = x => ([x.date_joined, x.first_visit].filter(Boolean).sort()[0] || (x.created_at || "").slice(0, 10) || "0000") <= day;
-  const tabs = {need: "Needs follow-up", red: `Needs a call (${RED_AT}+ missed)`, yellow: `Check in (${YELLOW_AT}–${RED_AT - 1} missed)`, once: "Missed this one", blue: "Missed this service", came: "Came", all: "Everyone"};
-  const pick = {need: x => x.level !== "ok", red: x => x.flag === "red", yellow: x => x.flag === "yellow", once: x => x.flag === "blue", blue: x => !p.here[x.id] && started(x), came: x => !!p.here[x.id], all: () => true};
+  const tabs = {need: "Needs follow-up", red: `Needs a call (${RED_AT}+ missed)`, yellow: `Check in (${YELLOW_AT}–${RED_AT - 1} missed)`, once: "Missed this one", blue: "Missed this service", came: "Came", visited: "Visited", all: "Everyone"};
+  const pick = {need: x => x.level !== "ok", red: x => x.flag === "red", yellow: x => x.flag === "yellow", once: x => x.flag === "blue", blue: x => !p.here[x.id] && started(x), came: x => !!p.here[x.id], visited: x => !!x.visited, all: () => true};
   if (!tabs[S.filter]) S.filter = "need";
   const list = had ? p.people.filter(pick[S.filter]) : [];
   el.innerHTML = head("Follow-up", esc(S.church),
@@ -3791,7 +3796,7 @@ function mine(el) {
       <div class="card tile"><div class="label">Need a call</div><div class="num">${need.length}</div></div></div>
     <div class="card"><div class="card-head"><h2>Your people</h2></div>
       ${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Came</th><th>Sunday</th><th>Missed in a row</th>${hasBac ? "<th>Bacenta</th>" : ""}<th>Phone</th></tr></thead><tbody>
-      ${list.slice().sort((a, b) => (b.level !== "ok") - (a.level !== "ok") || b.missed - a.missed || byName(a, b)).map(x => `<tr><td>${whoBtn(x)}</td><td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${badge(x.flag)}</td><td>${x.missed}</td>${hasBac ? `<td data-bacst="${esc(x.id)}"><span class="muted">…</span></td>` : ""}
+      ${list.slice().sort((a, b) => (b.level !== "ok") - (a.level !== "ok") || b.missed - a.missed || byName(a, b)).map(x => `<tr><td>${whoBtn(x)}</td><td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${flagBadge(x)}</td><td>${x.missed}</td>${hasBac ? `<td data-bacst="${esc(x.id)}"><span class="muted">…</span></td>` : ""}
         <td>${x.phone ? `<a href="tel:${esc(x.phone.replace(/[^0-9+]/g, ""))}">${esc(x.phone)}</a>` : ""}</td></tr>`).join("")}</tbody></table></div>`
       : `<p class="empty">${me ? `Nobody is assigned to ${esc(me)} yet. Ask your church admin.` : "Your sign-in isn't linked to a pastor name yet. Ask your church admin."}</p>`}</div>
     <div id="bac-home" style="margin-top:14px"></div>`;
@@ -3906,7 +3911,7 @@ function careGroups(el, K) {  // the Pastors and Shepherds pages: each one's peo
         <td>${g.length}</td><td>${g.filter(x => p.here[x.id]).length}</td><td>${g.filter(x => x.level !== "ok").length}</td></tr>`; }).join("")}</tbody></table></div></div>
     <div class="card" id="pastor-people" style="scroll-margin-top:12px"><div class="card-head"><h2>${esc(shortTitle(S[K.sel]))}</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${list.length} ${list.length === 1 ? "person" : "people"}</span></div>
       <div class="scroll"><table><thead><tr><th>Name</th>${canEdit ? "<th></th>" : ""}<th>Came</th><th>Status</th><th>Missed in a row</th><th>Phone</th></tr></thead><tbody>
-      ${list.map(x => `<tr><td>${whoBtn(x)}</td>${canEdit ? `<td><button class="pill-btn sm" data-edit="${esc(x.id)}" aria-label="Edit ${esc(x.full_name)}">${svg("edit")}Edit</button></td>` : ""}<td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${badge(x.flag)}</td><td>${x.missed}</td><td class="muted">${esc(x.phone || "")}</td></tr>`).join("")}
+      ${list.map(x => `<tr><td>${whoBtn(x)}</td>${canEdit ? `<td><button class="pill-btn sm" data-edit="${esc(x.id)}" aria-label="Edit ${esc(x.full_name)}">${svg("edit")}Edit</button></td>` : ""}<td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${flagBadge(x)}</td><td>${x.missed}</td><td class="muted">${esc(x.phone || "")}</td></tr>`).join("")}
       </tbody></table></div>
       ${list.length ? "" : `<p class="empty">Nobody is assigned to ${esc(S[K.sel])} yet.</p>`}
       </div>`
@@ -4334,7 +4339,7 @@ async function person(el) {
   const came = rows.map(r => r.service_date).filter(d => d <= today()), set = new Set(came);
   const st = p.people.find(x => x.id === m.id), years = {};
   for (const d of came) (years[d.slice(0, 4)] ??= []).push(d);
-  const state = st ? badge(st.flag) : p.archived.some(x => x.id === m.id) ? `<span class="badge">Archived</span>` : `<span class="badge">${esc(m.status || "Not active")}</span>`;
+  const state = st ? flagBadge(st) : p.archived.some(x => x.id === m.id) ? `<span class="badge">Archived</span>` : `<span class="badge">${esc(m.status || "Not active")}</span>`;
   const recent = p.dates.slice(-12);
   // Bacenta: which ones they come to, how often, and when
   const bacName = id => (S.bacList || []).find(b => b.id === id)?.name || "A Bacenta";
@@ -4350,10 +4355,12 @@ async function person(el) {
   el.innerHTML = top + `
     <div class="card" style="margin-bottom:14px"><div class="card-head"><div class="who big"><span>${esc(initials(m.full_name))}</span>${esc(m.full_name)}</div><span class="gap"></span>${state}</div>
       <p class="facts">${[typeName(m), isKid(m) ? "Child" : "Adult", m.phone || ""].filter(Boolean).map(esc).join(" · ")}${pastorsOf(m).length ? `<br>Pastor: ${pastorsOf(m).map(pastorBtn).join(", ")}` : ""}${shepherdsOf(m).length ? `<br>Shepherd: ${shepherdsOf(m).map(esc).join(", ")}` : ""}</p></div>
+    ${S.visits ? (() => { const vs = S.visits.filter(v => v.member_id === m.id); return `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Visits</h2><span class="gap"></span>${canVisit() ? `<button class="pill-btn sm" id="pe-visit">Visited</button>` : ""}</div>
+      ${vs.length ? `<ul class="vlist">${vs.map(v => `<li><b>${esc(full(v.visit_date))}</b> · ${esc(v.visited_by)}${v.note ? `<br><span class="muted">${esc(v.note)}</span>` : ""}</li>`).join("")}</ul>` : `<p class="empty" style="margin:0">No visits recorded.</p>`}</div>`; })() : ""}
     ${flock.length || asPastor ? `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Their people</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${flock.length} ${flock.length === 1 ? "person" : "people"}</span>
         ${asPastor ? `<button class="pill-btn sm" data-to-pastor="${esc(asPastor)}">Open in Pastors</button>` : ""}</div>
       ${flock.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Came${p.last ? " · " + esc(nice(p.last)) : ""}</th><th>Status</th><th>Missed in a row</th><th>Phone</th></tr></thead><tbody>
-        ${flock.map(x => `<tr><td>${whoBtn(x)}</td><td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${badge(x.flag)}</td><td>${x.missed}</td><td class="muted">${esc(x.phone || "")}</td></tr>`).join("")}</tbody></table></div>`
+        ${flock.map(x => `<tr><td>${whoBtn(x)}</td><td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${flagBadge(x)}</td><td>${x.missed}</td><td class="muted">${esc(x.phone || "")}</td></tr>`).join("")}</tbody></table></div>`
         : `<p class="empty">Nobody is assigned to them yet.</p>`}</div>` : ""}
     <div class="tiles three"><div class="card tile"><div class="label">Attendance History</div><div class="num">${came.length}</div></div>
       <div class="card tile"><div class="label">Last Attended</div><div class="num sm">${esc(full(came[0]))}</div></div>
@@ -4372,9 +4379,57 @@ async function person(el) {
     <div class="card"><div class="card-head"><h2>History</h2></div>
       ${came.length ? Object.keys(years).sort().reverse().map(y => `<h3 class="year">${y} · ${years[y].length} ${years[y].length === 1 ? "service" : "services"}</h3>
         <div class="chips">${years[y].map(d => `<span class="chip">${esc(nice(d))}</span>`).join("")}</div>`).join("") : `<p class="empty">No services recorded for ${esc(m.full_name)} yet.</p>`}</div>`;
-  bind();
+  bind(); el.querySelector("#pe-visit")?.addEventListener("click", () => visitDialog(m));
   el.querySelector("#dl").onclick = () => download(`${norm(m.full_name).replace(/[^a-z0-9]+/g, "_")}_history_${today()}.csv`, [["Name", "Church", "Date", "What"],
     ...[...came.map(d => [m.full_name, S.church, d, youthCame.includes(d) ? "Youth service" : svcName(d)]), ...bac.map(t => [m.full_name, S.church, t.meeting_date, bacName(t.bacenta)])].sort((a, b) => b[2].localeCompare(a[2]))]);
+}
+
+// ---------------------------------------------------------------- visits: tick someone as visited
+// Everyone who needs follow-up (for a pastor or shepherd: their own people), with Visited to record a visit: the day, who
+// went and a short note. A visit takes them off the call list until they next miss a Sunday. Below: the visits so far.
+const flagBadge = p => p.visited ? `<span class="badge visited" title="${esc(`Visited ${nice(p.visited)}: off the call list until they next miss a Sunday`)}">Visited</span>` : badge(p.flag);
+const canVisit = () => ["admin", "lead", "pastor"].includes(S.me.role) && !S.preview && !!S.visits;
+function visitDialog(m) {
+  const names = [...new Set([...(S.pastorList?.[S.church] || []), ...(S.shepherdList?.[S.church] || []), ...(S.visits || []).map(v => v.visited_by)])].sort();
+  formDialog(`Visited ${m.full_name}`, [
+    {k: "date", label: "Date", type: "date", value: today(), required: true},
+    {k: "by", label: "Who visited", value: S.me.name || "", required: true, suggest: names, many: true},
+    {k: "note", label: "Note (optional)", value: ""}],
+    async v => {
+      if (!v.date || v.date > today()) throw new Error("Pick today or an earlier day.");
+      const by = v.by.replace(/[,\s]+$/, ""); if (!by) throw new Error("Say who visited.");
+      const row = await api("visits", {method: "POST", body: {member_id: m.id, visit_date: v.date, visited_by: by, note: v.note || null}, prefer: "return=representation"});
+      S.visits = [...(Array.isArray(row) ? row : [row]), ...(S.visits || [])].sort((a, b) => b.visit_date.localeCompare(a.visit_date));
+      toast(`Saved: ${m.full_name} was visited.`); render();
+    }, "Save");
+}
+function visits(el) {
+  const p = picture(), me = S.me.role === "pastor" ? S.me.pastor || "" : "";
+  const ours = x => !me || careOf(x).some(n => norm(n) === norm(me));  // a pastor or shepherd: their own people
+  const need = p.people.filter(x => x.level !== "ok" && ours(x));
+  const byId = Object.fromEntries(p.mine.map(m => [m.id, m]));
+  const done = (S.visits || []).filter(v => byId[v.member_id] && ours(byId[v.member_id]));
+  const tab = S.visTab === "done" ? "done" : "need", mineEm = (S.me.email || "").toLowerCase();
+  const tel = x => x.phone ? `<a href="tel:${esc(x.phone.replace(/[^0-9+]/g, ""))}">${esc(x.phone)}</a>` : "";
+  el.innerHTML = head("Visits", esc(S.church)) + (S.visits ? "" : `<div class="msg" style="margin:0 0 14px">Run the latest setup SQL in Supabase once to record visits.</div>`) + `
+    <div class="chips"><button class="chip ${tab === "need" ? "on" : ""}" data-vt="need">To visit (${need.length})</button><button class="chip ${tab === "done" ? "on" : ""}" data-vt="done">Visited (${done.length})</button></div>
+    <div class="card">${tab === "need"
+      ? need.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th>Phone</th><th></th></tr></thead><tbody>
+        ${need.map(x => `<tr><td>${whoBtn(x)}</td><td>${flagBadge(x)}</td><td>${x.missed}</td><td class="muted hide-sm">${esc(nice(x.seen))}</td><td>${tel(x)}</td>
+          <td>${canVisit() ? `<button class="pill-btn sm primary" data-visit="${esc(x.id)}">Visited</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`
+        : `<p class="empty">Nobody needs a visit right now.</p>`
+      : done.length ? `<div class="scroll"><table><thead><tr><th>Date</th><th>Name</th><th>Visited by</th><th>Note</th><th></th></tr></thead><tbody>
+        ${done.map(v => `<tr><td>${esc(full(v.visit_date))}</td><td>${whoBtn(byId[v.member_id])}</td><td>${esc(v.visited_by)}</td><td class="muted">${esc(v.note || "")}</td>
+          <td>${!S.preview && (v.added_by === mineEm || ["admin", "lead"].includes(S.me.role)) ? `<button class="x" data-vdel="${esc(v.id)}">Remove</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`
+        : `<p class="empty">No visits recorded yet.</p>`}</div>`;
+  el.querySelectorAll("[data-vt]").forEach(b => b.onclick = () => { S.visTab = b.dataset.vt; render(); });
+  el.querySelectorAll("[data-visit]").forEach(b => b.onclick = () => visitDialog(byId[b.dataset.visit]));
+  el.querySelectorAll("[data-vdel]").forEach(b => { let armed = false; b.onclick = async () => {  // a second tap removes it
+    if (!armed) { armed = true; b.textContent = "Tap again"; setTimeout(() => { armed = false; b.textContent = "Remove"; }, 4000); return; }
+    b.disabled = true;
+    try { await api(`visits?id=eq.${encodeURIComponent(b.dataset.vdel)}`, {method: "DELETE"}); S.visits = S.visits.filter(v => v.id !== b.dataset.vdel); toast("Visit removed."); render(); }
+    catch (e) { b.disabled = false; toast("Not removed: " + e.message); }
+  }; });
 }
 
 // ---------------------------------------------------------------- sign-ups from the welcome form
