@@ -3436,6 +3436,12 @@ async function bishop(el, rows, text, newest) {
   // Dashboard or Grid: the Grid shows every church as a box of numbers, nothing else; tap a box for that church's dashboard
   // opens on At a glance; a big switch at the top moves between the two, and Church details has a way back too
   const grid = S.bGrid !== false;
+  // Summary for WhatsApp: opens on the page itself, like the Summary page, not in a popup; tap again to close it
+  const openSum = (d0, keep) => { const box = el.querySelector("#b-sum"); if (!box) return; if (!keep) S.bSum = !S.bSum; box.hidden = !S.bSum;
+    const btn = el.querySelector("#wa"); if (btn) btn.textContent = S.bSum ? "Close summary" : "Summary for WhatsApp";
+    if (!S.bSum) { box.innerHTML = ""; return; }
+    waDialog("Summary for WhatsApp", text, {day: d0, into: box});
+    if (!keep) box.scrollIntoView({behavior: stillMotion() ? "auto" : "smooth", block: "start"}); };
   const layout = `<div class="b-mode"><div class="seg ci-seg" role="group" aria-label="How to show the churches"><button type="button" data-bl="grid" aria-pressed="${grid}">${svg("grid")}At a glance</button><button type="button" data-bl="dash" aria-pressed="${!grid}">${svg("bars")}Church details</button></div></div>`;
   const wireLayout = () => el.querySelectorAll("[data-bl]").forEach(b => b.onclick = () => { S.bGrid = b.dataset.bl === "grid"; render(); scrollTo(0, 0); });
   if (grid) {
@@ -3445,19 +3451,19 @@ async function bishop(el, rows, text, newest) {
         <span class="cg-top"><b>${esc(all ? "All churches" : r.church)}</b><small>${esc(all ? `${rows.filter(served).length} of ${rows.length} churches${day ? " had a service" : ""}` : on ? (r.latest ? nice(r.latest) : "No services yet") : "No service this day")}</small></span>
         <span class="cg-num">${dash(r.present)}<small>present</small></span>
         <span class="cg-row"><span>${dash(r.adults)}<small>Adults</small></span><span>${dash(r.kids)}<small>Kids</small></span><span>${dash(r.first_timers)}<small>First-timers</small></span></span>
-        <span class="cg-row"><span class="cg-red">${r.red}<small>Need a call</small></span><span class="cg-yel">${r.yellow}<small>Check in</small></span><span>${all ? (bac ? sum(bac, "came") : "–") : bacCame(r.church)}<small>At Bacenta last week</small></span></span>
+        <span class="cg-row"><span class="cg-red" title="${esc(FLAG_WHY.red)}">${r.red}<small>Missed ${RED_AT}+ in a row</small></span><span class="cg-yel" title="${esc(FLAG_WHY.yellow)}">${r.yellow}<small>Missed ${YELLOW_AT}–${RED_AT - 1} in a row</small></span><span>${all ? (bac ? sum(bac, "came") : "–") : bacCame(r.church)}<small>At Bacenta last week</small></span></span>
         ${all ? "" : `<span class="spark" aria-hidden="true">${sparkOf(r.trend)}</span>`}</button>`; };
     const on = rows.filter(served), tot = {present: sum(on, "present"), adults: sum(on, "adults"), kids: sum(on, "kids"), first_timers: sum(on, "first_timers"), red: sum(rows, "red"), yellow: sum(rows, "yellow")};
-    el.innerHTML = head(admin ? "Churches" : "All churches", day ? `Numbers only · ${esc(nice(day, true))}` : "Numbers only", `<button class="pill-btn" id="wa">Summary for WhatsApp</button>`) + layout + `
+    el.innerHTML = head(admin ? "Churches" : "All churches", day ? `Numbers only · ${esc(nice(day, true))}` : "Numbers only", `<button class="pill-btn" id="wa">Summary for WhatsApp</button>`) + layout + `<div id="b-sum" hidden style="margin:0 0 16px"></div>
       <div class="cg-grid">${box(tot, true)}${rows.map(r => box(r)).join("")}</div>
       ${day ? `<p class="note" style="margin:12px 2px 0">Showing ${esc(nice(day, true))}. <button class="link" id="b-latest" style="margin:0">Back to the latest</button></p>` : ""}`;
     wireLayout();
     el.querySelectorAll("[data-gb]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.gb; S.bGrid = false; render(); scrollTo(0, 0); });
-    el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text, {day: day || newest});
+    el.querySelector("#wa").onclick = () => openSum(day || newest); if (S.bSum) openSum(day || newest, true);
     el.querySelector("#b-latest")?.addEventListener("click", () => { S.bDay = ""; render(); });
     return;
   }
-  el.innerHTML = head(admin ? "Churches" : "All churches", admin ? "Every church's numbers; open one to work in it, or manage the list at the bottom" : "Numbers only", `${admin ? `<button class="pill-btn" id="go-manage">${svg("edit")}Manage churches</button>` : ""}<button class="pill-btn" id="addcw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + layout + `
+  el.innerHTML = head(admin ? "Churches" : "All churches", admin ? "Every church's numbers; open one to work in it, or manage the list at the bottom" : "Numbers only", `${admin ? `<button class="pill-btn" id="go-manage">${svg("edit")}Manage churches</button>` : ""}<button class="pill-btn" id="addcw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + layout + `<div id="b-sum" hidden style="margin:0 0 16px"></div>
     <div class="bish">
       <div class="card b-cal" id="b-cal"></div>
       <div class="b-swipe"><span><b>${rows.length} ${rows.length === 1 ? "church" : "churches"}</b> · swipe or tap the arrows</span><button type="button" class="icon-btn sm" data-bs="-1" aria-label="Previous churches">${svg("prev")}</button><button type="button" class="icon-btn sm" data-bs="1" aria-label="More churches">${svg("next")}</button></div>
@@ -3521,7 +3527,7 @@ async function bishop(el, rows, text, newest) {
         setTimeout(() => row.scrollBy({left: 90, behavior: "smooth"}), 700); setTimeout(() => row.scrollBy({left: -90, behavior: "smooth"}), 1500); } } }
   if (S.bJump) { S.bJump = false; el.querySelector(".b-list")?.scrollIntoView({behavior: "smooth", block: "start"}); }  // church row and dashboard in view
   el.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { S.church = b.dataset.open; S.view = "dashboard"; render(); });  // admin: work in that church
-  el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text, {day: latest || newest});
+  el.querySelector("#wa").onclick = () => openSum(latest || newest); if (S.bSum) openSum(latest || newest, true);
   el.querySelector("#dl").onclick = () => download(`all_churches_${day || today()}.csv`, [["Church", "Service", "Present", "Adults", "Kids", "First-timers", "On the register", "Needs a call (red)", "Check in (amber)", "Missed this service", "Visited, not missed since", "Visits in the last 30 days"],
     ...rows.map(r => served(r) ? [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this, r.visited ?? "", r.visits_month ?? ""]
       : [r.church, `No service on ${day}`, "", "", "", "", r.register, "", "", "", "", ""])]);
