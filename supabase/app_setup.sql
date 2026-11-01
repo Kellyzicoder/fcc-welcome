@@ -1815,4 +1815,30 @@ end $$;
 revoke all on function app_set_tech_contact(text, text) from public, anon;
 grant execute on function app_set_tech_contact(text, text) to authenticated;
 
+-- ---------------------------------------------------------------- visits: someone went to see a person (Visits page)
+-- A visit takes the person off the call list until they next miss a Sunday. Admins, church admins and pastors (and
+-- shepherds) record them, for people they can see; the team sees them so Follow-up shows "Visited". Safe to run again.
+create table if not exists visits (
+  id uuid primary key default gen_random_uuid(),
+  member_id text not null references members(id) on delete cascade,
+  visit_date date not null,
+  visited_by text not null check (length(trim(visited_by)) between 1 and 120),
+  note text check (length(note) <= 500),
+  added_by text not null default lower(auth.jwt() ->> 'email'),
+  created_at timestamptz not null default now());
+create index if not exists visits_member on visits (member_id, visit_date desc);
+alter table visits enable row level security;
+drop policy if exists "app: see visits" on visits;
+create policy "app: see visits" on visits for select to authenticated
+  using (app_role() in ('admin', 'lead', 'pastor', 'team') and exists (select 1 from members m where m.id = visits.member_id));
+drop policy if exists "app: add visits" on visits;
+create policy "app: add visits" on visits for insert to authenticated
+  with check (app_role() in ('admin', 'lead', 'pastor') and added_by = lower(auth.jwt() ->> 'email') and visit_date <= current_date + 1
+              and exists (select 1 from members m where m.id = visits.member_id));
+drop policy if exists "app: remove visits" on visits;
+create policy "app: remove visits" on visits for delete to authenticated
+  using (exists (select 1 from members m where m.id = visits.member_id) and (added_by = lower(auth.jwt() ->> 'email') or app_role() in ('admin', 'lead')));
+revoke all on visits from anon;
+grant select, insert, delete on visits to authenticated;
+
 notify pgrst, 'reload schema';
