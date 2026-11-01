@@ -4346,9 +4346,9 @@ async function bacentas(el, mode = "manage") {
       $("#bc-skip").innerHTML = skip ? `<div class="msg" style="margin-top:12px;display:flex;align-items:center;gap:10px"><span><b>Didn't meet</b> on ${esc(nice(S.bcDate, true))}${skip.reason ? ": " + esc(skip.reason) : ""}</span><span class="gap" style="flex:1"></span>${canTick ? `<button type="button" class="pill-btn sm" id="bc-unskip">Undo</button>` : ""}</div>`
         : canTick && !now.size ? `<div style="margin-top:12px"><button type="button" class="pill-btn sm" id="bc-skipbtn">Didn't meet this week</button><p class="note" style="margin:8px 2px 0">Met on a different day this week? Change the date above, then tick people.</p></div>` : "";
       const names = q ? pool.filter(m => norm(m.full_name).includes(q)).slice(0, 40)
-        : pool.filter(m => regular.has(m.id) || (now.has(m.id) && (!tc || !inCenta[m.id] || inCenta[m.id] === tc.id)));  // with Centas: this Centa's people
+        : pool.filter(m => regular.has(m.id) || (!tc && now.has(m.id)));  // with Centas: just this Centa's people
       names.sort((x, y) => (now.has(y.id) - now.has(x.id)) || norm(x.full_name).localeCompare(norm(y.full_name)));
-      $("#bc-n").textContent = tc ? [...now].filter(id => inCenta[id] === tc.id || (!inCenta[id] && regular.has(id))).length : now.size;
+      $("#bc-n").textContent = tc ? [...now].filter(id => regular.has(id)).length : now.size;
       $("#bc-names").innerHTML = skip && !now.size ? "" : names.length ? `<div class="names" style="margin-top:12px">${names.map(m => `<label class="name ${now.has(m.id) ? "on" : ""}"><input type="checkbox" data-bt="${esc(m.id)}" ${now.has(m.id) ? "checked" : ""} ${canTick ? "" : "disabled"}>
           <span class="nava" ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span><span class="nn">${esc(m.full_name)}</span><small>${m.pending ? "Waiting to join Congregation" : m.guest ? "Bacenta only" : [m.type === "first_timer" ? "first-timer" : m.type === "visitor" ? "visitor" : "", isKid(m) ? "child" : ""].filter(Boolean).join(" · ")}</small></label>`).join("")}</div>`
         : `<p class="empty">${q ? "Nobody in " + esc(S.church) + " matches that. If they're new, tap Add someone new." : "Nobody yet. Search for a name above, or tap Add someone new."}</p>`;
