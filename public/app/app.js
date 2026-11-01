@@ -4414,12 +4414,12 @@ function visits(el) {
   el.innerHTML = head("Visits", esc(S.church)) + (S.visits ? "" : `<div class="msg" style="margin:0 0 14px">Run the latest setup SQL in Supabase once to record visits.</div>`) + `
     <div class="chips"><button class="chip ${tab === "need" ? "on" : ""}" data-vt="need">To visit (${need.length})</button><button class="chip ${tab === "done" ? "on" : ""}" data-vt="done">Visited (${done.length})</button></div>
     <div class="card">${tab === "need"
-      ? need.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th>Phone</th><th></th></tr></thead><tbody>
-        ${need.map(x => `<tr><td>${whoBtn(x)}</td><td>${flagBadge(x)}</td><td>${x.missed}</td><td class="muted hide-sm">${esc(nice(x.seen))}</td><td>${tel(x)}</td>
+      ? need.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th class="hide-sm">Missed in a row</th><th class="hide-sm">Last seen</th><th>Phone</th><th></th></tr></thead><tbody>
+        ${need.map(x => `<tr><td>${whoBtn(x)}</td><td>${flagBadge(x)}</td><td class="hide-sm">${x.missed}</td><td class="muted hide-sm">${esc(nice(x.seen))}</td><td>${tel(x)}</td>
           <td>${canVisit() ? `<button class="pill-btn sm primary" data-visit="${esc(x.id)}">Visited</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`
         : `<p class="empty">Nobody needs a visit right now.</p>`
-      : done.length ? `<div class="scroll"><table><thead><tr><th>Date</th><th>Name</th><th>Visited by</th><th>Note</th><th></th></tr></thead><tbody>
-        ${done.map(v => `<tr><td>${esc(full(v.visit_date))}</td><td>${whoBtn(byId[v.member_id])}</td><td>${esc(v.visited_by)}</td><td class="muted">${esc(v.note || "")}</td>
+      : done.length ? `<div class="scroll"><table><thead><tr><th>Date</th><th>Name</th><th>Visited by</th><th class="hide-sm">Note</th><th></th></tr></thead><tbody>
+        ${done.map(v => `<tr><td>${esc(full(v.visit_date))}</td><td>${whoBtn(byId[v.member_id])}</td><td>${esc(v.visited_by)}</td><td class="muted hide-sm">${esc(v.note || "")}</td>
           <td>${!S.preview && (v.added_by === mineEm || ["admin", "lead"].includes(S.me.role)) ? `<button class="x" data-vdel="${esc(v.id)}">Remove</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`
         : `<p class="empty">No visits recorded yet.</p>`}</div>`;
   el.querySelectorAll("[data-vt]").forEach(b => b.onclick = () => { S.visTab = b.dataset.vt; render(); });
