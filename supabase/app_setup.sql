@@ -346,7 +346,7 @@ begin
   latest as (select s.ch, max(s.service_date) as d from svc s group by 1),
   seen as (select p.id, max(t.service_date) as d from people p left join ticks t on t.id = p.id group by 1),
   -- a visit (Visits page): only the Sundays after it count as missed, as on Follow-up
-  vis as (select v.member_id as id, max(v.visit_date) as d from visits v where v.visit_date <= coalesce(upto, current_date + 1) group by 1),
+  vis as (select v.member_id as id, max(v.visit_date) as d from visits v where v.outcome = 'visited' and v.visit_date <= coalesce(upto, current_date + 1) group by 1),
   streak as (
     select p.id, p.ch,
            -- only Sunday services count as missed; midweek services still count as being seen
@@ -375,7 +375,7 @@ begin
                    (select s.service_date, s.n from svc s where s.ch = c.ch order by s.service_date desc limit 12) x), '{}'),
          (select count(*) from active a where a.ch = c.ch and a.visited and a.missed = 0)::int,  -- visited and not missed a Sunday since
          (select count(*) from visits v join people p on p.id = v.member_id
-            where p.ch = c.ch and v.visit_date between coalesce(upto, current_date) - 30 and coalesce(upto, current_date))::int  -- visits in the last 30 days
+            where p.ch = c.ch and v.outcome = 'visited' and v.visit_date between coalesce(upto, current_date) - 30 and coalesce(upto, current_date))::int  -- visits in the last 30 days
   from all_ch c left join latest l on l.ch = c.ch
   order by (c.ch <> app_home_church()), c.ch;
 end $$;
@@ -1860,6 +1860,8 @@ create table if not exists visits (
   added_by text not null default lower(auth.jwt() ->> 'email'),
   created_at timestamptz not null default now());
 create index if not exists visits_member on visits (member_id, visit_date desc);
+-- visited: they were seen (takes them off the call list); not_seen: someone went but they weren't in (a record only)
+alter table visits add column if not exists outcome text not null default 'visited' check (outcome in ('visited', 'not_seen'));
 alter table visits enable row level security;
 drop policy if exists "app: see visits" on visits;
 create policy "app: see visits" on visits for select to authenticated
