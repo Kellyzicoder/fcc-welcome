@@ -3421,25 +3421,50 @@ async function bishop(el, rows, text, newest) {
               ["blue", day ? "Missed that service" : "Missed the latest service", sum(pick, "missed_this")],
               ...(rows.some(r => r.visited != null) ? [["visited", "Visited, not missed since", sum(pick, "visited")]] : [])];  // after the setup SQL with visits
   const fuMax = Math.max(1, ...fu.map(f => f[2]));
+  const bacView = S.bView === "bac" && !!(bac || blist);  // Services or Bacentas, beside the church list
   const when = !latest ? "No services yet" : day && !had ? nice(day, true) : `${S.names?.[latest] || svcName(latest)} · ${nice(latest, true)}`;
-  el.innerHTML = head(admin ? "Churches" : "All churches", admin ? "Every church's numbers; open one to work in it, or manage the list at the bottom" : "Numbers only", `${admin ? `<button class="pill-btn" id="go-manage">${svg("edit")}Manage churches</button>` : ""}<button class="pill-btn" id="addcw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
+  // Dashboard or Grid: the Grid shows every church as a box of numbers, nothing else; tap a box for that church's dashboard
+  const layout = `<div class="seg" role="group" aria-label="Layout"><button type="button" data-bl="dash" aria-pressed="${!S.bGrid}">Dashboard</button><button type="button" data-bl="grid" aria-pressed="${!!S.bGrid}">Grid</button></div>`;
+  const wireLayout = () => el.querySelectorAll("[data-bl]").forEach(b => b.onclick = () => { S.bGrid = b.dataset.bl === "grid"; render(); });
+  if (S.bGrid) {
+    const bacCame = ch => { const x = (bac || []).find(r => r.church === ch); return bac ? (x ? x.came : 0) : "–"; };
+    const box = (r, all) => { const on = all || served(r), dash = n => on ? n : "–";
+      return `<button type="button" class="card cg-card${all ? " all" : ""}" data-gb="${all ? "" : esc(r.church)}">
+        <span class="cg-top"><b>${esc(all ? "All churches" : r.church)}</b><small>${esc(all ? `${rows.filter(served).length} of ${rows.length} churches${day ? " had a service" : ""}` : on ? (r.latest ? nice(r.latest) : "No services yet") : "No service this day")}</small></span>
+        <span class="cg-num">${dash(r.present)}<small>present</small></span>
+        <span class="cg-row"><span>${dash(r.adults)}<small>Adults</small></span><span>${dash(r.kids)}<small>Kids</small></span><span>${dash(r.first_timers)}<small>First-timers</small></span></span>
+        <span class="cg-row"><span class="cg-red">${r.red}<small>Need a call</small></span><span class="cg-yel">${r.yellow}<small>Check in</small></span><span>${all ? (bac ? sum(bac, "came") : "–") : bacCame(r.church)}<small>At Bacenta last week</small></span></span>
+        ${all ? "" : `<span class="spark" aria-hidden="true">${sparkOf(r.trend)}</span>`}</button>`; };
+    const on = rows.filter(served), tot = {present: sum(on, "present"), adults: sum(on, "adults"), kids: sum(on, "kids"), first_timers: sum(on, "first_timers"), red: sum(rows, "red"), yellow: sum(rows, "yellow")};
+    el.innerHTML = head(admin ? "Churches" : "All churches", day ? `Numbers only · ${esc(nice(day, true))}` : "Numbers only", layout + `<button class="pill-btn" id="wa">Summary for WhatsApp</button>`) + `
+      <div class="cg-grid">${box(tot, true)}${rows.map(r => box(r)).join("")}</div>
+      ${day ? `<p class="note" style="margin:12px 2px 0">Showing ${esc(nice(day, true))}. <button class="link" id="b-latest" style="margin:0">Back to the latest</button></p>` : ""}`;
+    wireLayout();
+    el.querySelectorAll("[data-gb]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.gb; S.bGrid = false; render(); scrollTo(0, 0); });
+    el.querySelector("#wa").onclick = () => waDialog("All churches for WhatsApp", text, {day: day || newest});
+    el.querySelector("#b-latest")?.addEventListener("click", () => { S.bDay = ""; render(); });
+    return;
+  }
+  el.innerHTML = head(admin ? "Churches" : "All churches", admin ? "Every church's numbers; open one to work in it, or manage the list at the bottom" : "Numbers only", `${layout}${admin ? `<button class="pill-btn" id="go-manage">${svg("edit")}Manage churches</button>` : ""}<button class="pill-btn" id="addcw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + `
     <div class="bish">
       <div class="card b-cal" id="b-cal"></div>
       <div class="b-swipe"><span><b>${rows.length} ${rows.length === 1 ? "church" : "churches"}</b> · swipe or tap the arrows</span><button type="button" class="icon-btn sm" data-bs="-1" aria-label="Previous churches">${svg("prev")}</button><button type="button" class="icon-btn sm" data-bs="1" aria-label="More churches">${svg("next")}</button></div>
       <nav class="card b-list" aria-label="Churches">${list}</nav>
       <section class="b-detail">
         <div class="b-title"><h2>${esc(S.bChurch || "All churches")}</h2><span class="muted">${esc(when)}</span>
+          ${bac || blist ? `<div class="seg ci-seg b-view" role="group" aria-label="Show"><button type="button" data-bv="svc" aria-pressed="${!bacView}">${svg("checkin")}Services</button><button type="button" data-bv="bac" aria-pressed="${bacView}">${svg("bacentas")}Bacentas</button></div>` : ""}
           ${admin && S.bChurch ? `<span class="gap" style="flex:1"></span><button class="pill-btn primary sm" data-open="${esc(S.bChurch)}">Open ${esc(S.bChurch)}</button>` : ""}</div>
-        <div class="wgrid c2" id="cgrid"></div>
+        <div class="wgrid c2" id="cgrid" ${bacView ? "hidden" : ""}></div>
+        <div id="b-bacs" ${bacView ? "" : "hidden"}>${bac ? bacentaNumbers(bac, S.bChurch, day) : ""}${blist ? bacentaByName(blist, S.bChurch, day) : ""}</div>
       </section></div>
-    ${bac ? bacentaNumbers(bac, S.bChurch, day) : ""}
-    ${blist ? bacentaByName(blist, S.bChurch, day) : ""}
     ${admin ? `<div class="card ch-manage" id="ch-manage"></div>` : ""}`;
   const wireBac = () => el.querySelector("#b-bac")?.addEventListener("click", e => {  // sort the Bacentas table in place
     const h = e.target.closest("[data-bsort]"); if (!h) return; const k = h.dataset.bsort, was = S.bacSort || {k: "came", up: false};
     S.bacSort = {k, up: was.k === k ? !was.up : k === "church"};  // a new column: highest first (names A to Z)
     el.querySelector("#b-bac").outerHTML = bacentaNumbers(bac, S.bChurch, day); wireBac(); el.querySelector(`#b-bac [data-bsort="${k}"]`)?.focus(); });
-  wireBac();
+  wireBac(); wireLayout();
+  el.querySelectorAll("[data-bv]").forEach(b => b.onclick = () => { S.bView = b.dataset.bv; const on = S.bView === "bac";
+    el.querySelector("#cgrid").hidden = on; el.querySelector("#b-bacs").hidden = !on; el.querySelectorAll("[data-bv]").forEach(x => x.setAttribute("aria-pressed", x === b)); });
   if (admin) { manageChurches(el.querySelector("#ch-manage"), rows);
     el.querySelector("#go-manage").onclick = () => el.querySelector("#ch-manage")?.scrollIntoView({behavior: "smooth", block: "start"}); }
   // the month calendar: days with a service show how many came (for the chosen church, or all churches added up)

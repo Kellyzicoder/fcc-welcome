@@ -517,7 +517,7 @@ input.in:focus, select.in:focus {border-color: var(--accent); box-shadow: 0 0 0 
 .seg2 button {border: 0; background: none; color: var(--ink-2, var(--ink)); font: inherit; font-weight: 600; padding: 10px; border-radius: 10px; cursor: pointer;}
 .seg2 button[aria-selected="true"] {background: var(--card); color: var(--accent); box-shadow: 0 1px 4px rgba(8, 15, 30, .12);}
 .b-back {display: none; align-items: center; gap: 6px; margin: 0 0 10px; font-weight: 600;} .b-back svg {width: 18px; height: 18px;}
-.b-title {display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 2px 2px 14px;} .b-title h2 {margin: 0; font-size: 22px;}
+.b-title {display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 2px 2px 14px;} .b-title .b-view {margin-left: auto; align-self: center;} .b-title h2 {margin: 0; font-size: 22px;}
 .num small.up {color: var(--ok);} .num small.down {color: var(--red);}
 .b-bar {display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 2.5em; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line);}
 .b-bar:first-of-type {border-top: 0;} .b-bar b {text-align: right; font-variant-numeric: tabular-nums; font-size: 17px;}
@@ -1188,6 +1188,16 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 @media (prefers-reduced-motion: no-preference) and (max-width: 720px) {
   .modal > .sheet, .modal > form {animation-name: fcc-up;} .modal.leaving > * {animation-name: fcc-up;}
 }
+
+/* All churches → Grid: a box of numbers for each church */
+.cg-grid {display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px;}
+.cg-card {display: flex; flex-direction: column; gap: 14px; text-align: left; font: inherit; color: inherit; cursor: pointer; margin: 0; border: 1px solid var(--line); transition: border-color .15s, transform .15s;}
+.cg-card:hover, .cg-card:focus-visible {border-color: var(--accent); transform: translateY(-1px);} .cg-card.all {background: var(--accent-soft);}
+.cg-top {display: flex; flex-direction: column; gap: 2px;} .cg-top b {font-size: 17px;} .cg-top small {color: var(--ink-3); font-size: 12.5px;}
+.cg-num {font-size: 36px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;} .cg-num small {font-size: 13px; font-weight: 500; color: var(--ink-3); margin-left: 6px;}
+.cg-row {display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;} .cg-row > span {display: flex; flex-direction: column; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums;}
+.cg-row small {font-size: 11.5px; font-weight: 400; color: var(--ink-3); line-height: 1.3;} .cg-red {color: var(--red);} .cg-yel {color: var(--yellow);}
+@media (prefers-reduced-motion: reduce) { .cg-card {transition: none;} .cg-card:hover {transform: none;} }
 </style>
 </head>
 <body>
