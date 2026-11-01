@@ -1045,8 +1045,8 @@ async function load() {
   S.bacList = await all("bacentas?select=id,church,name,shepherd,pastor,meet_day,active,created_at&order=name").catch(() => null);  // for Check-in's Service | Bacenta switch
   S.bacHelp = await all("bacenta_helpers?select=bacenta,email,role").catch(() => []);  // who leads or assists which Bacenta
   // names added at a Bacenta waiting for a church admin to approve (the count on the Bacentas menu item)
-  S.bacPending = ["admin", "lead"].includes(S.me.role) ? (await all("bacenta_guests?select=id,bacenta&status=eq.pending").catch(() => []))
-    .filter(g => (S.bacList || []).some(b => b.id === g.bacenta && b.church === S.church)).length : 0;
+  S.bacPending = ["admin", "lead"].includes(S.me.role) ? newSince((await all("bacenta_guests?select=id,bacenta,created_at&status=eq.pending").catch(() => []))
+    .filter(g => (S.bacList || []).some(b => b.id === g.bacenta && b.church === S.church)), "bacentas") : 0;
 }
 // Before a page opens: what may have changed lately (people, and the last two weeks' ticks and services). Quicker than load().
 let freshAt = 0;
@@ -1063,7 +1063,7 @@ async function freshen() {
     all(`service_parts?select=service_date,part,name&church=eq.${encodeURIComponent(S.church)}&service_date=gte.${since}&order=service_date,part`).catch(() => null),
     all(`service_ticks?select=service_date,part,member_id&service_date=gte.${since}`).catch(() => null),
     canApprove() ? api("registrations?select=created_at&status=eq.pending").then(newSignups).catch(() => S.pending) : 0,
-    canTeam() ? api("team_requests?select=id&status=eq.pending").then(r => r.length).catch(() => 0) : 0]);  // all at once, not one after another
+    canTeam() ? api("team_requests?select=created_at&status=eq.pending").then(r => newSince(r, "teamforms")).catch(() => 0) : 0]);  // all at once, not one after another
   const sig = JSON.stringify([members, ticks, services, parts, pticks, pending, teamPending]), changed = sig !== S.freshSig; S.freshSig = sig;
   S.members = S.me.role === "pastor" && S.me.base !== "pastor" ? members.filter(m => careOf(m).some(n => norm(n) === norm(S.me.pastor))) : members;
   S.ticks = S.ticks.filter(t => t.service_date < since).concat(ticks);
@@ -3560,8 +3560,10 @@ async function admin(el) {
       : `<p class="note" style="margin:0">Run the latest setup SQL in Supabase once to see this.</p>`}</div>`;
   if (S.view !== "admin") return;
   const fresh = (inbox || []).filter(m => !m.done), shown = S.inboxAll ? inbox || [] : fresh;
+  // new since Messages was last opened: the number on the tab; opening the tab clears it (no need to mark each one done)
+  const lastLook = seenAt("messages"), unread = fresh.filter(m => Date.parse(m.created_at) > lastLook).length;
   const when = t => { const d = new Date(t); return d.toLocaleDateString(undefined, {day: "numeric", month: "short"}) + ", " + d.toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"}); };
-  const inboxCard = `<div class="card" style="margin-bottom:14px" id="inbox"><div class="card-head"><h2>Messages${fresh.length ? ` <span class="badge red">${fresh.length} new</span>` : ""}</h2><span class="gap"></span>
+  const inboxCard = `<div class="card" style="margin-bottom:14px" id="inbox"><div class="card-head"><h2>Messages${unread ? ` <span class="badge red">${unread} new</span>` : ""}</h2><span class="gap"></span>
       ${inbox?.length ? `<button class="link" style="margin:0" id="inbox-all">${S.inboxAll ? "Hide done" : "Show done too"}</button>` : ""}</div>
     ${inbox === null ? `<p class="note" style="margin:0">Run the latest setup SQL in Supabase to see Help messages here.</p>`
       : !shown.length ? `<p class="empty" style="margin:0">No ${inbox.length ? "new " : ""}messages. Messages from the Help page show here and are emailed to you.</p>`
@@ -3576,9 +3578,10 @@ async function admin(el) {
   const TABS = [["messages", "Messages", fresh.length], ["names", "Sign-ins", users.length], ["backup", "Backups", 0], ["push", "Notifications", 0], ["space", "Space", 0]]
     .filter(([k]) => !["backup", "push"].includes(k) || (S.me.title === "Tech admin" && !S.preview));  // Backups and Notifications: the tech admin only  // churches are managed on the Churches page
   if (!TABS.some(t => t[0] === S.adminTab)) S.adminTab = fresh.length ? "messages" : "names";
+  if (S.adminTab === "messages") { markSeen("messages"); S.msgNew = 0; }
   const tab = k => `data-at="${k}" ${S.adminTab === k ? "" : "hidden"}`;
   el.innerHTML = head("Admin", "Who can sign in, messages from Help, and database space") + `<div class="atabs" role="tablist" aria-label="Admin">${TABS.map(([k, name, n]) =>
-      `<button role="tab" data-atab="${k}" aria-selected="${S.adminTab === k}">${name}${k === "messages" && n ? ` <span class="anum new">${n}</span>` : ""}</button>`).join("")}</div>
+      `<button role="tab" data-atab="${k}" aria-selected="${S.adminTab === k}">${name}${k === "messages" && unread && S.adminTab !== "messages" ? ` <span class="anum new">${unread}</span>` : ""}</button>`).join("")}</div>
     <section ${tab("messages")}>${inboxCard}</section><section ${tab("backup")}>${backupCard}</section><section ${tab("space")}>${spaceCard}</section><section ${tab("push")}><div id="push-card"></div><div id="tech-card"></div></section>
     <section ${tab("names")}>
     <div class="tiles">${[["Total sign-ins", users.length, "Across all churches"], ["Church admins", users.filter(u => u.role === "lead").length, "Run a church"],
@@ -3618,6 +3621,7 @@ async function admin(el) {
   pushSetup(el.querySelector("#push-card")); techCard(el.querySelector("#tech-card"));
   el.querySelectorAll("[data-atab]").forEach(b => b.onclick = () => {
     S.adminTab = b.dataset.atab;
+    if (S.adminTab === "messages") { markSeen("messages"); S.msgNew = 0; b.querySelector(".anum")?.remove(); setBadge(); }  // seen: the count clears
     el.querySelectorAll("[data-atab]").forEach(x => x.setAttribute("aria-selected", x === b));
     el.querySelectorAll("section[data-at]").forEach(x => x.hidden = x.dataset.at !== S.adminTab);
   });
@@ -4156,7 +4160,7 @@ async function bacentas(el, mode = "manage") {
     el.querySelector("#bc-go")?.addEventListener("click", () => takeBacenta(b.id, bacLastDay(b) || today()));
     // names added at a Bacenta by a shepherd, pastor or helper, waiting for a church admin to add them to the Congregation list
     const waiting = guests.filter(g => g.status === "pending" && !g.member_id && list.some(x => x.id === g.bacenta));
-    S.bacPending = waiting.length;
+    if (S.bacPending) { S.bacPending = 0; markSeen("bacentas"); clearCount("bacentas"); }  // seen: the count clears
     const ab = el.querySelector("#bc-approve");
     if (ab && waiting.length) {
       ab.innerHTML = `<div class="card" style="margin-bottom:14px;border:1px solid var(--h3)"><div class="card-head"><h2>Waiting to join the Congregation list</h2><span class="gap"></span><span class="muted" style="font-size:13px">${waiting.length} ${waiting.length === 1 ? "name" : "names"} added at a Bacenta</span></div>
@@ -4164,7 +4168,7 @@ async function bacentas(el, mode = "manage") {
           <td><b>${esc(g.full_name)}</b></td><td>${esc(list.find(x => x.id === g.bacenta)?.name || "")}</td><td>${g.phone ? esc(g.phone) : `<span class="muted">Not given</span>`}</td><td class="muted">${esc(g.added_by || "")}</td>
           <td style="white-space:nowrap"><button class="pill-btn sm primary" data-bcok="${esc(g.id)}">Add to Congregation</button> <button class="pill-btn sm" data-bclink="${esc(g.id)}" title="They're already on the Congregation list under their name">Already on it</button> <button class="pill-btn sm" data-bcno="${esc(g.id)}">Keep as Bacenta only</button></td></tr>`).join("")}</tbody></table></div>
         <p class="note" style="margin:10px 2px 0">They're already on their Bacenta's list either way. <b>Add to Congregation</b> puts them on the church's list with their Bacenta attendance. <b>Already on it</b> links them to their name there. <b>Keep as Bacenta only</b> leaves them off the church's list.</p></div>`;
-      const done = msg => { S.bacPending = Math.max(0, waiting.length - 1); toast(msg); };  // the menu count, straight away
+      const done = msg => toast(msg);
       ab.querySelectorAll("[data-bcok]").forEach(x => x.onclick = () => { const g = waiting.find(y => y.id === x.dataset.bcok);
         formDialog(`Add ${g.full_name} to the Congregation list`, [{k: "typ", label: "Attendance Type", type: "select", value: "visitor", options: typeOpts,
             hint: "Visitors are never flagged for missing Sundays. Change it later on Congregation when they start coming."}],
@@ -4377,9 +4381,19 @@ async function person(el) {
 }
 
 // ---------------------------------------------------------------- sign-ups from the welcome form
-// The Sign-ups badge counts only sign-ups that came in since this person last opened Sign-ups; the page itself lists everyone waiting
-const signSeenKey = () => "fcc-signups-seen:" + (S.me?.email || "");
-const newSignups = rows => { let seen = 0; try { seen = +localStorage.getItem(signSeenKey()) || 0; } catch {} return rows.filter(r => Date.parse(r.created_at) > seen).length; };
+// The counts (Sign-ups, Team forms, Bacentas, Admin → Messages, and the app icon) only count what came in since this person
+// last opened that page or tab: opening it is enough, no need to tap each one. The page itself still lists everything waiting.
+const seenKey = k => (k === "signups" ? "fcc-signups-seen:" : `fcc-seen-${k}:`) + (S.me?.email || "");
+const seenAt = k => { try { return +localStorage.getItem(seenKey(k)) || 0; } catch { return 0; } };
+const markSeen = k => { try { localStorage.setItem(seenKey(k), String(Date.now())); } catch {} };
+const newSince = (rows, k) => { const t = seenAt(k); return (rows || []).filter(r => Date.parse(r.created_at) > t).length; };
+const newSignups = rows => newSince(rows, "signups");
+function clearCount(view) {  // the number on a menu item, and on its group, goes as soon as the page is open
+  document.querySelectorAll(`[data-view="${view}"] .count`).forEach(x => x.remove());
+  document.querySelectorAll(".ngrp").forEach(g => { const h = g.querySelector(".ngrp-h .count"); if (!h) return;
+    const n = [...g.querySelectorAll(".ngrp-b .count")].reduce((t, x) => t + (+x.textContent || 0), 0); if (n) h.textContent = n; else h.remove(); });
+  setBadge();
+}
 async function signups(el) {
   const sub = "From the welcome form, waiting for approval";
   el.innerHTML = head("Sign-ups", sub) + `<p class="empty">Loading…</p>`;
@@ -4387,8 +4401,7 @@ async function signups(el) {
   try { regs = await api("registrations?select=id,full_name,phone,email,invited_by,first_visit,notes,wants_contact,created_at&status=eq.pending&order=created_at"); }
   catch (e) { el.innerHTML = head("Sign-ups", sub) + `<div class="msg bad">Sign-ups can't load. Run the latest setup SQL in Supabase, then reopen this page. (${esc(e.message)})</div>`; return; }
   if (S.view !== "signups") return;
-  S.pending = 0; try { localStorage.setItem(signSeenKey(), String(Date.now())); } catch {}  // seen: the badge clears
-  document.querySelectorAll('[data-view="signups"] .count').forEach(x => x.remove());
+  S.pending = 0; markSeen("signups"); clearCount("signups");  // seen: the count clears
   const home = Object.fromEntries(S.members.filter(m => churchOf(m) === S.me.home).map(m => [norm(m.full_name).replace(/\s+/g, " "), m]));
   el.innerHTML = head("Sign-ups", sub) + (regs.length ? regs.map(r => {
     const match = home[norm(r.full_name).replace(/\s+/g, " ")];
@@ -4512,7 +4525,7 @@ async function teamforms(el) {
       api(`team_links?select=token,church,made_by_name,expires_at&expires_at=gt.${encodeURIComponent(new Date().toISOString())}&order=created_at.desc&limit=8`)]);
   } catch (e) { el.innerHTML = head("Team forms", sub) + `<div class="msg bad">Team forms can't load. Run the latest setup SQL in Supabase, then reopen this page. (${esc(e.message)})</div>`; return; }
   if (S.view !== "teamforms") return;
-  S.teamPending = reqs.length;
+  S.teamPending = 0; markSeen("teamforms"); clearCount("teamforms");  // seen: the count clears
   const signed = S.me.role === "admin" ? new Set((await api("app_users?select=email").catch(() => [])).map(u => u.email)) : new Set();
   if (S.view !== "teamforms") return;
   // name suggestions per church: a row only offers its own church's Pastors and Shepherds
@@ -5016,7 +5029,7 @@ function setBadge() {
     let n = (S.pending || 0) + (S.teamPending || 0);
     try { n += picture().count("red"); } catch {}
     if (S.me.role === "admin") {
-      if (S.msgNew === undefined) S.msgNew = await api("help_messages?select=id&or=(done.is.null,done.is.false)").then(r => r.length).catch(() => 0);
+      if (S.msgNew === undefined) S.msgNew = await api("help_messages?select=created_at&or=(done.is.null,done.is.false)").then(r => newSince(r, "messages")).catch(() => 0);
       n += S.msgNew;
     }
     (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
