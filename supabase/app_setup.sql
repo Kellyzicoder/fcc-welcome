@@ -1946,4 +1946,125 @@ language sql stable security definer set search_path = public as $$
 revoke all on function app_signin_last() from public, anon;
 grant execute on function app_signin_last() to authenticated;
 
+-- ---------------------------------------------------------------- Centas: smaller groups inside a Bacenta
+-- A pastor oversees a Bacenta; inside it are Centas, each run by a shepherd. Once a Bacenta has Centas, everyone on its
+-- list is in one of them (one Centa per person), and each Centa takes its own attendance (saved as the Bacenta's ticks).
+-- The pastor over the Bacenta, church admins and admins add and name Centas and choose their shepherds; a shepherd can
+-- rename their own Centa and put people in it. Safe to run again.
+create table if not exists centas (
+  id uuid primary key default gen_random_uuid(),
+  bacenta uuid not null references bacentas(id) on delete cascade,
+  name text not null check (length(trim(name)) between 1 and 60),
+  shepherd text check (length(shepherd) <= 80),
+  meet_day smallint check (meet_day between 0 and 6),
+  active boolean not null default true,
+  created_at timestamptz not null default now());
+create unique index if not exists centas_name on centas (bacenta, lower(trim(name)));
+create table if not exists centa_people (
+  member_id text primary key references members(id) on delete cascade,  -- one Centa each
+  centa uuid not null references centas(id) on delete cascade,
+  added_at timestamptz not null default now());
+create index if not exists centa_people_centa on centa_people (centa);
+alter table bacenta_guests add column if not exists centa uuid references centas(id) on delete set null;  -- Bacenta-only people too
+grant update (centa) on bacenta_guests to authenticated;  -- moving a Bacenta-only person to another Centa
+alter table centas enable row level security;
+alter table centa_people enable row level security;
+
+create or replace function app_norm_name(t text) returns text language sql immutable as $$ select lower(regexp_replace(trim(t), '\s+', ' ', 'g')) $$;
+-- may the signed-in person set up this Bacenta's Centas? Admins and church admins (their church), and its pastor
+create or replace function app_centa_admin(b uuid) returns boolean language sql stable security definer set search_path = public as
+$$ select coalesce((select (app_role() in ('admin', 'lead') and app_can_see(x.church))
+     or (app_role() = 'pastor' and x.church = app_church() and app_pastor_name() = app_norm_name(x.pastor))
+     from bacentas x where x.id = b), false) $$;
+-- is the signed-in person this Centa's shepherd?
+create or replace function app_centa_shepherd(c uuid) returns boolean language sql stable security definer set search_path = public as
+$$ select coalesce((select app_role() = 'pastor' and app_pastor_name() = app_norm_name(k.shepherd) and k.active from centas k where k.id = c), false) $$;
+-- a Bacenta, as before, and now also for the shepherd of any of its Centas (the app shows them their own Centa)
+create or replace function app_bacenta_ok(b uuid) returns boolean language sql stable security definer set search_path = public as
+$$ select coalesce((select (app_role() in ('admin', 'lead') and app_can_see(x.church))
+     or (x.church = app_church() and exists (select 1 from bacenta_helpers h where h.bacenta = x.id and h.email = lower(auth.jwt() ->> 'email')))
+     or (app_role() = 'pastor' and x.church = app_church() and app_pastor_name() in (app_norm_name(x.shepherd), app_norm_name(x.pastor)))
+     or (app_role() = 'pastor' and x.church = app_church()
+         and exists (select 1 from centas k where k.bacenta = x.id and k.active and app_norm_name(k.shepherd) = app_pastor_name()))
+     from bacentas x where x.id = b), false) $$;
+revoke all on function app_centa_admin(uuid), app_centa_shepherd(uuid) from public, anon;
+grant execute on function app_centa_admin(uuid), app_centa_shepherd(uuid) to authenticated;
+
+drop policy if exists "app: see centas" on centas;
+create policy "app: see centas" on centas for select to authenticated using (app_bacenta_ok(bacenta));
+drop policy if exists "app: add centas" on centas;
+create policy "app: add centas" on centas for insert to authenticated with check (app_centa_admin(bacenta));
+drop policy if exists "app: change centas" on centas;
+create policy "app: change centas" on centas for update to authenticated using (app_centa_admin(bacenta)) with check (app_centa_admin(bacenta));
+grant select, insert, update on centas to authenticated;
+-- a shepherd renames their own Centa (only its name)
+create or replace function app_rename_centa(c uuid, new_name text) returns boolean language plpgsql security definer set search_path = public as $$
+begin
+  if not (app_centa_shepherd(c) or app_centa_admin((select k.bacenta from centas k where k.id = c))) then raise exception 'not allowed'; end if;
+  if length(trim(coalesce(new_name, ''))) not between 1 and 60 then raise exception 'Type the Centa''s name.'; end if;
+  update centas set name = regexp_replace(trim(new_name), '\s+', ' ', 'g') where id = c;
+  return true;
+end $$;
+revoke all on function app_rename_centa(uuid, text) from public, anon;
+grant execute on function app_rename_centa(uuid, text) to authenticated;
+
+drop policy if exists "app: see centa people" on centa_people;
+create policy "app: see centa people" on centa_people for select to authenticated
+  using (exists (select 1 from centas k where k.id = centa_people.centa and app_bacenta_ok(k.bacenta)));
+drop policy if exists "app: put people in a centa" on centa_people;
+create policy "app: put people in a centa" on centa_people for insert to authenticated
+  with check (exists (select 1 from centas k where k.id = centa_people.centa and (app_centa_admin(k.bacenta) or app_centa_shepherd(k.id))
+                      and app_bacenta_tick_ok(k.bacenta, centa_people.member_id)));
+drop policy if exists "app: move people between centas" on centa_people;
+create policy "app: move people between centas" on centa_people for update to authenticated
+  using (exists (select 1 from centas k where k.id = centa_people.centa and app_centa_admin(k.bacenta)))
+  with check (exists (select 1 from centas k where k.id = centa_people.centa and app_centa_admin(k.bacenta) and app_bacenta_tick_ok(k.bacenta, centa_people.member_id)));
+drop policy if exists "app: take people out of a centa" on centa_people;
+create policy "app: take people out of a centa" on centa_people for delete to authenticated
+  using (exists (select 1 from centas k where k.id = centa_people.centa and (app_centa_admin(k.bacenta) or app_centa_shepherd(k.id))));
+grant select, insert, update, delete on centa_people to authenticated;
+
+-- a shepherd's or pastor's Bacenta people, with details for their own (now including the people in their Centas)
+create or replace function app_bacenta_people() returns table (id text, full_name text, type text, age_group text, phone text, birthday date, address text)
+language sql stable security definer set search_path = public as $$
+  with mine as (select b.id from bacentas b where b.church = app_church() and b.active
+                  and (app_pastor_name() in (app_norm_name(b.shepherd), app_norm_name(b.pastor))
+                       or exists (select 1 from centas k where k.bacenta = b.id and k.active and app_norm_name(k.shepherd) = app_pastor_name()))),
+       near as (select t.member_id from bacenta_ticks t join mine on mine.id = t.bacenta where t.meeting_date >= current_date - 91
+                union select p.member_id from centa_people p join centas k on k.id = p.centa join mine on mine.id = k.bacenta)
+  select m.id, m.full_name, m.type, m.age_group,
+         case when n.member_id is not null then m.phone end, case when n.member_id is not null then m.birthday end,
+         case when n.member_id is not null then m.address end
+  from members m left join (select distinct member_id from near) n on n.member_id = m.id
+  where app_role() = 'pastor' and exists (select 1 from mine)
+    and coalesce(nullif(trim(m.church), ''), app_home_church()) = app_church()
+  order by m.full_name $$;
+
+-- All churches page (Bishop and admin): each Centa, numbers only: its Bacenta, shepherd, how many are in it, how many came
+-- last week (Monday to Sunday, the last finished week), and people each week for the last 8 weeks (oldest first)
+create or replace function centa_list(upto date default null) returns table (
+  church text, bacenta text, name text, shepherd text, people int, came int, weeks int[])
+language plpgsql stable security definer set search_path = public as $$
+declare mon date := date_trunc('week', coalesce(upto, current_date))::date - 7;
+begin
+  if app_role() is null or app_role() not in ('admin', 'bishop') then raise exception 'not allowed'; end if;
+  return query
+  with t as (
+    select k.bacenta, k.meeting_date, 'm' || k.member_id as who from bacenta_ticks k
+    union all select k.bacenta, k.meeting_date, 'g' || k.guest from bacenta_guest_ticks k
+      join bacenta_guests g on g.id = k.guest where g.member_id is null),
+  ppl as (select p.centa, 'm' || p.member_id as who from centa_people p
+          union all select g.centa, 'g' || g.id from bacenta_guests g where g.centa is not null and g.member_id is null)
+  select b.church, b.name, c.name, c.shepherd,
+    (select count(*)::int from ppl where ppl.centa = c.id),
+    (select count(distinct t.who)::int from t join ppl on ppl.who = t.who and ppl.centa = c.id
+       where t.bacenta = b.id and t.meeting_date between mon and mon + 6),
+    array(select (select count(distinct t.who)::int from t join ppl on ppl.who = t.who and ppl.centa = c.id
+                    where t.bacenta = b.id and t.meeting_date between mon - 7 * w and mon - 7 * w + 6)
+          from generate_series(7, 0, -1) w)
+  from centas c join bacentas b on b.id = c.bacenta where c.active and b.active order by b.church, b.name, c.name;
+end $$;
+revoke all on function centa_list(date) from public, anon;
+grant execute on function centa_list(date) to authenticated;
+
 notify pgrst, 'reload schema';
