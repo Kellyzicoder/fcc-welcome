@@ -1199,6 +1199,49 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 .cg-row {display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;} .cg-row > span {display: flex; flex-direction: column; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums;}
 .cg-row small {font-size: 11.5px; font-weight: 400; color: var(--ink-3); line-height: 1.3;} .cg-red {color: var(--red);} .cg-yel {color: var(--yellow);}
 @media (prefers-reduced-motion: reduce) { .cg-card {transition: none;} .cg-card:hover {transform: none;} }
+@media (max-width: 400px) { .top .out-btn {width: 38px; padding: 0; justify-content: center;} .top .out-btn span {display: none;} }  /* small phones: Log out as an icon, so the bar stays one line */
+/* the Search page */
+.gs-page {max-width: 760px;}
+.gs-title {font-size: 34px; margin: 4px 2px 16px; letter-spacing: -.01em;}
+.gs-big {display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 20px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); color: var(--ink-3); cursor: text; margin-bottom: 18px;}
+.gs-big:focus-within {border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);}
+.gs-big svg {width: 22px; height: 22px; flex: none;}
+.gs-big input {flex: 1; min-width: 0; border: 0; background: none; color: var(--ink); font: inherit; font-size: 17px; outline: none;}
+.gs-tiles {display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 22px;}
+.gs-tile {display: flex; align-items: center; gap: 12px; min-height: 58px; padding: 12px 16px; border-radius: 16px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-weight: 600; font-size: 15px; text-align: left; cursor: pointer;}
+.gs-tile svg {width: 22px; height: 22px; flex: none; color: var(--nc, var(--accent));} .gs-tile:hover {background: var(--soft);}
+.gs-sec {font-size: 19px; margin: 0 2px 10px;}
+.gs-list {padding: 6px;}
+.gs-h {font-size: 11.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); padding: 10px 10px 4px;}
+.gs-item {display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; text-align: left; border: 0; background: none; color: var(--ink); font: inherit; padding: 10px; border-radius: 10px; cursor: pointer;}
+.gs-item b {font-weight: 600; font-size: 15px;} .gs-item small {color: var(--ink-3); font-size: 12.5px;} .gs-item:hover {background: var(--soft);}
+.gs-none {margin: 6px 2px; color: var(--ink-2); font-size: 15px; line-height: 1.5;}
+@media (max-width: 600px) { .gs-tiles {grid-template-columns: 1fr 1fr;} .gs-title {font-size: 30px;} }
+/* the bell at the top, with a red count, and the Notifications page */
+.bell {position: relative; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; border: 0; background: none; color: var(--ink); cursor: pointer; flex: none;}
+.bell svg {width: 23px; height: 23px;} .bell:hover {background: var(--soft);} .bell.on {color: var(--accent);}
+.bell-n {position: absolute; top: 0; right: -2px; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 999px; background: var(--red); color: #fff; font-size: 11.5px; font-weight: 700; line-height: 19px; text-align: center; box-shadow: 0 0 0 2px var(--panel);}
+.al-list {padding: 6px;}
+.al-item {display: flex; align-items: center; gap: 14px; width: 100%; padding: 12px; border: 0; border-radius: 12px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer;}
+.al-item + .al-item {border-top: 1px solid var(--line); border-radius: 0;} .al-item:hover {background: var(--soft);}
+.al-item > span:nth-child(2) {flex: 1; display: flex; flex-direction: column; gap: 2px;} .al-item b {font-size: 15.5px;} .al-item small {color: var(--ink-3); font-size: 13px;}
+.al-item > svg {width: 18px; height: 18px; color: var(--ink-3); flex: none;}
+.al-ico {display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--soft); color: var(--nc, var(--accent)); flex: none;} .al-ico svg {width: 20px; height: 20px;}
+/* the bottom bar on phones, like other apps: an icon with its name under it, room around each, the page you're on in a soft oval */
+@media (max-width: 1080px) {
+  .dock {left: 14px; right: 14px; padding: 7px 10px; gap: 8px; max-width: 460px; border-radius: 40px; background: color-mix(in srgb, var(--dock) 88%, transparent);
+         -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); border: 1px solid rgba(255, 255, 255, .12);}
+  .dock button, .dock button.on {flex: 1 1 0; min-width: 0; height: 58px; padding: 6px 2px; flex-direction: column; justify-content: center; gap: 5px;
+                                  border-radius: 29px; font-size: 10.1px; font-weight: 500; letter-spacing: .01em; color: #e9edf3;}
+  .dock span, .dock button.on span, .dock button.on.long span {display: block; white-space: nowrap; line-height: 1.1;}
+  .dock svg {width: 20px; height: 20px; stroke-width: 2;}
+  .dock button.on {background: rgba(255, 255, 255, .14); color: #fff; font-weight: 600; flex-grow: 1.2;}  /* an oval, wider than it is tall */
+  @media (max-width: 370px) { .dock {left: 10px; right: 10px; padding: 6px 8px; gap: 6px;} .dock button, .dock button.on {font-size: 9.7px;} .dock button.on {flex-grow: 1.1;} }
+  .dock-me {width: 22px !important; height: 22px !important; font-size: 8.2px !important; border-width: 1.6px !important; letter-spacing: .02em; box-sizing: border-box; margin: -1px 0;}  /* room around the initials; its name lines up with the others */
+  /* phones: the top bar keeps only the menu, Back and the bell (your account is You in the bottom bar) */
+  .top .acct, .top .out-btn, .top .mode {display: none;}
+}
+.dock-me {display: grid !important; place-items: center; width: 24px; height: 24px; border-radius: 50%; border: 1.8px solid currentColor; font-size: 10.5px; font-weight: 700; line-height: 1;}
 </style>
 </head>
 <body>

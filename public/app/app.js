@@ -1145,6 +1145,7 @@ const ICON = {
   checkin: '<path d="M5 12l5 5 9-10"/>',
   visits: '<path d="M3 11l9-7 9 7"/><path d="M5 9.5V20h14V9.5"/><path d="M9 14.5l2 2 4-4"/>',
   followup: '<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  bell: '<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/>', alerts: '<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/>',
   people: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   overview: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   admin: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>',
@@ -1203,15 +1204,15 @@ function navGroup(h, items, btns) {
 }
 function pages() {  // the menu, in groups; what each role can actually load is decided by the database
   const r = S.me.role;
-  if (r === "bishop") return [["", [["overview", "All churches"], ["help", "Help"]]]];
-  if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ["visits", "Visits"], ...((S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people (and the Bacentas they oversee or shepherd)
+  if (r === "bishop") return [["", [["overview", "All churches"], ["search", "Search"], ["help", "Help"]]]];
+  if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ["visits", "Visits"], ...((S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ["search", "Search"], ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people (and the Bacentas they oversee or shepherd)
   // Grouped by what people come to do: take attendance, look after people, share the numbers, run the churches, settings
   return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["followup", "Follow-up"], ...(r === "team" ? [] : [["visits", "Visits"]])]],
           ["PEOPLE", [["people", "Congregation"], ["pastors", "Pastors"], ["shepherds", "Shepherds"], ...(["admin", "lead"].includes(r) || (S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ...(canApprove() ? [["signups", "Sign-ups"]] : []), ...(canTeam() ? [["teamforms", "Team forms"]] : []), ["archive", "Archive"]]],
           ["SHARE", [["reports", "Reports"]]],
           ...(r === "admin" ? [["CHURCHES", [["overview", "Churches"]]]] : []),
           ...(r === "team" ? [] : [[r === "admin" ? "ADMIN" : "RECORDS", [...(r === "admin" ? [["admin", "Admin"]] : []), ["activity", "Activity log"]]]]),
-          ["", [["ask", "Ask a question"], ["help", "Help"]]]];
+          ["", [["search", "Search"], ["ask", "Ask a question"], ["help", "Help"]]]];
 }
 // Settings each person picks for themselves: colour, theme, text size and so on. Kept on this phone or laptop, per person.
 const ACCENTS = [["#1f6fe5", "Blue"], ["#0e8a7c", "Teal"], ["#6250d6", "Violet"], ["#c8417a", "Pink"], ["#dc5f26", "Orange"], ["#2b9348", "Green"], ["#b8860b", "Gold"]];
@@ -1264,13 +1265,14 @@ function render() {
   }
   if (S.view === "checkin" && S.shown !== "checkin") { S.ciTopOpen = false; if (S.ciModeKeep) S.ciModeKeep = false; else ciDefaultMode(); }  // Service or Bacenta  // the Service card starts folded each time you come to Check-in
   S.goingBack = false; S.shown = S.view;
-  const groups = pages(), who = S.me.name || S.me.email, allowed = [...groups.flatMap(g => g[1].map(x => x[0])), "account", ...(S.me.role === "bishop" ? [] : ["person"])];
+  const groups = pages(), who = S.me.name || S.me.email, allowed = [...groups.flatMap(g => g[1].map(x => x[0])), "account", ...(S.me.role === "bishop" ? [] : ["person", "alerts"])];
   if (S.view === "summary") { S.view = "reports"; S.repTab = "summary"; }  // the WhatsApp summary is a tab on Reports now
   if (!allowed.includes(S.view)) S.view = allowed[0];
-  const short = {dashboard: "Home", overview: "Churches", people: "People", followup: "Follow-up"};  // the bottom bar on phones: the four most-used pages, then More
+  const short = {dashboard: "Home", mine: "Home", overview: "Churches", people: "People", followup: "Follow-up", checkin: "Check-in", account: "You", search: "Search"};  // the bottom bar on phones: the four most-used pages, then More
   // pages someone turned off in Settings → Pages you see: left out of their menu and bottom bar (the first page always stays)
   const hid = new Set(look().hide || []), menuGroups = groups.map(([h, items]) => [h, items.filter(([k]) => !hid.has(k) || k === allowed[0])]).filter(g => g[1].length);
-  const dock = menuGroups.flatMap(g => g[1]).filter(x => ["mine", "dashboard", "checkin", "followup", "people", "overview"].includes(x[0])).slice(0, 5).map(([k, t]) => [k, short[k] || t]);
+  const dock = [...menuGroups.flatMap(g => g[1]).filter(x => ["mine", "dashboard", "overview", "checkin", "followup", "visits", "people", "help"].includes(x[0])).slice(0, 3), ["search", "Search"], ["account", "You"]]
+    .map(([k, t]) => [k, short[k] || t]);
   const go = to => {  // a page opens straight away from what's already loaded; the latest is fetched behind it, and only if
     // something changed is the page redrawn, in place (same scroll, and not while a box is open or someone is typing)
     const me = S.goTok = (S.goTok || 0) + 1; S.view = to; render();
@@ -1295,16 +1297,18 @@ function render() {
     <main class="main">${S.preview ? `<div class="preview-bar">${svg("eye")}<span>Viewing as <b>${esc(previewName())}</b>. View only: nothing you do here is saved.</span>
         <button class="pill-btn sm" data-unpreview>Back to Admin</button></div>` : ""}<div class="top"><button type="button" class="menu-tg" data-menu aria-label="Menu" aria-controls="menu" aria-expanded="false">${svg("menu")}</button>${S.hist?.length && S.view !== allowed[0] ? `<button class="back" data-back>${svg("back")}Back</button>` : ""}<span class="gap"></span>
         ${fsOk() ? `<button class="refresh-btn fs-btn" data-fs title="${document.fullscreenElement ? "Show the browser again" : "Full screen: hide the browser"}" aria-label="${document.fullscreenElement ? "Exit full screen" : "Full screen"}">${svg(document.fullscreenElement ? "shrink" : "expand")}</button>` : ""}
-        ${S.me.role === "bishop" ? "" : `<button class="refresh-btn" data-refresh title="Load the latest check-ins and changes" aria-label="Refresh">${svg("refresh")}<span>Refresh</span></button>`}
+        ${S.newVersion ? `<button class="pill-btn sm primary" data-update title="A newer version of the app is ready">Update the app</button>` : ""}
+        ${S.me.role === "bishop" ? "" : `<button type="button" class="bell ${S.view === "alerts" ? "on" : ""}" data-bell data-view="alerts" title="Notifications" aria-label="Notifications">${svg("bell")}</button>`}
         <div class="mode" role="group" aria-label="Colour mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button></div>
         <button class="acct" data-view="account" title="Your account and settings" aria-label="Your account and settings"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${roleName(S.me)} · ${esc(where)}</small></span></button>
         <button class="out-btn" data-out title="Log out">${svg("out")}<span>Log out</span></button></div>
       <div class="body" id="view"></div></main>
-    <nav class="dock" aria-label="Main">${dock.map(([k, t]) => `<button class="${S.view === k ? "on" : ""} ${t.length > 9 ? "long" : ""}" data-view="${k}" aria-label="${t}">${svg(k)}<span>${t}</span></button>`).join("")}
+    <nav class="dock" aria-label="Main">${dock.map(([k, t]) => `<button class="${S.view === k ? "on" : ""}" data-view="${k}" aria-label="${t}" ${S.view === k ? 'aria-current="page"' : ""}>${k === "account" ? `<span class="dock-me">${esc(initials(who))}</span>` : svg(k)}<span>${t}</span></button>`).join("")}
 </nav></div>`;  // everything else: the ☰ menu at the top left
   const shell = root.querySelector(".shell"), menuBtn = root.querySelector("[data-menu]");
   const menu = open => { shell.classList.toggle("open", open); menuBtn.setAttribute("aria-expanded", open); };
   S.menu = menu;  // the phone swipe below opens and closes it too
+  S.go = go;  // for Search and Notifications
   menuBtn.onclick = () => menu(!shell.classList.contains("open"));
   root.querySelector("[data-mini]").onclick = e => {  // laptop menu: icons only, or icons with names; remembered on this device
     S.mini = !S.mini; try { localStorage.setItem("fcc-mini", S.mini ? "1" : "0"); } catch {}
@@ -1350,17 +1354,8 @@ function render() {
   // Refresh: loads the latest check-ins and changes made by others, only when tapped (nothing runs in the background,
   // so no battery use and the page never moves while someone is working on it). The page stays where it was scrolled to.
   root.querySelectorAll("[data-fs]").forEach(b => b.onclick = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen({navigationUI: "hide"})).catch(() => toast("This browser won't go full screen.")));
-  root.querySelectorAll("[data-refresh]").forEach(b => { if (S.newVersion) { b.classList.add("new"); b.title = "A newer version of the app is ready: tap to load it"; } });
-  root.querySelectorAll("[data-refresh]").forEach(b => b.onclick = async () => {
-    if (S.newVersion || await freshCheck(true)) return reloadApp();  // a newer version is out: load it, on this same page
-    if (b.classList.contains("busy")) return;
-    b.classList.add("busy");
-    try {
-      await load();
-      S.pending = canApprove() ? await api("registrations?select=created_at&status=eq.pending").then(newSignups).catch(() => S.pending) : 0;
-      const y = scrollY; render(); scrollTo(0, y); setTimeout(() => scrollTo(0, y), 350); toast("Up to date.");
-    } catch (e) { b.classList.remove("busy"); toast("Couldn't refresh: " + e.message); }
-  });
+  root.querySelectorAll("[data-update]").forEach(b => b.onclick = reloadApp);  // a newer version is out: load it, on this same page
+  paintBell();
   root.querySelectorAll("[data-viewas]").forEach(b => b.onclick = () => { menu(false); viewAs(); });
   root.querySelectorAll("[data-unpreview]").forEach(b => b.onclick = endPreview);
   root.querySelectorAll("[data-switch]").forEach(b => b.onclick = () => switchView(S.me.role === "pastor" ? S.me.base : "pastor"));
@@ -1372,7 +1367,7 @@ function render() {
   };
   root.querySelectorAll("[data-back]").forEach(b => b.onclick = () => history.back());  // same as the phone's back gesture
   if (moved) pageIn(view);
-  ({mine, dashboard, checkin, bacentas, summary: summaryPage, followup, visits, pastors, shepherds, people, person, signups, teamforms, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
+  ({mine, dashboard, checkin, bacentas, summary: summaryPage, search: searchPage, alerts, followup, visits, pastors, shepherds, people, person, signups, teamforms, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
   pushNudge(view);  // the 6am Sunday reminder: a one-time ask
 }
 // Smooth movement. A new page eases in for a moment only, so ticking or editing later never makes things flicker.
@@ -1440,9 +1435,9 @@ addEventListener("popstate", () => {
   if (!S.me || !S.hist?.length) return;
   S.view = S.hist.pop(); S.goingBack = true; document.querySelectorAll(".modal").forEach(m => m.remove()); render();
 });
-const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", visits: "Visits", pastors: "Pastors", shepherds: "Shepherds", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", teamforms: "Team forms", archive: "Archive",
+const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", visits: "Visits", search: "Search", alerts: "Notifications", pastors: "Pastors", shepherds: "Shepherds", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", teamforms: "Team forms", archive: "Archive",
                activity: "Activity", reports: "Reports", overview: "All churches", admin: "Admin"};
-const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, bacentas: 3, summary: 6, followup: 3, visits: 4, pastors: 4, shepherds: 2, people: 5, signups: 6, teamforms: 3, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
+const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, bacentas: 3, summary: 6, followup: 3, visits: 4, search: 5, alerts: 3, pastors: 4, shepherds: 2, people: 5, signups: 6, teamforms: 3, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
 // A greeting on the home pages: "Good morning, Kelvin", or "Welcome back, Pastor Grace" after a day or more away.
 // Pastors and bishops are greeted with their title; a title already in their name (Pastor, Rev, Elder...) is kept.
 const GREET_TITLES = /^(pastor|ps|bishop|reverend|rev|elder|deacon|deaconess|lady|prophet|prophetess|apostle|evangelist|dr|mrs?|ms|minister)\.?$/i;
@@ -4992,6 +4987,118 @@ async function emailReports(el) {
 }
 
 // ---------------------------------------------------------------- help: questions by topic, and a message to the admin
+// ---------------------------------------------------------------- search: one box at the top of every page
+// For when something is hard to find: pages (by name or what they're for), people (by name or phone), Bacentas and
+// Centas, pastors and shepherds, churches, and Help answers. Only what this sign-in can already see, and from what's
+// already loaded, so results come as you type. Tap a result, or press Enter for the first. "/" or Ctrl+K jumps to the box.
+const GS_WORDS = {dashboard: "home overview numbers widgets", mine: "home my people", checkin: "check in tick attendance register present service mark add someone",
+  followup: "follow up missed absent call red amber away", visits: "visit visited home visit log", people: "congregation members everyone list names add import edit",
+  pastors: "pastor care groups assigned", shepherds: "shepherd", bacentas: "bacenta centa cell group meeting", signups: "sign ups welcome form new first timer approve",
+  teamforms: "team form ushers sign in link approve", archive: "archive old not seen wipe", activity: "activity log history changes who did downloads",
+  reports: "reports summary whatsapp email share numbers download", overview: "churches all churches bishop at a glance grid",
+  admin: "admin sign-ins users logins messages backup notifications space", help: "help questions faq support contact",
+  account: "account settings password name colour theme dark light text size reminders notifications", ask: "ask a question data numbers"};
+function searchApp(q) {
+  const words = norm(q).split(/\s+/).filter(Boolean); if (!words.length) return [];
+  const starts = (h, w) => h.startsWith(w) || h.includes(" " + w);
+  const hit = (hay, boost = 0) => { const h = norm(hay); return words.every(w => h.includes(w)) ? boost + (h.startsWith(words[0]) ? 2 : 0) + (words.every(w => starts(h, w)) ? 1 : 0) : -1; };
+  const out = [], add = (kind, label, sub, go, score) => { if (score >= 0) out.push({kind, label, sub, go, score}); };
+  const mine = pages().flatMap(g => g[1]), has = k => mine.some(x => x[0] === k);
+  for (const [k, t] of [...mine, ["account", "Your account and settings"]]) add("Pages", t, "", () => S.go(k), hit(`${t} ${GS_WORDS[k] || ""}`, 3));
+  if (S.me.role !== "bishop") {
+    const digits = q.replace(/\D/g, "");
+    for (const m of S.members.filter(x => churchOf(x) === S.church && x.full_name !== "Removed person")) {
+      const ph = String(m.phone || "").replace(/\D/g, "");
+      add("People", m.full_name, [typeName(m), m.phone].filter(Boolean).join(" · "), () => { S.person = m.id; S.go("person"); },
+        digits.length >= 4 && ph.includes(digits) ? 4 : hit(m.full_name, 1));
+    }
+    const mineB = b => b.church === S.church && b.active && (bacAll() || bacMine(b));
+    for (const b of (S.bacList || []).filter(mineB))
+      add("Bacentas", b.name, b.shepherd ? shortTitle(b.shepherd) : "Bacenta", () => { S.bacenta = b.id; S.centa = ""; S.go("bacentas"); }, hit(`${b.name} bacenta`));
+    for (const k of (S.centas || []).filter(x => x.active)) { const b = (S.bacList || []).find(x => x.id === k.bacenta); if (!b || !mineB(b)) continue;
+      add("Bacentas", k.name, `Centa in ${b.name}`, () => { S.bacenta = b.id; S.centa = k.id; S.go("bacentas"); }, hit(`${k.name} centa ${b.name}`)); }
+    if (has("pastors")) for (const n of S.pastorList?.[S.church] || [])
+      add("Pastors and shepherds", shortTitle(n), "Pastor", () => { S.pastor = n; S.pastorJump = true; S.go("pastors"); }, hit(n));
+    if (has("shepherds")) for (const n of S.shepherdList?.[S.church] || [])
+      add("Pastors and shepherds", n, "Shepherd", () => { S.shepherd = n; S.pastorJump = true; S.go("shepherds"); }, hit(n));
+  }
+  if (S.me.role === "admin" && !S.preview) for (const c of S.churches || [])
+    add("Churches", c, c === S.church ? "The church you're working in" : "Work in this church", () => { S.church = c; S.go("dashboard"); toast(`Now in ${c}.`); }, hit(c));
+  for (const [tk, tn, qs] of helpTopics()) for (const [qq, a] of qs) {
+    const s1 = hit(qq, 1), s2 = hit(`${qq} ${typeof a === "string" ? a : ""}`);
+    add("Help", qq, tn, () => { S.helpTopic = tk; S.helpQ = qq; S.go("help"); }, s1 >= 0 ? s1 : s2 >= 0 ? 0 : -1);
+  }
+  const ORDER = ["Pages", "People", "Bacentas", "Pastors and shepherds", "Churches", "Help"], CAP = {People: 8, Help: 5};
+  return ORDER.flatMap(g => out.filter(x => x.kind === g).sort((a, b) => b.score - a.score || a.label.localeCompare(b.label)).slice(0, CAP[g] || 6));
+}
+document.addEventListener("keydown", e => {  // "/" or Ctrl+K (⌘K on a Mac): the Search page, ready to type
+  if (!S.me || !S.go || document.querySelector(".modal")) return;
+  const typing = e.target.closest?.("input, textarea, select, [contenteditable]");
+  if ((e.key === "/" && !typing) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k")) {
+    e.preventDefault(); if (S.view === "search") return document.getElementById("gs-q")?.focus();
+    S.gsFocus = true; S.go("search");
+  }
+});
+// The Search page (the 🔍 in the bottom bar, or Search in the menu): one big box; results come as you type, under it.
+// With nothing typed: every page this sign-in has, as tiles, and the Help topics.
+function searchPage(el) {
+  el.innerHTML = `<div class="gs-page"><h1 class="gs-title">Search</h1>
+    <label class="gs-big">${svg("search")}<input id="gs-q" type="search" placeholder="People, pages, Bacentas, help…" autocomplete="off" enterkeyhint="go" aria-label="Search the app" value="${esc(S.gsQ || "")}"></label>
+    <div id="gs-out" aria-live="polite"></div></div>`;
+  const inp = el.querySelector("#gs-q"), out = el.querySelector("#gs-out"); let list = [];
+  const home = pages()[0]?.[1]?.[0]?.[0];
+  const draw = () => {
+    const q = inp.value.trim(); S.gsQ = inp.value; list = q ? searchApp(q) : [];
+    if (!q) {  // nothing typed: a way into every page, and Help by topic
+      const tiles = pages().flatMap(g => g[1]).filter(([k]) => k !== home && k !== "search");
+      out.innerHTML = `<div class="gs-tiles">${tiles.map(([k, t]) => `<button type="button" class="gs-tile" data-gk="${k}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}<span>${esc(t)}</span></button>`).join("")}</div>
+        <h2 class="gs-sec">Help topics</h2><div class="chips">${helpTopics().map(([k, t]) => `<button type="button" class="chip" data-ght="${esc(k)}">${esc(t)}</button>`).join("")}</div>`;
+      out.querySelectorAll("[data-gk]").forEach(b => b.onclick = () => S.go(b.dataset.gk));
+      out.querySelectorAll("[data-ght]").forEach(b => b.onclick = () => { S.helpTopic = b.dataset.ght; S.go("help"); });
+      return;
+    }
+    let g = "";
+    out.innerHTML = list.length ? `<div class="card gs-list">${list.map((r, i) => (r.kind !== g ? `<div class="gs-h">${esc(g = r.kind)}</div>` : "") +
+        `<button type="button" class="gs-item" data-gi="${i}"><b>${esc(r.label)}</b>${r.sub ? `<small>${esc(r.sub)}</small>` : ""}</button>`).join("")}</div>`
+      : `<p class="gs-none">Nothing matches “${esc(q)}”. Try another word, or <button type="button" class="link" data-gshelp style="margin:0">open Help</button>.</p>`;
+    out.querySelectorAll("[data-gi]").forEach(b => b.onclick = () => list[+b.dataset.gi]?.go());
+    out.querySelector("[data-gshelp]")?.addEventListener("click", () => S.go("help"));
+  };
+  inp.oninput = draw;
+  inp.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); inp.blur(); list[0]?.go(); } else if (e.key === "Escape") { inp.value = ""; draw(); } };
+  draw();
+  if (S.gsFocus || !onPhone()) { S.gsFocus = false; inp.focus(); }  // on a phone the keyboard comes up when the box is tapped
+}
+// Notifications (the bell at the top): what's new or waiting for this sign-in, each a tap away
+const bellCount = () => S.preview ? 0 : (S.me.role === "admin" ? S.msgNew || 0 : 0) + (S.pending || 0) + (S.teamPending || 0) + (S.bacPending || 0);
+function paintBell() {
+  const n = bellCount();
+  document.querySelectorAll("[data-bell]").forEach(b => { b.querySelector(".bell-n")?.remove();
+    if (n) b.insertAdjacentHTML("beforeend", `<span class="bell-n">${n > 99 ? "99+" : n}</span>`);
+    b.setAttribute("aria-label", n ? `Notifications: ${n} new` : "Notifications"); });
+}
+async function alerts(el) {
+  el.innerHTML = head("Notifications", "What's new and waiting for you") + `<p class="empty">Loading…</p>`;
+  if (S.me.role === "admin" && !S.preview) S.msgNew = await api("help_messages?select=created_at&or=(done.is.null,done.is.false)").then(r => newSince(r, "messages")).catch(() => S.msgNew || 0);
+  if (S.view !== "alerts") return;
+  const p = S.me.role === "bishop" ? null : picture(), red = p ? p.count("red") : 0, amber = p ? p.count("yellow") : 0, n = (x, one, many) => `${x} ${x === 1 ? one : many}`;
+  const can = k => pages().some(g => g[1].some(x => x[0] === k));
+  const items = [
+    S.me.role === "admin" && S.msgNew ? ["mail", n(S.msgNew, "new message", "new messages"), "Sent from Help → Contact the admin", () => { S.adminTab = "messages"; S.go("admin"); }] : null,
+    S.pending ? ["signups", n(S.pending, "new sign-up", "new sign-ups"), "From the welcome form, waiting to be approved", () => S.go("signups")] : null,
+    S.teamPending ? ["teamforms", n(S.teamPending, "team form", "team forms"), "People asking to sign in", () => S.go("teamforms")] : null,
+    S.bacPending ? ["bacentas", n(S.bacPending, "name added at a Bacenta", "names added at a Bacenta"), "Waiting to join the Congregation list", () => S.go("bacentas")] : null,
+    red && can("followup") ? ["followup", n(red, "person needs a call", "people need a call"), `Missed ${RED_AT} or more Sundays in a row`, () => { S.filter = "red"; S.fuDay = ""; S.go("followup"); }] : null,
+    red && !can("followup") && can("visits") ? ["visits", n(red, "person needs a call or visit", "people need a call or visit"), `Missed ${RED_AT} or more Sundays in a row`, () => S.go("visits")] : null,
+    amber && can("followup") ? ["followup", n(amber, "person to check in on", "people to check in on"), `Missed ${YELLOW_AT}–${RED_AT - 1} Sundays in a row`, () => { S.filter = "yellow"; S.fuDay = ""; S.go("followup"); }] : null,
+    S.me.role !== "bishop" && "Notification" in window && Notification.permission !== "granted" && !S.preview ? ["alerts", "Turn on reminders", "Get a reminder to check people in (Your account → Check-in reminders)", () => S.go("account")] : null,
+  ].filter(Boolean);
+  el.innerHTML = head("Notifications", "What's new and waiting for you") + (items.length
+    ? `<div class="card al-list">${items.map(([ic, t, sub], i) => `<button type="button" class="al-item" data-al="${i}" style="--nc:var(--h${NAVHUE[ic] || 3})"><span class="al-ico">${svg(ic)}</span><span><b>${esc(t)}</b><small>${esc(sub)}</small></span>${svg("next")}</button>`).join("")}</div>`
+    : `<div class="card"><p class="empty" style="margin:0">You're all caught up.</p></div>`);
+  el.querySelectorAll("[data-al]").forEach(b => b.onclick = () => items[+b.dataset.al][3]());
+  paintBell();
+}
 function helpTopics() {
   const r = S.me.role, ticks = r !== "bishop", adds = ["admin", "lead", "team"].includes(r), edits = ["admin", "lead"].includes(r);
   const t = [
@@ -5060,6 +5167,10 @@ async function help(el) {
   });
   el.querySelector("#contact").onclick = () => contactDialog(topic[1]);
   el.querySelector("#tour-again").onclick = tour;
+  if (S.helpQ) {  // opened from search: that answer, open and in view
+    const q = [...el.querySelectorAll(".acc-q")].find(b => b.textContent.trim() === S.helpQ); S.helpQ = "";
+    if (q) { if (!q.closest(".acc-item").classList.contains("open")) q.click(); q.scrollIntoView({block: "center"}); }
+  }
 }
 
 // The message form: it goes to the main admin by email and into the Messages inbox on the Admin page.
@@ -5276,7 +5387,7 @@ function account(el) {
 // and, for the admin, new Help messages. Worked out shortly after each page is drawn.
 let badgeT = 0;
 function setBadge() {
-  if (!("setAppBadge" in navigator) || !S.me || S.preview || S.me.role === "bishop") return;
+  if (!S.me || S.preview || S.me.role === "bishop") return;
   clearTimeout(badgeT); badgeT = setTimeout(async () => {
     let n = (S.pending || 0) + (S.teamPending || 0);
     try { n += picture().count("red"); } catch {}
@@ -5284,7 +5395,8 @@ function setBadge() {
       if (S.msgNew === undefined) S.msgNew = await api("help_messages?select=created_at&or=(done.is.null,done.is.false)").then(r => newSince(r, "messages")).catch(() => 0);
       n += S.msgNew;
     }
-    (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
+    if ("setAppBadge" in navigator) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
+    paintBell();  // the bell at the top: the same counts
   }, 800);
 }
 const REM_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -5527,6 +5639,11 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/app/sw.js")
 // brought back to the front, compare the copy we have with the one on the server; if a newer one exists, reload.
 let lastCheck = 0;
 // Loads the newer version and opens it on the same page, day and place (instead of starting again on the Dashboard)
+function showUpdate() {  // a newer version is out: an Update the app button at the top (it never reloads by itself mid-task)
+  const top = document.querySelector(".top"); if (!top || top.querySelector("[data-update]")) return;
+  const b = document.createElement("button"); b.className = "pill-btn sm primary"; b.dataset.update = ""; b.textContent = "Update the app"; b.onclick = reloadApp;
+  (top.querySelector("[data-bell]") || top.querySelector(".acct"))?.before(b);
+}
 function reloadApp() {
   try { sessionStorage.setItem("fcc-back", JSON.stringify({view: S.view, date: S.date, church: S.church, repTab: S.repTab, y: scrollY})); history.scrollRestoration = "manual"; } catch {}
   location.reload();
@@ -5539,7 +5656,7 @@ async function freshCheck(force = false) {
     try {
       const live = (await fetch("/app-config", {cache: "no-store"}).then(r => r.json())).version || "";
       if (!live || live === S.cfg.version) return false;
-      S.newVersion = true; document.querySelectorAll("[data-refresh]").forEach(b => { b.classList.add("new"); b.title = "A newer version of the app is ready: tap to load it"; });
+      S.newVersion = true; showUpdate();
       return true;
     } catch { return false; }
   }
@@ -5555,7 +5672,7 @@ async function freshCheck(force = false) {
     // tapped, so the page never jumps while someone is reading or working on it
     // Never reload by itself (that made the page jump): the Refresh button gets a dot and loads the new version when tapped,
     // and the next time the app is opened it starts on the new version anyway
-    S.newVersion = true; document.querySelectorAll("[data-refresh]").forEach(b => { b.classList.add("new"); b.title = "A newer version of the app is ready: tap to load it"; });
+    S.newVersion = true; showUpdate();
   } catch {}
 }
 // Back to the app after 10 minutes or more away (phone unlocked, app reopened): a newer version loads straight away, on the
