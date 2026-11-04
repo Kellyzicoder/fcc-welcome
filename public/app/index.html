@@ -1280,6 +1280,25 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
   .chat-main {height: calc(100dvh - 300px); min-height: 380px;}
   .chat-msg {max-width: 90%;}
 }
+/* the search box at the top of the sidebar (computers only; phones and tablets have Search in the bottom bar) */
+.side-search {display: none;}
+@media (min-width: 1081px) {
+  .side-search {display: block; margin: 0 0 10px;}
+  .side .nav[data-view="search"]:not(.ss-mini) {display: none;}  /* the box replaces the Search item in the menu */
+}
+.ss-box {display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 10px 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink-3); cursor: text;}
+.ss-box:focus-within {border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);}
+.ss-box svg {width: 17px; height: 17px; flex: none;}
+.ss-box input {flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: inherit; font-size: 14.5px; color: var(--ink); padding: 8px 0;}
+.ss-box input::-webkit-search-cancel-button {display: none;}
+.ss-box kbd {font: inherit; font-size: 11.5px; color: var(--ink-3); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; white-space: nowrap;}
+.ss-box:focus-within kbd {display: none;}
+.ss-mini {display: none;}
+.shell.mini .ss-box {display: none;} .shell.mini .ss-mini {display: flex;}
+.ss-drop {position: fixed; z-index: 60; padding: 6px; overflow-y: auto; box-shadow: var(--shadow), 0 12px 32px rgba(0, 0, 0, .14);}
+.ss-drop .gs-item.on {background: var(--soft);}
+.ss-drop .gs-none {margin: 8px 10px;}
+.ss-all {display: block; width: 100%; text-align: left; margin: 4px 0 0; padding: 10px; border-top: 1px solid var(--line); border-radius: 0; font-size: 13.5px;}
 </style>
 </head>
 <body>
