@@ -1145,6 +1145,7 @@ const ICON = {
   checkin: '<path d="M5 12l5 5 9-10"/>',
   visits: '<path d="M3 11l9-7 9 7"/><path d="M5 9.5V20h14V9.5"/><path d="M9 14.5l2 2 4-4"/>',
   followup: '<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  community: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 10.5h7M8.5 14h4.5"/>',
   bell: '<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/>', alerts: '<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/>',
   people: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   overview: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
@@ -1205,14 +1206,14 @@ function navGroup(h, items, btns) {
 function pages() {  // the menu, in groups; what each role can actually load is decided by the database
   const r = S.me.role;
   if (r === "bishop") return [["", [["overview", "All churches"], ["search", "Search"], ["help", "Help"]]]];
-  if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ["visits", "Visits"], ...((S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ["search", "Search"], ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people (and the Bacentas they oversee or shepherd)
+  if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ["visits", "Visits"], ...((S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ["community", "Community"], ["search", "Search"], ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people (and the Bacentas they oversee or shepherd)
   // Grouped by what people come to do: take attendance, look after people, share the numbers, run the churches, settings
   return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["followup", "Follow-up"], ...(r === "team" ? [] : [["visits", "Visits"]])]],
           ["PEOPLE", [["people", "Congregation"], ["pastors", "Pastors"], ["shepherds", "Shepherds"], ...(["admin", "lead"].includes(r) || (S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ...(canApprove() ? [["signups", "Sign-ups"]] : []), ...(canTeam() ? [["teamforms", "Team forms"]] : []), ["archive", "Archive"]]],
           ["SHARE", [["reports", "Reports"]]],
           ...(r === "admin" ? [["CHURCHES", [["overview", "Churches"]]]] : []),
           ...(r === "team" ? [] : [[r === "admin" ? "ADMIN" : "RECORDS", [...(r === "admin" ? [["admin", "Admin"]] : []), ["activity", "Activity log"]]]]),
-          ["", [["search", "Search"], ["ask", "Ask a question"], ["help", "Help"]]]];
+          ["", [["community", "Community"], ["search", "Search"], ["ask", "Ask a question"], ["help", "Help"]]]];
 }
 // Settings each person picks for themselves: colour, theme, text size and so on. Kept on this phone or laptop, per person.
 const ACCENTS = [["#1f6fe5", "Blue"], ["#0e8a7c", "Teal"], ["#6250d6", "Violet"], ["#c8417a", "Pink"], ["#dc5f26", "Orange"], ["#2b9348", "Green"], ["#b8860b", "Gold"]];
@@ -1355,7 +1356,7 @@ function render() {
   // so no battery use and the page never moves while someone is working on it). The page stays where it was scrolled to.
   root.querySelectorAll("[data-fs]").forEach(b => b.onclick = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen({navigationUI: "hide"})).catch(() => toast("This browser won't go full screen.")));
   root.querySelectorAll("[data-update]").forEach(b => b.onclick = reloadApp);  // a newer version is out: load it, on this same page
-  paintBell();
+  paintBell(); paintChatNav();
   root.querySelectorAll("[data-viewas]").forEach(b => b.onclick = () => { menu(false); viewAs(); });
   root.querySelectorAll("[data-unpreview]").forEach(b => b.onclick = endPreview);
   root.querySelectorAll("[data-switch]").forEach(b => b.onclick = () => switchView(S.me.role === "pastor" ? S.me.base : "pastor"));
@@ -1367,7 +1368,7 @@ function render() {
   };
   root.querySelectorAll("[data-back]").forEach(b => b.onclick = () => history.back());  // same as the phone's back gesture
   if (moved) pageIn(view);
-  ({mine, dashboard, checkin, bacentas, summary: summaryPage, search: searchPage, alerts, followup, visits, pastors, shepherds, people, person, signups, teamforms, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
+  ({mine, dashboard, checkin, bacentas, summary: summaryPage, search: searchPage, alerts, community, followup, visits, pastors, shepherds, people, person, signups, teamforms, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
   pushNudge(view);  // the 6am Sunday reminder: a one-time ask
 }
 // Smooth movement. A new page eases in for a moment only, so ticking or editing later never makes things flicker.
@@ -1435,9 +1436,9 @@ addEventListener("popstate", () => {
   if (!S.me || !S.hist?.length) return;
   S.view = S.hist.pop(); S.goingBack = true; document.querySelectorAll(".modal").forEach(m => m.remove()); render();
 });
-const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", visits: "Visits", search: "Search", alerts: "Notifications", pastors: "Pastors", shepherds: "Shepherds", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", teamforms: "Team forms", archive: "Archive",
+const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", visits: "Visits", search: "Search", alerts: "Notifications", community: "Community", pastors: "Pastors", shepherds: "Shepherds", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", teamforms: "Team forms", archive: "Archive",
                activity: "Activity", reports: "Reports", overview: "All churches", admin: "Admin"};
-const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, bacentas: 3, summary: 6, followup: 3, visits: 4, search: 5, alerts: 3, pastors: 4, shepherds: 2, people: 5, signups: 6, teamforms: 3, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
+const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, bacentas: 3, summary: 6, followup: 3, visits: 4, search: 5, alerts: 3, community: 6, pastors: 4, shepherds: 2, people: 5, signups: 6, teamforms: 3, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
 // A greeting on the home pages: "Good morning, Kelvin", or "Welcome back, Pastor Grace" after a day or more away.
 // Pastors and bishops are greeted with their title; a title already in their name (Pastor, Rev, Elder...) is kept.
 const GREET_TITLES = /^(pastor|ps|bishop|reverend|rev|elder|deacon|deaconess|lady|prophet|prophetess|apostle|evangelist|dr|mrs?|ms|minister)\.?$/i;
@@ -4986,6 +4987,113 @@ async function emailReports(el) {
   }, "Send now");
 }
 
+// ---------------------------------------------------------------- Community: team chat and alerts
+// Channels for this church: Everyone, Leaders, Ushers, and each Bacenta this sign-in can see (the database checks the same).
+// New messages arrive live; an alert is pinned at the top of its channel and goes to phones with notifications on.
+function chatChannels() {
+  const r = S.me.role, list = [["everyone", "Everyone", "Everyone who signs in at " + S.church]];
+  if (["admin", "lead", "pastor"].includes(r)) list.push(["leaders", "Leaders", "Admins, church admins, pastors and shepherds"]);
+  if (["admin", "lead", "team"].includes(r)) list.push(["ushers", "Ushers", "The team, with admins and church admins"]);
+  for (const b of (S.bacList || []).filter(b => b.church === S.church && b.active && (bacAll() || bacMine(b))))
+    list.push(["bacenta:" + b.id, b.name, "Its pastor, shepherds and helpers"]);
+  return list;
+}
+const chatCanAlert = chan => !S.preview && (["admin", "lead"].includes(S.me.role) || (chan.startsWith("bacenta:") && S.me.role === "pastor"
+  && (() => { const b = (S.bacList || []).find(x => x.id === chan.slice(8)), me = norm(S.me.pastor || "");
+    return !!b && !!me && (norm(b.pastor || "") === me || norm(b.shepherd || "") === me || (S.centas || []).some(k => k.bacenta === b.id && k.active && norm(k.shepherd || "") === me)); })()));
+async function chatUnread(force) {  // new messages per channel (for the bell, the menu and the channel list), at most once a minute
+  if (!S.me || S.me.role === "bishop" || S.preview || (!force && Date.now() - (S.chatAt || 0) < 60000)) return S.chatUnread || {};
+  S.chatAt = Date.now();
+  const rows = await api("rpc/app_chat_unread", {method: "POST", body: {ch: S.church}}).catch(() => null);
+  S.chatUnread = rows ? Object.fromEntries(rows.map(r => [r.channel, r])) : {};
+  S.chatNew = Object.values(S.chatUnread).reduce((n, r) => n + r.unread, 0);
+  return S.chatUnread;
+}
+async function community(el) {
+  const chans = chatChannels();
+  if (!chans.some(c => c[0] === S.chan)) S.chan = "everyone";
+  const chan = S.chan, me = (S.me.email || "").toLowerCase(), boss = ["admin", "lead"].includes(S.me.role) && !S.preview;
+  el.innerHTML = head("Community", esc(S.church)) + `<div class="chat"><nav class="chat-chans" aria-label="Channels"></nav>
+    <section class="card chat-main"><header class="chat-top"><div><h2 id="ch-name"></h2><small id="ch-who"></small></div></header>
+      <div id="ch-pins"></div><div class="chat-list" id="ch-list" aria-live="polite"><p class="empty">Loading…</p></div>
+      ${S.preview ? `<p class="note" style="margin:10px 14px">${esc(viewOnly())}</p>` : `<form class="chat-send" id="ch-form">
+        <textarea class="in" id="ch-text" rows="1" maxlength="1000" placeholder="Write a message…" aria-label="Message"></textarea>
+        <div class="chat-send-row">${chatCanAlert(chan) ? `<label class="check chat-alert"><input type="checkbox" id="ch-alert"> Send as an alert <small>(pinned, and sent to phones)</small></label>` : "<span></span>"}
+          <button class="pill-btn primary" id="ch-go">Send</button></div></form>`}</section></div>`;
+  const drawChans = () => { const un = S.chatUnread || {};
+    el.querySelector(".chat-chans").innerHTML = chans.map(([k, t]) => `<button type="button" class="chat-chan ${k === chan ? "on" : ""}" data-chan="${esc(k)}" ${k === chan ? 'aria-current="true"' : ""}>
+      <span class="chat-hash">${k.startsWith("bacenta:") ? svg("bacentas") : "#"}</span><span class="chat-cn">${esc(t)}</span>${un[k]?.unread && k !== chan ? `<span class="count">${un[k].unread}</span>` : ""}</button>`).join("");
+    el.querySelectorAll("[data-chan]").forEach(b => b.onclick = () => { S.chan = b.dataset.chan; render(); }); };
+  const c = chans.find(x => x[0] === chan); el.querySelector("#ch-name").textContent = c[1]; el.querySelector("#ch-who").textContent = c[2];
+  drawChans();
+  const q = `chat_messages?select=id,body,alert,author_email,author_name,created_at&church=eq.${encodeURIComponent(S.church)}&channel=eq.${encodeURIComponent(chan)}`;
+  let msgs = [], first = true;
+  const day = t => new Date(t).toLocaleDateString(undefined, {weekday: "short", day: "numeric", month: "short"}), hm = t => new Date(t).toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"});
+  const link = s => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>').replace(/\n/g, "<br>");
+  const draw = () => {
+    const list = el.querySelector("#ch-list"); if (!list) return;
+    const near = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+    const all = msgs.filter(m => m.alert).reverse(), pins = S.pinsAll ? all : all.slice(0, 1);  // the newest alert; the rest on tap
+    el.querySelector("#ch-pins").innerHTML = pins.length ? `<div class="chat-pins">${pins.map(m => `<div class="chat-pin">${svg("bell")}<div><b>${esc(m.author_name || "")}</b> · <small>${esc(day(m.created_at))}</small><p>${link(m.body)}</p></div>
+      ${chatCanAlert(chan) ? `<button type="button" class="link" data-unpin="${esc(m.id)}">Unpin</button>` : ""}</div>`).join("")}${all.length > 1 ? `<button type="button" class="link chat-more" data-pinsall>${S.pinsAll ? "Show just the newest alert" : `+ ${all.length - 1} more pinned`}</button>` : ""}</div>` : "";
+    let lastDay = "";
+    list.innerHTML = msgs.length ? msgs.map(m => { const mine = m.author_email === me, d = day(m.created_at), sep = d !== lastDay ? `<div class="chat-day"><span>${esc(lastDay = d)}</span></div>` : "";
+      return sep + `<div class="chat-msg ${mine ? "mine" : ""} ${m.alert ? "alert" : ""}" data-mid="${esc(m.id)}">${mine ? "" : `<span class="chat-ava" ${avaStyle(m.author_name || "?")}>${esc(initials(m.author_name || "?"))}</span>`}
+        <div class="chat-bub">${mine ? "" : `<b>${esc(m.author_name || "")}</b>`}${m.alert ? `<span class="chat-tag">${svg("bell")}Alert</span>` : ""}<p>${link(m.body)}</p>
+          <small>${esc(hm(m.created_at))}${!S.preview && (mine || boss) ? ` · <button type="button" class="link" data-del="${esc(m.id)}">Delete</button>` : ""}${chatCanAlert(chan) && !m.alert ? ` · <button type="button" class="link" data-pin="${esc(m.id)}">Pin as alert</button>` : ""}</small></div></div>`; }).join("")
+      : `<p class="empty chat-empty">No messages in ${esc(c[1])} yet. Say hello.</p>`;
+    if (first || near) list.scrollTop = list.scrollHeight; first = false;
+  };
+  const markRead = () => { if (S.preview) return; (S.chatUnread ||= {})[chan] && delete S.chatUnread[chan]; S.chatNew = Object.values(S.chatUnread || {}).reduce((n, r) => n + r.unread, 0); paintBell(); paintChatNav();
+    api("chat_reads?on_conflict=email,church,channel", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {email: me, church: S.church, channel: chan, last_read: new Date().toISOString()}}).catch(() => {}); };
+  const pull = async () => {
+    try { msgs = (await api(`${q}&order=created_at.desc&limit=150`)).reverse(); }
+    catch (e) { el.querySelector("#ch-list").innerHTML = `<p class="msg bad" style="margin:14px">${/chat_messages|relation|schema cache/i.test(e.message) ? "Community needs the latest setup SQL: run it in Supabase once, then open this page again." : esc(e.message)}</p>`; return; }
+    if (S.view !== "community" || S.chan !== chan) return;
+    draw(); markRead();
+  };
+  el.querySelector("#ch-list").onclick = async e => {
+    const del = e.target.closest("[data-del]"), pin = e.target.closest("[data-pin]");
+    if (del) { if (del.dataset.armed) { del.disabled = true; try { await api(`chat_messages?id=eq.${del.dataset.del}`, {method: "DELETE", prefer: "return=minimal"}); msgs = msgs.filter(m => m.id !== del.dataset.del); draw(); } catch (err) { toast("Not deleted: " + err.message); } }
+      else { del.dataset.armed = "1"; del.textContent = "Tap again to delete"; setTimeout(() => { if (del.isConnected) { delete del.dataset.armed; del.textContent = "Delete"; } }, 4000); } }
+    if (pin) { try { await api(`chat_messages?id=eq.${pin.dataset.pin}`, {method: "PATCH", prefer: "return=minimal", body: {alert: true}}); msgs.find(m => m.id === pin.dataset.pin).alert = true; draw(); toast("Pinned at the top of the channel."); } catch (err) { toast("Not pinned: " + err.message); } }
+  };
+  el.querySelector("#ch-pins").onclick = async e => { if (e.target.closest("[data-pinsall]")) { S.pinsAll = !S.pinsAll; return draw(); }
+    const b = e.target.closest("[data-unpin]"); if (!b) return;
+    try { await api(`chat_messages?id=eq.${b.dataset.unpin}`, {method: "PATCH", prefer: "return=minimal", body: {alert: false}}); msgs.find(m => m.id === b.dataset.unpin).alert = false; draw(); } catch (err) { toast("Not changed: " + err.message); } };
+  const form = el.querySelector("#ch-form");
+  if (form) {
+    const ta = form.querySelector("#ch-text"), grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(160, ta.scrollHeight) + "px"; };
+    ta.oninput = grow;
+    ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey && !onPhone()) { e.preventDefault(); form.requestSubmit(); } };  // a computer: Enter sends, Shift+Enter is a new line
+    form.onsubmit = async e => {
+      e.preventDefault(); const body = ta.value.trim(), alert = !!form.querySelector("#ch-alert")?.checked; if (!body) return;
+      const go = form.querySelector("#ch-go"); go.disabled = true;
+      try {
+        const [row] = await api("chat_messages?select=id,body,alert,author_email,author_name,created_at", {method: "POST", prefer: "return=representation", body: {church: S.church, channel: chan, body, alert}});
+        if (row && !msgs.some(m => m.id === row.id)) msgs.push(row);
+        ta.value = ""; grow(); if (form.querySelector("#ch-alert")) form.querySelector("#ch-alert").checked = false; draw(); markRead();
+        if (alert && row) {  // the alert to phones: the sender sends it once, to whoever in this channel has notifications on
+          const info = await pushInfo().catch(() => null);
+          if (info?.push_url) fetch(info.push_url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({alert: row.id})}).catch(() => {});
+          toast(info?.push_url ? "Alert sent: pinned, and sent to phones with notifications on." : "Alert pinned. (Phone notifications aren't set up yet.)");
+        }
+      } catch (err) { toast(/row-level|policy/i.test(err.message) ? "Not sent: you can't send that here." : "Not sent: " + err.message); }
+      go.disabled = false; ta.focus();
+    };
+  }
+  // live: a new message, deleted one or pin arrives straight away; if that connection can't be made, check every 15 seconds
+  let wait = 0; const soon = d => { const r = d?.record || d?.old_record || {}; if (r.church && r.church !== S.church) return chatUnread(true).then(drawChans);
+    clearTimeout(wait); wait = setTimeout(() => { pull(); chatUnread(true).then(() => { drawChans(); paintBell(); paintChatNav(); }); }, 300); };
+  S.unwatch = rtWatch("community", ["chat_messages"], soon, () => { clearInterval(S.poll); S.poll = 0; },
+    () => { if (!S.poll && S.view === "community") S.poll = setInterval(pull, 15000); });
+  S.onShow = pull;
+  await pull(); chatUnread(true).then(drawChans);
+}
+function paintChatNav() {  // the number on Community in the menu
+  const n = S.chatNew || 0;
+  document.querySelectorAll('.nav[data-view="community"]').forEach(b => { b.querySelector(".count")?.remove(); if (n && S.view !== "community") b.insertAdjacentHTML("beforeend", `<span class="count">${n > 99 ? "99+" : n}</span>`); });
+}
 // ---------------------------------------------------------------- help: questions by topic, and a message to the admin
 // ---------------------------------------------------------------- search: one box at the top of every page
 // For when something is hard to find: pages (by name or what they're for), people (by name or phone), Bacentas and
@@ -4997,7 +5105,8 @@ const GS_WORDS = {dashboard: "home overview numbers widgets", mine: "home my peo
   teamforms: "team form ushers sign in link approve", archive: "archive old not seen wipe", activity: "activity log history changes who did downloads",
   reports: "reports summary whatsapp email share numbers download", overview: "churches all churches bishop at a glance grid",
   admin: "admin sign-ins users logins messages backup notifications space", help: "help questions faq support contact",
-  account: "account settings password name colour theme dark light text size reminders notifications", ask: "ask a question data numbers"};
+  account: "account settings password name colour theme dark light text size reminders notifications", community: "community chat messages team talk alerts notices group",
+  ask: "ask a question data numbers"};
 function searchApp(q) {
   const words = norm(q).split(/\s+/).filter(Boolean); if (!words.length) return [];
   const starts = (h, w) => h.startsWith(w) || h.includes(" " + w);
@@ -5070,7 +5179,7 @@ function searchPage(el) {
   if (S.gsFocus || !onPhone()) { S.gsFocus = false; inp.focus(); }  // on a phone the keyboard comes up when the box is tapped
 }
 // Notifications (the bell at the top): what's new or waiting for this sign-in, each a tap away
-const bellCount = () => S.preview ? 0 : (S.me.role === "admin" ? S.msgNew || 0 : 0) + (S.pending || 0) + (S.teamPending || 0) + (S.bacPending || 0);
+const bellCount = () => S.preview ? 0 : (S.me.role === "admin" ? S.msgNew || 0 : 0) + (S.pending || 0) + (S.teamPending || 0) + (S.bacPending || 0) + (S.chatNew || 0);
 function paintBell() {
   const n = bellCount();
   document.querySelectorAll("[data-bell]").forEach(b => { b.querySelector(".bell-n")?.remove();
@@ -5080,11 +5189,13 @@ function paintBell() {
 async function alerts(el) {
   el.innerHTML = head("Notifications", "What's new and waiting for you") + `<p class="empty">Loading…</p>`;
   if (S.me.role === "admin" && !S.preview) S.msgNew = await api("help_messages?select=created_at&or=(done.is.null,done.is.false)").then(r => newSince(r, "messages")).catch(() => S.msgNew || 0);
+  await chatUnread(true);
   if (S.view !== "alerts") return;
   const p = S.me.role === "bishop" ? null : picture(), red = p ? p.count("red") : 0, amber = p ? p.count("yellow") : 0, n = (x, one, many) => `${x} ${x === 1 ? one : many}`;
   const can = k => pages().some(g => g[1].some(x => x[0] === k));
   const items = [
     S.me.role === "admin" && S.msgNew ? ["mail", n(S.msgNew, "new message", "new messages"), "Sent from Help → Contact the admin", () => { S.adminTab = "messages"; S.go("admin"); }] : null,
+    S.chatNew ? ["community", n(S.chatNew, "new message in Community", "new messages in Community"), "Team chat and alerts", () => { const k = Object.keys(S.chatUnread || {}).sort((a, b) => (S.chatUnread[b].alerts - S.chatUnread[a].alerts))[0]; if (k) S.chan = k; S.go("community"); }] : null,
     S.pending ? ["signups", n(S.pending, "new sign-up", "new sign-ups"), "From the welcome form, waiting to be approved", () => S.go("signups")] : null,
     S.teamPending ? ["teamforms", n(S.teamPending, "team form", "team forms"), "People asking to sign in", () => S.go("teamforms")] : null,
     S.bacPending ? ["bacentas", n(S.bacPending, "name added at a Bacenta", "names added at a Bacenta"), "Waiting to join the Congregation list", () => S.go("bacentas")] : null,
@@ -5395,6 +5506,7 @@ function setBadge() {
       if (S.msgNew === undefined) S.msgNew = await api("help_messages?select=created_at&or=(done.is.null,done.is.false)").then(r => newSince(r, "messages")).catch(() => 0);
       n += S.msgNew;
     }
+    await chatUnread(); n += S.chatNew || 0; paintChatNav();  // new Community messages
     if ("setAppBadge" in navigator) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
     paintBell();  // the bell at the top: the same counts
   }, 800);
@@ -5519,7 +5631,7 @@ async function pushSetup(el) {
   };
 }
 const PUSH_FN = String.raw`// send-reminders (FCC Attendance): every 5 minutes pg_cron asks this to send the check-in reminders that are due.
-// It can also send a test to one device that has turned notifications on. Secrets: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY.
+// It also sends Community alerts as they're sent, and a test to one device that has turned notifications on. Secrets: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY.
 import webpush from "npm:web-push@3.6.7";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -5535,6 +5647,10 @@ Deno.serve(async (req: Request) => {
   if (body.test) {  // "Send a test" in Settings: only to a device that is already signed up
     const { data } = await db.from("push_subs").select("endpoint, p256dh, auth").eq("endpoint", String(body.test));
     rows = (data || []).map((r: any) => ({...r, test: true}));
+  } else if (body.alert) {  // an alert just sent in Community: once, to the phones of that channel's people (the database checks it's new)
+    const { data, error } = await db.rpc("app_alert_targets", {mid: String(body.alert)});
+    if (error) return json({error: error.message}, 500);
+    rows = (data || []).map((r: any) => ({...r, alert: true}));
   } else {
     const { data, error } = await db.rpc("app_due_reminders");
     if (error) return json({error: error.message}, 500);
@@ -5542,7 +5658,8 @@ Deno.serve(async (req: Request) => {
   }
   let sent = 0;
   for (const r of rows) {
-    const msg = r.test ? {title: "Notifications are on", body: "Check-in reminders will show like this.", url: "/app/"}
+    const msg = r.alert ? {title: r.title, body: r.body, url: r.url}
+      : r.test ? {title: "Notifications are on", body: "Check-in reminders will show like this.", url: "/app/"}
       : {title: "Time to check people in", body: (r.church ? r.church + ": " : "") + "tap to open Check-in.", url: "/app/?go=checkin"};
     try { await webpush.sendNotification({endpoint: r.endpoint, keys: {p256dh: r.p256dh, auth: r.auth}}, JSON.stringify(msg), {TTL: 3600}); sent++; }
     catch (e: any) { if (e?.statusCode === 404 || e?.statusCode === 410) await db.from("push_subs").delete().eq("endpoint", r.endpoint); }  // the device said no or is gone
