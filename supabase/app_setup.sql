@@ -2067,4 +2067,121 @@ end $$;
 revoke all on function centa_list(date) from public, anon;
 grant execute on function centa_list(date) to authenticated;
 
+-- ---------------------------------------------------------------- Community: team chat and alerts
+-- Each church has channels: Everyone (all its sign-ins), Leaders (admins, church admins, pastors and shepherds), Ushers
+-- (the team, with admins and church admins), and one for each Bacenta (whoever can see that Bacenta). The Bishop has none.
+-- An alert is a message pinned at the top of its channel; it also goes to phones that have notifications on. Admins and
+-- church admins send alerts anywhere; a Bacenta's pastor or shepherd in its channel. Messages go after 180 days.
+create table if not exists chat_messages (
+  id uuid primary key default gen_random_uuid(),
+  church text not null,
+  channel text not null check (channel ~ '^(everyone|leaders|ushers|bacenta:[0-9a-f-]{36})$'),
+  body text not null check (length(trim(body)) between 1 and 1000),
+  alert boolean not null default false,
+  author_email text,
+  author_name text,
+  created_at timestamptz not null default now(),
+  pushed_at timestamptz);
+create index if not exists chat_messages_ch on chat_messages (church, channel, created_at desc);
+create table if not exists chat_reads (
+  email text not null, church text not null, channel text not null, last_read timestamptz not null default now(),
+  primary key (email, church, channel));
+alter table chat_messages enable row level security;
+alter table chat_reads enable row level security;
+
+-- may the signed-in person read and write in this channel of this church?
+create or replace function app_chat_ok(ch text, chan text) returns boolean language sql stable security definer set search_path = public as
+$$ select coalesce(app_role() is not null and app_role() <> 'bishop' and (app_role() = 'admin' or app_church() = ch) and case
+     when chan = 'everyone' then true
+     when chan = 'leaders' then app_role() in ('admin', 'lead', 'pastor')
+     when chan = 'ushers' then app_role() in ('admin', 'lead', 'team')
+     when chan ~ '^bacenta:[0-9a-f-]{36}$' then app_bacenta_ok(substr(chan, 9)::uuid)
+       and exists (select 1 from bacentas b where b.id = substr(chan, 9)::uuid and b.church = ch)
+     else false end, false) $$;
+-- may they send an alert there? Admins and church admins anywhere they can write; a Bacenta's pastor or shepherds in its channel
+create or replace function app_chat_alert_ok(ch text, chan text) returns boolean language sql stable security definer set search_path = public as
+$$ select coalesce(app_chat_ok(ch, chan) and (app_role() in ('admin', 'lead')
+     or (chan ~ '^bacenta:' and app_role() = 'pastor' and exists (select 1 from bacentas b where b.id = substr(chan, 9)::uuid
+          and (app_pastor_name() in (app_norm_name(b.pastor), app_norm_name(b.shepherd))
+               or exists (select 1 from centas k where k.bacenta = b.id and k.active and app_norm_name(k.shepherd) = app_pastor_name())))))
+   , false) $$;
+revoke all on function app_chat_ok(text, text), app_chat_alert_ok(text, text) from public, anon;
+grant execute on function app_chat_ok(text, text), app_chat_alert_ok(text, text) to authenticated;
+-- the sender's email, name and time are set here, not by the phone
+create or replace function app_chat_stamp() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  new.author_email := lower(auth.jwt() ->> 'email');
+  new.author_name := coalesce((select nullif(trim(u.name), '') from app_users u where u.email = new.author_email), new.author_email);
+  new.created_at := now(); new.pushed_at := null; new.body := trim(new.body);
+  return new;
+end $$;
+drop trigger if exists app_chat_stamp on chat_messages;
+create trigger app_chat_stamp before insert on chat_messages for each row execute function app_chat_stamp();
+
+drop policy if exists "app: read chat" on chat_messages;
+create policy "app: read chat" on chat_messages for select to authenticated using (app_chat_ok(church, channel));
+drop policy if exists "app: write chat" on chat_messages;
+create policy "app: write chat" on chat_messages for insert to authenticated
+  with check (app_chat_ok(church, channel) and (not alert or app_chat_alert_ok(church, channel)));
+drop policy if exists "app: pin chat" on chat_messages;
+create policy "app: pin chat" on chat_messages for update to authenticated
+  using (app_chat_alert_ok(church, channel)) with check (app_chat_alert_ok(church, channel));
+drop policy if exists "app: delete chat" on chat_messages;
+create policy "app: delete chat" on chat_messages for delete to authenticated
+  using (app_chat_ok(church, channel) and (author_email = lower(auth.jwt() ->> 'email') or app_role() in ('admin', 'lead')));
+revoke all on chat_messages from anon;
+grant select, insert, delete on chat_messages to authenticated;
+grant update (alert) on chat_messages to authenticated;
+drop policy if exists "app: my chat reads" on chat_reads;
+create policy "app: my chat reads" on chat_reads for all to authenticated
+  using (email = lower(auth.jwt() ->> 'email')) with check (email = lower(auth.jwt() ->> 'email') and app_chat_ok(church, channel));
+revoke all on chat_reads from anon;
+grant select, insert, update on chat_reads to authenticated;
+-- new messages since this person last opened each channel (not their own), and how many of those are alerts
+create or replace function app_chat_unread(ch text) returns table (channel text, unread int, alerts int) language sql stable security invoker set search_path = public as $$
+  select m.channel, count(*)::int, count(*) filter (where m.alert)::int from chat_messages m
+  left join chat_reads r on r.email = lower(auth.jwt() ->> 'email') and r.church = m.church and r.channel = m.channel
+  where m.church = ch and m.created_at > coalesce(r.last_read, now() - interval '14 days')
+    and m.author_email is distinct from lower(auth.jwt() ->> 'email')
+  group by 1 $$;
+revoke all on function app_chat_unread(text) from public, anon;
+grant execute on function app_chat_unread(text) to authenticated;
+-- for the sender (send-reminders): the phones to tell about a new alert, once, within 10 minutes of it being sent
+create or replace function app_alert_targets(mid uuid) returns table (endpoint text, p256dh text, auth text, title text, body text, url text)
+language plpgsql security definer set search_path = public as $$
+declare m chat_messages; b bacentas; label text;
+begin
+  update chat_messages c set pushed_at = now() where c.id = mid and c.alert and c.pushed_at is null and c.created_at > now() - interval '10 minutes' returning * into m;
+  if m.id is null then return; end if;
+  if m.channel ~ '^bacenta:' then select * into b from bacentas x where x.id = substr(m.channel, 9)::uuid; end if;
+  label := case m.channel when 'everyone' then 'Everyone' when 'leaders' then 'Leaders' when 'ushers' then 'Ushers' else coalesce(b.name, 'Bacenta') end;
+  return query
+  select s.endpoint, s.p256dh, s.auth, 'Alert · ' || label, left(coalesce(m.author_name, 'Someone') || ': ' || m.body, 180), '/app/?go=community'::text
+  from app_users u join push_subs s on lower(s.email) = u.email
+  where u.email is distinct from m.author_email and u.role <> 'bishop' and (u.role = 'admin' or u.church = m.church)
+    and case m.channel when 'everyone' then true when 'leaders' then u.role in ('admin', 'lead', 'pastor') when 'ushers' then u.role in ('admin', 'lead', 'team')
+      else u.role in ('admin', 'lead')
+        or exists (select 1 from bacenta_helpers h where h.bacenta = b.id and h.email = u.email)
+        or (u.role = 'pastor' and app_norm_name(u.pastor) in (app_norm_name(b.shepherd), app_norm_name(b.pastor)))
+        or (u.role = 'pastor' and exists (select 1 from centas k where k.bacenta = b.id and k.active and app_norm_name(k.shepherd) = app_norm_name(u.pastor))) end;
+end $$;
+revoke all on function app_alert_targets(uuid) from public, anon, authenticated;
+grant execute on function app_alert_targets(uuid) to service_role;
+-- live: new messages arrive without refreshing; and every night, messages older than 180 days go
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'chat_messages') then
+    alter publication supabase_realtime add table public.chat_messages;
+  end if;
+exception when others then raise notice 'Community messages are not live: %', sqlerrm;
+end $$;
+do $$
+begin
+  create extension if not exists pg_cron;
+  perform cron.unschedule(jobid) from cron.job where jobname = 'fcc-chat-tidy';
+  perform cron.schedule('fcc-chat-tidy', '29 14 * * *', $c$delete from public.chat_messages where created_at < now() - interval '180 days'$c$);
+exception when others then raise notice 'Old messages are not tidied automatically: %', sqlerrm;
+end $$;
+
 notify pgrst, 'reload schema';
