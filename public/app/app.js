@@ -1291,6 +1291,8 @@ function render() {
       ${S.me.role === "bishop" ? "" : `<div class="side-church">${S.me.role === "admin"  // the church being worked in, at the top; only an admin can change it
         ? `<button type="button" class="church on" data-chpick aria-haspopup="listbox" aria-expanded="false" title="Working in ${esc(S.church)}: tap to switch church"><i></i><b class="ch-ab" aria-hidden="true">${esc(churchAbbr(S.church))}</b><span>${esc(S.church)}</span><em>Change</em></button>`
         : `<div class="church on" title="Your church"><i></i><b class="ch-ab" aria-hidden="true">${esc(churchAbbr(S.church))}</b><span>${esc(S.church)}</span></div>`}</div>`}
+      <div class="side-search"><label class="ss-box">${svg("search")}<input id="ss-q" type="search" placeholder="Search" autocomplete="off" aria-label="Search the app" aria-controls="ss-drop" aria-expanded="false"><kbd>${/Mac|iP/.test(navigator.platform) ? "⌘K" : "Ctrl K"}</kbd></label>
+        <button type="button" class="nav ss-mini" data-view="search" title="Search">${svg("search")}</button></div>
       ${menuGroups.map(([h, items]) => navGroup(h, items, items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" title="${t}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}<span class="nl">${t}</span>${
         k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : k === "teamforms" && S.teamPending ? `<span class="count">${S.teamPending}</span>` : k === "bacentas" && S.bacPending ? `<span class="count" title="Names added at a Bacenta waiting for you to approve">${S.bacPending}</span>` : ""}</button>`).join(""))).join("")}
       <div class="side-foot">${S.me.base === "admin" ? (S.preview ? `<button class="nav" data-unpreview title="Back to Admin">${svg("back")}<span class="nl">Back to Admin</span></button>`
@@ -1307,6 +1309,7 @@ function render() {
     <nav class="dock" aria-label="Main">${dock.map(([k, t]) => `<button class="${S.view === k ? "on" : ""}" data-view="${k}" aria-label="${t}" ${S.view === k ? 'aria-current="page"' : ""}>${k === "account" ? `<span class="dock-me">${esc(initials(who))}</span>` : svg(k)}<span>${t}</span></button>`).join("")}
 </nav></div>`;  // everything else: the ☰ menu at the top left
   const shell = root.querySelector(".shell"), menuBtn = root.querySelector("[data-menu]");
+  sideSearch(root);
   const menu = open => { shell.classList.toggle("open", open); menuBtn.setAttribute("aria-expanded", open); };
   S.menu = menu;  // the phone swipe below opens and closes it too
   S.go = go;  // for Search and Notifications
@@ -5144,10 +5147,41 @@ document.addEventListener("keydown", e => {  // "/" or Ctrl+K (⌘K on a Mac): t
   if (!S.me || !S.go || document.querySelector(".modal")) return;
   const typing = e.target.closest?.("input, textarea, select, [contenteditable]");
   if ((e.key === "/" && !typing) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k")) {
-    e.preventDefault(); if (S.view === "search") return document.getElementById("gs-q")?.focus();
+    e.preventDefault(); const ss = document.getElementById("ss-q"); if (ss?.offsetParent) return ss.focus();
+    if (S.view === "search") return document.getElementById("gs-q")?.focus();
     S.gsFocus = true; S.go("search");
   }
 });
+// On a computer: a search box at the top of the sidebar; results drop down beside it as you type (↑ ↓ and Enter work too)
+function sideSearch(root) {
+  const inp = root.querySelector("#ss-q"); if (!inp) return;
+  document.getElementById("ss-drop")?.remove();
+  const drop = document.createElement("div"); drop.id = "ss-drop"; drop.className = "card ss-drop"; drop.hidden = true; drop.setAttribute("role", "listbox");
+  root.querySelector(".shell").append(drop);
+  let list = [], at = 0;
+  const close = () => { drop.hidden = true; inp.setAttribute("aria-expanded", "false"); };
+  const pick = r => { inp.value = ""; close(); inp.blur(); r?.go(); };
+  const mark = () => drop.querySelectorAll("[data-si]").forEach(b => { const on = +b.dataset.si === at; b.classList.toggle("on", on); if (on) b.scrollIntoView({block: "nearest"}); });
+  const draw = () => {
+    const q = inp.value.trim(); if (!q) return close();
+    list = searchApp(q).slice(0, 14); at = 0; let g = "";
+    drop.innerHTML = (list.length ? list.map((r, i) => (r.kind !== g ? `<div class="gs-h">${esc(g = r.kind)}</div>` : "") +
+        `<button type="button" class="gs-item" role="option" data-si="${i}" tabindex="-1"><b>${esc(r.label)}</b>${r.sub ? `<small>${esc(r.sub)}</small>` : ""}</button>`).join("")
+      : `<p class="gs-none">Nothing matches “${esc(q)}”.</p>`) + `<button type="button" class="link ss-all" data-sall>See everything for “${esc(q)}”</button>`;
+    const r = inp.closest(".ss-box").getBoundingClientRect();
+    Object.assign(drop.style, {left: r.left + "px", top: r.bottom + 6 + "px", width: Math.max(r.width, 380) + "px", maxHeight: Math.max(220, innerHeight - r.bottom - 24) + "px"});
+    drop.hidden = false; inp.setAttribute("aria-expanded", "true"); mark();
+  };
+  drop.onmousedown = e => e.preventDefault();  // keep the box focused while a result is clicked
+  drop.onclick = e => { const b = e.target.closest("[data-si]"); if (b) return pick(list[+b.dataset.si]);
+    if (e.target.closest("[data-sall]")) { S.gsQ = inp.value; inp.value = ""; close(); S.go("search"); } };
+  inp.oninput = draw; inp.onfocus = draw; inp.onblur = close;
+  inp.onkeydown = e => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); if (!list.length) return; at = (at + (e.key === "ArrowDown" ? 1 : list.length - 1)) % list.length; mark(); }
+    else if (e.key === "Enter") { e.preventDefault(); if (inp.value.trim()) pick(list[at]); }
+    else if (e.key === "Escape") { inp.value = ""; close(); inp.blur(); }
+  };
+}
 // The Search page (the 🔍 in the bottom bar, or Search in the menu): one big box; results come as you type, under it.
 // With nothing typed: every page this sign-in has, as tiles, and the Help topics.
 function searchPage(el) {
