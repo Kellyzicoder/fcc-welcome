@@ -1308,7 +1308,7 @@ function render() {
         ${S.newVersion ? `<button class="pill-btn sm primary" data-update title="A newer version of the app is ready">Update the app</button>` : ""}
         ${S.me.role === "bishop" ? "" : `<button type="button" class="bell ${S.view === "alerts" ? "on" : ""}" data-bell data-view="alerts" title="Notifications" aria-label="Notifications">${svg("bell")}</button>`}
         <div class="mode" role="group" aria-label="Colour mode"><button data-mode="light">Light</button><button data-mode="dark">Dark</button></div>
-        <button class="acct" data-view="account" title="Your account and settings" aria-label="Your account and settings"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${roleName(S.me)} · ${esc(where)}</small></span></button>
+        <button class="acct" data-view="account" title="Your account and settings" aria-label="Your account and settings"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${S.preview ? `Admin · viewing as ${esc(PREVIEW[S.preview.role] || "")}` : `${roleName(S.me)} · ${esc(where)}`}</small></span></button>
         <button class="out-btn" data-out title="Log out">${svg("out")}<span>Log out</span></button></div>
       <div class="body" id="view"></div></main>
     <nav class="dock" aria-label="Main">${dock.map(([k, t]) => `<button class="${S.view === k ? "on" : ""}" data-view="${k}" aria-label="${t}" ${S.view === k ? 'aria-current="page"' : ""}>${k === "account" ? `<span class="dock-me">${esc(initials(who))}</span>` : svg(k)}<span>${t}</span></button>`).join("")}
@@ -1451,9 +1451,10 @@ const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, bacentas: 3, summary: 6, foll
 // Pastors and bishops are greeted with their title; a title already in their name (Pastor, Rev, Elder...) is kept.
 const GREET_TITLES = /^(pastor|ps|bishop|reverend|rev|elder|deacon|deaconess|lady|prophet|prophetess|apostle|evangelist|dr|mrs?|ms|minister)\.?$/i;
 function greetName() {
-  // Always the signed-in person's own name (Your account). The name on the Pastors list can be someone else's,
-  // for example while an admin looks at the app as a pastor.
-  const raw = String(S.me?.name || "").trim().replace(/\s+/g, " "); if (!raw) return "";
+  // The signed-in person's own name (Your account). While an admin looks at the app as a pastor or shepherd, it's that
+  // person's name, as they'd see it ("Pst. Kofi"); as anyone else (an usher, say), the admin's first name with no title.
+  const as = S.preview?.pastor || "";
+  const raw = String(as || S.me?.name || "").trim().replace(/\s+/g, " "); if (!raw) return "";
   const w = raw.split(" "), lead = [];
   if (S.me.title === "Shepherd") {  // shepherds: just their first name, never "Shepherd Frank" or "Pastor Frank"
     while (w.length > 1 && (GREET_TITLES.test(w[0]) || /^shepherd$/i.test(w[0]))) w.shift();
@@ -1462,6 +1463,7 @@ function greetName() {
   while (w.length > 1 && GREET_TITLES.test(w[0])) lead.push(w.shift());
   const first = w[0];
   if (GREET_TITLES.test(first)) return raw;  // the name is only a title, e.g. "Bishop"
+  if (S.preview && !as) return first;
   if (lead.length) return shortTitle(`${lead.join(" ")} ${first}`);
   const role = S.me.role, title = S.me.title, pastors = role === "pastor" || title === "Lead pastor" || (!S.preview && S.me.pastor);
   if (title === "Shepherd") return first;  // a shepherd is not called Pastor
