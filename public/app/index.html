@@ -1349,6 +1349,11 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 /* Your account → Delete my account */
 .del-me .pill-btn.danger {border: 1px solid color-mix(in srgb, var(--red) 40%, var(--line));} .del-me .pill-btn.danger:disabled {opacity: .45; cursor: not-allowed;}
 .del-me .note a {color: var(--accent);}
+/* the tour card: the step dots on their own line, then Skip on the left and Back and Next on the right, all inside the card */
+.tour-foot {flex-wrap: wrap; row-gap: 12px;}
+.tour-foot .tour-dots {flex: 1 0 100%; margin: 0;}
+.tour-foot {justify-content: flex-end;} .tour-foot [data-skip] {margin-right: auto;}
+.tour-foot .pill-btn {flex: none; min-width: 0;}
 </style>
 </head>
 <body>
