@@ -2184,4 +2184,34 @@ begin
 exception when others then raise notice 'Old messages are not tidied automatically: %', sqlerrm;
 end $$;
 
+-- ---------------------------------------------------------------- Delete my account (Your account → Delete my account)
+-- Anyone can delete their own sign-in. Their sign-in, settings, phone notifications, reminders and Community messages
+-- go; messages they sent to the admin keep the message but lose their name and email. Church records (the congregation,
+-- attendance, visits and the activity log) stay with the church. The last admin can't delete themselves.
+create or replace function app_delete_me() returns text language plpgsql security definer set search_path = public as $$
+declare me text := lower(auth.jwt() ->> 'email'); u app_users;
+begin
+  if me is null or me = '' then raise exception 'Not signed in'; end if;
+  select * into u from app_users where email = me;
+  if u.role = 'admin' and not exists (select 1 from app_users where role = 'admin' and email <> me) then
+    raise exception 'You''re the only admin. Make someone else an admin first, so the church isn''t locked out.';
+  end if;
+  delete from push_subs where lower(email) = me;
+  delete from reminders where lower(email) = me;
+  delete from push_defaults where lower(email) = me;
+  delete from app_prefs where lower(email) = me;
+  delete from chat_reads where email = me;
+  delete from chat_messages where author_email = me;
+  delete from team_requests where email = me and status = 'pending';
+  update help_messages set email = null, name = 'Deleted account' where lower(email) = me;
+  delete from app_users where email = me;  -- their Bacenta helper places go with it
+  begin  -- and the sign-in itself, so the email can't be used to get back in
+    delete from auth.users where lower(email) = me;
+  exception when others then raise notice 'Sign-in not removed: %', sqlerrm;  -- without the app_users row it already opens nothing
+  end;
+  return 'deleted';
+end $$;
+revoke all on function app_delete_me() from public, anon;
+grant execute on function app_delete_me() to authenticated;
+
 notify pgrst, 'reload schema';
