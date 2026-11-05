@@ -1197,6 +1197,11 @@ const churchAbbr = c => { const w = String(c || "").trim().split(/\s+/).filter(B
 // The menu's groups open and close like dropdowns; the one with the page you're on is open. A group of one is just its page.
 const GICON = {ATTENDANCE: "checkin", PEOPLE: "people", SHARE: "reports", CHURCHES: "overview", ADMIN: "admin", RECORDS: "activity"};
 function menuOpen() { try { return JSON.parse(localStorage.getItem("fcc-menu-open:" + (S.me?.email || "")) || "[]"); } catch { return []; } }
+// The menu in sections, like most dashboards: the everyday pages at the top with no heading, then "Manage", then "Team and help"
+function navSec(groups, gi) {
+  if (groups[0]?.[0] !== "ATTENDANCE") return "";  // a pastor's or the Bishop's short menu: one list
+  return gi === 1 ? `<h6 class="nsec">Manage</h6>` : gi === groups.length - 1 && !groups[gi][0] ? `<h6 class="nsec">Team and help</h6>` : "";
+}
 function navGroup(h, items, btns) {
   if (!h || items.length < 2) return btns;
   const here = items.some(([k]) => k === S.view), open = here || menuOpen().includes(h), name = h.charAt(0) + h.slice(1).toLowerCase();
@@ -1293,7 +1298,7 @@ function render() {
         : `<div class="church on" title="Your church"><i></i><b class="ch-ab" aria-hidden="true">${esc(churchAbbr(S.church))}</b><span>${esc(S.church)}</span></div>`}</div>`}
       <div class="side-search"><label class="ss-box">${svg("search")}<input id="ss-q" type="search" placeholder="Search" autocomplete="off" aria-label="Search the app" aria-controls="ss-drop" aria-expanded="false"><kbd>${/Mac|iP/.test(navigator.platform) ? "⌘K" : "Ctrl K"}</kbd></label>
         <button type="button" class="nav ss-mini" data-view="search" title="Search">${svg("search")}</button></div>
-      ${menuGroups.map(([h, items]) => navGroup(h, items, items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" title="${t}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}<span class="nl">${t}</span>${
+      ${menuGroups.map(([h, items], gi) => navSec(menuGroups, gi) + navGroup(h === "ATTENDANCE" ? "" : h, items, items.map(([k, t]) => `<button class="nav ${S.view === k ? "on" : ""}" data-view="${k}" title="${t}" style="--nc:var(--h${NAVHUE[k] || 1})">${svg(k)}<span class="nl">${t}</span>${
         k === "signups" && S.pending ? `<span class="count">${S.pending}</span>` : k === "teamforms" && S.teamPending ? `<span class="count">${S.teamPending}</span>` : k === "bacentas" && S.bacPending ? `<span class="count" title="Names added at a Bacenta waiting for you to approve">${S.bacPending}</span>` : ""}</button>`).join(""))).join("")}
       <div class="side-foot">${S.me.base === "admin" ? (S.preview ? `<button class="nav" data-unpreview title="Back to Admin">${svg("back")}<span class="nl">Back to Admin</span></button>`
           : `<button class="nav" data-viewas title="View as another role">${svg("eye")}<span class="nl">View as another role</span></button>`) : ""}${S.canSwitch ? `<button class="nav" data-switch title="${switchLabel()}">${svg("pastors")}<span class="nl">${switchLabel()}</span></button>` : ""}<button class="nav out" data-out title="Log out">${svg("out")}<span class="nl">Log out</span></button></div></aside>
