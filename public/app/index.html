@@ -1323,6 +1323,20 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
   .acct {padding: 3px 12px 3px 3px; gap: 8px;} .acct-pic {width: 28px; height: 28px; font-size: 11.5px;} .acct b {font-size: 13px;} .acct small {font-size: 11px;}
   .top .out-btn {min-height: 32px; height: 32px; padding: 0 12px 0 10px; font-size: 13.5px;} .top .out-btn svg {width: 15px; height: 15px;}
 }
+/* computers: everything a little smaller, so pages feel lighter and more fits (Settings → Text size still makes it bigger) */
+@media (min-width: 1081px) {
+  [data-text="normal"] .body {zoom: .9;}
+  [data-text="normal"] .modal > .sheet {zoom: .92; max-width: calc((100vw - 32px) / .92);}
+  [data-text="large"] .body {zoom: 1.01;} [data-text="larger"] .body {zoom: 1.12;}
+}
+/* computers: the church name is plain text with a Change link (no box), so it doesn't look like the search box under it */
+@media (min-width: 1081px) {
+  .shell:not(.mini) .side .side-church .church {border: 0; background: none; min-height: 0; padding: 2px 10px 4px; gap: 9px;}
+  .shell:not(.mini) .side .side-church .church span {font-weight: 600; font-size: 14px;}
+  .shell:not(.mini) .side .side-church .church em {font-size: 12.5px;}
+  .shell:not(.mini) .side .side-church button.church:hover em {text-decoration: underline;}
+  .side-church {margin: 0 0 10px;}
+}
 </style>
 </head>
 <body>
