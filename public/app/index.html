@@ -1323,11 +1323,16 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
   .acct {padding: 3px 12px 3px 3px; gap: 8px;} .acct-pic {width: 28px; height: 28px; font-size: 11.5px;} .acct b {font-size: 13px;} .acct small {font-size: 11px;}
   .top .out-btn {min-height: 32px; height: 32px; padding: 0 12px 0 10px; font-size: 13.5px;} .top .out-btn svg {width: 15px; height: 15px;}
 }
-/* computers: everything a little smaller, so pages feel lighter and more fits (Settings → Text size still makes it bigger) */
-@media (min-width: 1081px) {
-  [data-text="normal"] .body {zoom: .9;}
-  [data-text="normal"] .modal > .sheet {zoom: .92; max-width: calc((100vw - 32px) / .92);}
-  [data-text="large"] .body {zoom: 1.01;} [data-text="larger"] .body {zoom: 1.12;}
+/* every screen: everything a little smaller, so pages feel lighter and more fits (Settings → Text size still makes it bigger) */
+[data-text="normal"] .body {zoom: .9;}
+[data-text="normal"] .modal > .sheet {zoom: .92; max-width: calc((100vw - 32px) / .92);}
+[data-text="large"] .body {zoom: 1.01;} [data-text="larger"] .body {zoom: 1.12;}
+@media (max-width: 720px) { [data-text="normal"] .modal > .sheet {max-height: calc((100dvh - 90px) / .92);} }
+@media (max-width: 640px) { [data-text="normal"] .body {zoom: .88;} }  /* phones: a touch smaller still, like other phone apps */
+/* phones and tablets: the ☰ menu in the same lighter size as on a computer, with rows still easy to tap */
+@media (max-width: 1080px) {
+  .side .nav {font-size: 14.5px; gap: 12px; padding: 10px 12px;} .side .nav svg {width: 18px; height: 18px;}
+  .side .side-church .church span {font-size: 14px;} .brand-txt {font-size: 14.5px;}
 }
 /* computers: the church name is plain text with a Change link (no box), so it doesn't look like the search box under it */
 @media (min-width: 1081px) {
