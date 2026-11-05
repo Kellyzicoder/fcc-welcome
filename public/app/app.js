@@ -5513,7 +5513,13 @@ function account(el) {
     ${S.canSwitch ? `<div class="card"><div class="card-head"><h2>Your views</h2></div>
       <p class="note" style="margin-top:0">You're ${baseName() === "Admin" ? "an" : "a"} ${baseName()} and also a ${pview() === "Reverend" ? "Reverend" : "pastor"} (${esc(S.me.pastor)}). Switch any time.</p>
       <button class="pill-btn primary" data-switch>${svg("pastors")}${switchLabel()}</button></div>` : ""}
-    <div class="card"><button class="pill-btn" data-bye>${svg("out")}Log out</button></div></div>`;
+    <div class="card"><button class="pill-btn" data-bye>${svg("out")}Log out</button></div>
+    ${S.preview ? "" : `<div class="card del-me"><div class="card-head"><h2>Delete my account</h2></div>
+      <p class="note" style="margin-top:0">Removes your sign-in, your settings, phone notifications and reminders, and your Community messages. It can't be undone.
+        Church records stay with the church: the congregation list, attendance and visits. <a href="/privacy" target="_blank" rel="noopener">Privacy</a></p>
+      <label class="f" for="del-word">To confirm, type DELETE</label>
+      <input class="in" id="del-word" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="DELETE">
+      <div style="margin-top:12px"><button type="button" class="pill-btn danger" id="del-go" disabled>Delete my account</button></div></div>`}</div>`;
   el.querySelector("#me").onsubmit = async e => {
     e.preventDefault();
     try { S.me.name = await api("rpc/app_set_my_name", {method: "POST", body: {new_name: el.querySelector("#my-name").value}}); toast("Saved."); render(); }
@@ -5529,6 +5535,19 @@ function account(el) {
     redraw();
   };
   el.querySelector("[data-bye]").onclick = signOut;
+  const dw = el.querySelector("#del-word"), dg = el.querySelector("#del-go");
+  if (dw) {
+    dw.oninput = () => { dg.disabled = dw.value.trim().toUpperCase() !== "DELETE"; };
+    dg.onclick = async () => {
+      dg.disabled = true; dg.textContent = "Deleting…";
+      try { await api("rpc/app_delete_me", {method: "POST", body: {}}); }
+      catch (e) { dg.disabled = false; dg.textContent = "Delete my account";
+        return toast(/app_delete_me|function/i.test(e.message) && !/admin/i.test(e.message) ? "Not deleted: the latest setup SQL needs running in Supabase first." : "Not deleted: " + e.message); }
+      try { for (const k of Object.keys(localStorage)) if (k.includes(S.me.email)) localStorage.removeItem(k); } catch {}
+      try { const reg = await navigator.serviceWorker?.getRegistration(); (await reg?.pushManager.getSubscription())?.unsubscribe(); } catch {}
+      await signOut(); toast("Your account has been deleted.");
+    };
+  }
   settings(el.querySelector("#look"));
   el.querySelectorAll("[data-switch]").forEach(b => b.onclick = () => switchView(S.me.role === "pastor" ? S.me.base : "pastor"));
 }
@@ -5792,6 +5811,14 @@ let saved = null; try { saved = localStorage.getItem("fcc-mode"); } catch {}
 setMode(saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
 try { S.emoji = localStorage.getItem("fcc-emoji") !== "off"; } catch {}
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/app/sw.js").catch(() => {});
+// No internet while the app is open: a bar at the top says so (changes can't be saved), and goes when it's back
+function netBar() {
+  let bar = document.getElementById("net-bar");
+  if (navigator.onLine) { if (bar) { bar.classList.add("back"); bar.textContent = "Back online."; setTimeout(() => bar.remove(), 1800); } return; }
+  if (!bar) { bar = document.createElement("div"); bar.id = "net-bar"; bar.setAttribute("role", "status"); document.body.append(bar); }
+  bar.classList.remove("back"); bar.textContent = "You're offline. Changes won't save.";
+}
+addEventListener("offline", netBar); addEventListener("online", netBar); if (!navigator.onLine) netBar();
 
 // Phones (iPhones especially) can keep running an old copy of the app for days. Each time the app is opened or
 // brought back to the front, compare the copy we have with the one on the server; if a newer one exists, reload.
