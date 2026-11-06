@@ -313,19 +313,23 @@ const lastMsg = (id, key = "member_id") => id ? (S.msgs || []).find(x => x[key] 
 const msgDay = ts => { const d = new Date(ts), t = new Date(); if (d.toDateString() === t.toDateString()) return "today";
   return (t - d) / 864e5 < 6 ? d.toLocaleDateString("en-NZ", {weekday: "short"}) : d.toLocaleDateString("en-NZ", {day: "numeric", month: "short"}); };
 const msgTag = x => x ? `<small class="tp-did" title="Messaged by ${esc(x.sent_by_name || "")} on ${esc(new Date(x.sent_at).toLocaleString("en-NZ", {dateStyle: "medium", timeStyle: "short"}))}">${svg("tick")}Messaged · ${esc(String(x.sent_by_name || "").split(" ")[0])}, ${esc(msgDay(x.sent_at))}</small>` : "";
+const msgKind = (x, p) => x.type === "first_timer" && p.here[x.id] ? "thanks" : x.level !== "ok" || !p.here[x.id] ? "missed" : "hi";
+const msgBtn = (x, kind = "") => x.phone || x.email ? `<button type="button" class="icon-btn sm" data-msgto="${esc(x.id)}" ${kind ? `data-msgkind="${kind}"` : ""} title="Message ${esc(x.full_name)}" aria-label="Message ${esc(x.full_name)}">${svg("community")}</button>` : "";
 const msgRecent = (id, days = 7) => { const x = lastMsg(id); return !!x && Date.now() - new Date(x.sent_at) < days * 864e5; };
 function textPerson(o) {
   if (o.queue) { const at = o.at || 0, p = o.queue[at]; if (!p) return;  // a list: this person, then the next one after Sent or Skip
     return textPerson({...p, kind: o.keep || p.kind, list: {queue: o.queue, at, keep: o.keep, full: o.full}}); }
-  const {name, phone, kind = "hi", day = "", noContact = false, list = null, mid = null, cid = null, church = S.church} = o;
+  const {name, phone = "", email = "", kind = "hi", day = "", noContact = false, list = null, mid = null, cid = null, church = S.church} = o;
   document.querySelectorAll(".modal").forEach(x => x.remove());
   const first = String(name || "").trim().split(/\s+/)[0] || "there", me = String(S.me?.name || "").trim().split(/\s+/)[0], sign = `God bless,\n${me ? me + ", " : ""}Favourite Child Church`;
   const when = day ? ` on ${new Date(day + "T12:00:00").toLocaleDateString("en-NZ", {weekday: "long", day: "numeric", month: "long"})}` : "";
   const T = {thanks: ["Thank you for coming", `Hi ${first}, thank you so much for visiting Favourite Child Church${when}. It was a joy to have you with us. We'd love to see you again soon. You're always welcome!\n\n${sign}`],
              missed: ["We missed you", `Hi ${first}, we missed you at church! Hope you're doing well. Is there anything we can pray about or help with? It would be lovely to see you soon.\n\n${sign}`],
              convert: ["Welcome to the family", `Hi ${first}, we're so happy you gave your life to Jesus${when}! Welcome to the family. We'd love to help you grow, and someone will be in touch to walk with you. Praying for you!\n\n${sign}`],
+             visit: ["Can we visit?", `Hi ${first}, we've missed you at church and would love to come and see you this week. When would suit you?\n\n${sign}`],
              hi: ["Just saying hi", `Hi ${first}, just checking in to say hello from Favourite Child Church. Hope your week is going well!\n\n${sign}`]};
   if (kind !== "convert") delete T.convert;
+  if (!["missed", "visit"].includes(kind)) delete T.visit;
   const d = document.createElement("div"); d.className = "modal";
   d.innerHTML = `<div class="sheet tp" role="dialog" aria-modal="true" aria-label="Message ${esc(name)}">
     <div class="card-head"><h2>Message ${esc(first)}${list ? ` <small class="tp-count">${list.at + 1} of ${list.queue.length}</small>` : ""}</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
@@ -333,9 +337,9 @@ function textPerson(o) {
     <div class="chips" role="group" aria-label="Which message">${Object.entries(T).map(([k, [t]]) => `<button type="button" class="chip ${k === kind ? "on" : ""}" data-tk="${k}">${t}</button>`).join("")}</div>
     <label class="f" for="tp-msg" style="margin-top:12px">Message <small class="muted">(change it as you like)</small></label>
     <textarea class="in" id="tp-msg" rows="7"></textarea>
-    <p class="note" style="margin:8px 2px 0">Sent from your phone to ${esc(phone)}.</p>
-    <div class="modal-foot tp-foot"><button type="button" class="pill-btn" id="tp-copy">Copy</button>
-      <button type="button" class="pill-btn" id="tp-wa">WhatsApp</button><button type="button" class="pill-btn primary" id="tp-sms">Text message</button></div>
+    <p class="note" style="margin:8px 2px 0">Sent from your ${phone ? "phone" : "email"} to ${esc(phone || email)}.</p>
+    <div class="modal-foot tp-foot"><button type="button" class="pill-btn" id="tp-copy">Copy</button>${email ? `<button type="button" class="pill-btn ${phone ? "" : "primary"}" id="tp-mail">Email</button>` : ""}
+      ${phone ? `<button type="button" class="pill-btn" id="tp-wa">WhatsApp</button><button type="button" class="pill-btn primary" id="tp-sms">Text message</button>` : ""}</div>
     <div class="tp-ask" hidden><span>Did it send?</span><span class="gap"></span><button type="button" class="pill-btn" id="tp-no">Not yet</button>
       <button type="button" class="pill-btn primary" id="tp-yes">${svg("tick")}Sent${list ? list.at + 1 < list.queue.length ? " · next" : " · done" : ""}</button></div>
     ${list ? `<div class="tp-next">${list.at === 0 && list.full && list.full.length > list.queue.length ? `<span class="note">Leaving out ${list.full.length - list.queue.length} messaged this week. <button type="button" class="link" id="tp-incl">Include them</button></span>` : ""}
@@ -364,8 +368,9 @@ function textPerson(o) {
     catch (err) { toast(/messages_sent|relation|schema cache/i.test(err.message) ? "Sent, but not noted: run the latest setup SQL once." : "Not noted: " + err.message); }
     if (list) return next();
     close(); toast(`Noted: ${first} has been messaged.`); render(); };
-  d.querySelector("#tp-sms").onclick = () => { sent("text"); location.href = `sms:${local}?&body=${encodeURIComponent(ta.value)}`; };
-  d.querySelector("#tp-wa").onclick = () => { sent("whatsapp"); window.open(`https://wa.me/${intlNum(phone, S.church)}?text=${encodeURIComponent(ta.value)}`, "_blank", "noopener"); };
+  d.querySelector("#tp-mail")?.addEventListener("click", () => { sent("email"); location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent("From Favourite Child Church")}&body=${encodeURIComponent(ta.value)}`; });
+  if (phone) d.querySelector("#tp-sms").onclick = () => { sent("text"); location.href = `sms:${local}?&body=${encodeURIComponent(ta.value)}`; };
+  if (phone) d.querySelector("#tp-wa").onclick = () => { sent("whatsapp"); window.open(`https://wa.me/${intlNum(phone, S.church)}?text=${encodeURIComponent(ta.value)}`, "_blank", "noopener"); };
   d.querySelector("#tp-copy").onclick = async () => { sent("copy"); try { await navigator.clipboard.writeText(ta.value); toast("Copied. Paste it into any chat."); } catch { ta.select(); toast("Select all and copy it."); } };
 }
 // ---------------------------------------------------------------- New converts
@@ -1523,8 +1528,8 @@ function render() {
   root.querySelectorAll("[data-switch]").forEach(b => b.onclick = () => switchView(S.me.role === "pastor" ? S.me.base : "pastor"));
   const view = document.getElementById("view");
   view.onclick = e => {
-    const tx = e.target.closest("[data-msgto]"); if (tx) { const p = picture(), x = p.people.find(y => y.id === tx.dataset.msgto); if (x) textPerson({name: x.full_name, phone: x.phone, mid: x.id,
-      day: x.first_visit || "", kind: x.type === "first_timer" && p.here[x.id] ? "thanks" : x.level !== "ok" || !p.here[x.id] ? "missed" : "hi"}); return; }  // the message button by a phone number
+    const tx = e.target.closest("[data-msgto]"); if (tx) { const p = picture(), x = p.people.find(y => y.id === tx.dataset.msgto); if (x) textPerson({name: x.full_name, phone: x.phone, email: x.email, mid: x.id,
+      day: x.first_visit || "", kind: tx.dataset.msgkind || msgKind(x, p)}); return; }  // the message button by a phone number
     const b = e.target.closest("[data-person]"); if (b) { S.person = b.dataset.person; go("person"); return; }
     const t = e.target.closest("[data-to-pastor]"); if (t) { S.pastor = t.dataset.toPastor; S.pastorJump = true; go("pastors"); return; }
     const sh = e.target.closest("[data-to-shepherd]"); if (sh) { S.shepherd = sh.dataset.toShepherd; S.pastorJump = true; go("shepherds"); }
@@ -1810,7 +1815,7 @@ function calendar(el, p) {  // a month of services: days with a service show how
 }
 function rowsHtml(list, cols) {
   return list.map(p => `<tr><td>${whoBtn(p)}${msgTag(lastMsg(p.id))}</td><td>${flagBadge(p)}</td><td>${p.missed}</td>
-    <td class="muted hide-sm">${esc(nice(p.seen))}</td>${cols ? `<td class="muted hide-sm">${esc(p.pastor || "")}</td>` : ""}<td class="muted">${p.phone ? `<span class="tp-cell">${esc(p.phone)}<button type="button" class="icon-btn sm" data-msgto="${esc(p.id)}" title="Message ${esc(p.full_name)}" aria-label="Message ${esc(p.full_name)}">${svg("community")}</button></span>` : ""}</td></tr>`).join("");
+    <td class="muted hide-sm">${esc(nice(p.seen))}</td>${cols ? `<td class="muted hide-sm">${esc(p.pastor || "")}</td>` : ""}<td class="muted">${p.phone || p.email ? `<span class="tp-cell">${esc(p.phone || "")}${msgBtn(p)}</span>` : ""}</td></tr>`).join("");
 }
 // ---------------------------------------------------------------- dashboard: widgets each person can add, remove, drag and resize
 // Each widget: name, sub (line under the title), size (full = whole row, wide/narrow = left/right column), hue (its colour), draw(body, p).
@@ -2855,7 +2860,7 @@ function followup(el) {
   const pick = {need: x => x.level !== "ok", red: x => x.flag === "red", yellow: x => x.flag === "yellow", once: x => x.flag === "blue", blue: x => !p.here[x.id] && started(x), came: x => !!p.here[x.id], visited: x => !!x.visited, all: () => true};
   if (!tabs[S.filter]) S.filter = "need";
   const list = had ? p.people.filter(pick[S.filter]) : [];
-  const withPhone = list.filter(x => x.phone), fresh = withPhone.filter(x => !msgRecent(x.id));  // Message everyone leaves out anyone messaged this week
+  const withPhone = list.filter(x => x.phone || x.email), fresh = withPhone.filter(x => !msgRecent(x.id));  // Message everyone leaves out anyone messaged this week
   el.innerHTML = head("Follow-up", esc(S.church),
     `<button class="pill-btn" id="dl">Download this list</button>`) + `
     <div class="row sortbar"><div style="flex:0 0 200px"><label class="f" for="fu-day">Service date</label><input class="in" id="fu-day" type="date" value="${day || today()}" max="${today()}"></div>
@@ -2868,7 +2873,7 @@ function followup(el) {
     <div class="card"><div class="card-head"><h2>${tabs[S.filter]}</h2><span class="gap"></span>${withPhone.length > 1 && !S.preview ? `<button type="button" class="pill-btn sm" id="fu-all" title="${fresh.length < withPhone.length ? `Leaves out ${withPhone.length - fresh.length} messaged in the last 7 days` : ""}">${svg("community")}Message everyone (${(fresh.length || withPhone.length)})</button>` : ""}<span style="color:var(--ink-3);font-size:13px">${list.length} people</span></div>
       ${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th class="hide-sm">Pastor</th><th>Phone</th></tr></thead>
       <tbody>${rowsHtml(list, true)}</tbody></table></div>` : `<p class="empty">${had ? "Nobody in this list." : `No service was recorded on ${esc(nice(day || today(), true))}.`}</p>`}</div>`;
-  { const q = x => ({name: x.full_name, phone: x.phone, mid: x.id, day: x.first_visit || "", kind: x.type === "first_timer" && p.here[x.id] ? "thanks" : x.level !== "ok" || !p.here[x.id] ? "missed" : "hi"});
+  { const q = x => ({name: x.full_name, phone: x.phone, email: x.email, mid: x.id, day: x.first_visit || "", kind: msgKind(x, p)});
     el.querySelector("#fu-all")?.addEventListener("click", () => textPerson({queue: (fresh.length ? fresh : withPhone).map(q), full: withPhone.map(q)})); }
   el.querySelector("#fu-f").onchange = e => { S.filter = e.target.value; render(); };
   el.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { S.filter = b.dataset.f; render(); });
@@ -4686,13 +4691,13 @@ async function person(el) {
   const p = picture(), mine = p.mine.slice().sort(byName), m = mine.find(x => x.id === S.person);
   // Opened by tapping a name on any list, so there's no search box here (finding people is on Congregation)
   const canEdit = ["admin", "lead"].includes(S.me.role) && !S.preview;  // the same people who can edit on Congregation
-  const top = head(m ? esc(m.full_name) : "Person", esc(S.church), m ? `${m.phone && !S.preview ? `<button class="pill-btn" id="pe-text">${svg("community")}Message</button>` : ""}${canEdit ? `<button class="pill-btn" id="pe-edit">${svg("edit")}Edit</button>` : ""}<button class="pill-btn" id="dl">Download</button>` : "");
+  const top = head(m ? esc(m.full_name) : "Person", esc(S.church), m ? `${(m.phone || m.email) && !S.preview ? `<button class="pill-btn" id="pe-text">${svg("community")}Message</button>` : ""}${canEdit ? `<button class="pill-btn" id="pe-edit">${svg("edit")}Edit</button>` : ""}<button class="pill-btn" id="dl">Download</button>` : "");
   const bind = () => { const b = el.querySelector("#pe-edit"); if (b) b.onclick = () => editPerson(m);
     el.querySelectorAll("[data-mdel]").forEach(x => x.onclick = async () => { x.disabled = true;  // take back a "Sent" tapped by mistake
       try { await api(`messages_sent?id=eq.${encodeURIComponent(x.dataset.mdel)}`, {method: "DELETE"}); S.msgs = S.msgs.filter(y => y.id !== x.dataset.mdel); toast("Removed."); render(); }
       catch (e) { x.disabled = false; toast("Not removed: " + e.message); } });
     const t = el.querySelector("#pe-text"); if (t) t.onclick = () => { const st = picture().people.find(x => x.id === m.id);
-      textPerson({name: m.full_name, phone: m.phone, mid: m.id, day: m.first_visit || "", kind: m.type === "first_timer" ? "thanks" : st && st.level !== "ok" ? "missed" : "hi"}); }; };
+      textPerson({name: m.full_name, phone: m.phone, email: m.email, mid: m.id, day: m.first_visit || "", kind: m.type === "first_timer" ? "thanks" : st && st.level !== "ok" ? "missed" : "hi"}); }; };
   if (!m) { el.innerHTML = top + `<div class="card"><p class="empty" style="margin:0 0 12px">Tap a name on any list to see their attendance.</p><button class="pill-btn" data-go-people>Open Congregation</button></div>`;
     el.querySelector("[data-go-people]").onclick = () => { S.view = "people"; render(); }; return; }
   el.innerHTML = top + `<p class="empty">Loading…</p>`; bind();
@@ -4731,7 +4736,7 @@ async function person(el) {
     ${S.visits ? (() => { const vs = S.visits.filter(v => v.member_id === m.id); return `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Visits</h2><span class="gap"></span>${canVisit() ? `<button class="pill-btn sm" id="pe-visit">Log visit</button>` : ""}</div>
       ${vs.length ? `<ul class="vlist">${vs.map(v => `<li><b>${esc(full(v.visit_date))}</b> · ${esc(v.visited_by)}${v.outcome === "not_seen" ? " · they weren't in" : ""}${v.note ? `<br><span class="muted">${esc(v.note)}</span>` : ""}</li>`).join("")}</ul>` : `<p class="empty" style="margin:0">No visits recorded.</p>`}</div>`; })() : ""}
     ${(() => { const ms = (S.msgs || []).filter(x => x.member_id === m.id); if (!ms.length) return "";  // messages sent to them, newest first
-      const K = {thanks: "Thank you for coming", missed: "We missed you", hi: "Just saying hi", convert: "Welcome to the family"}, V = {text: "text", whatsapp: "WhatsApp", copy: "copied"};
+      const K = {thanks: "Thank you for coming", missed: "We missed you", hi: "Just saying hi", convert: "Welcome to the family", visit: "Can we visit?"}, V = {text: "text", whatsapp: "WhatsApp", email: "email", copy: "copied"};
       const mine = x => x.sent_by === S.me.email || ["admin", "lead"].includes(S.me.role);
       return `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Messages</h2></div><ul class="vlist">${ms.map(x => `<li><b>${esc(full(new Date(x.sent_at).toLocaleDateString("en-CA")))}</b> · ${esc(x.sent_by_name || "")} · ${esc(K[x.kind] || "")} (${esc(V[x.channel] || "")})${mine(x) && !S.preview ? ` <button type="button" class="link" data-mdel="${esc(x.id)}" style="margin:0 0 0 6px;font-size:13px">Remove</button>` : ""}</li>`).join("")}</ul></div>`; })()}
     ${flock.length || asPastor ? `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Their people</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${flock.length} ${flock.length === 1 ? "person" : "people"}</span>
@@ -4790,12 +4795,12 @@ function visits(el) {
   const byId = Object.fromEntries(p.mine.map(m => [m.id, m]));
   const done = (S.visits || []).filter(v => byId[v.member_id] && ours(byId[v.member_id]));
   const tab = S.visTab === "done" ? "done" : "need", mineEm = (S.me.email || "").toLowerCase();
-  const tel = x => x.phone ? `<a href="tel:${esc(x.phone.replace(/[^0-9+]/g, ""))}">${esc(x.phone)}</a>` : "";
+  const tel = x => x.phone || x.email ? `<span class="tp-cell">${esc(x.phone || "")}${S.preview ? "" : msgBtn(x, "visit")}</span>` : "";
   el.innerHTML = head("Visits", esc(S.church)) + (S.visits ? "" : `<div class="msg" style="margin:0 0 14px">Run the latest setup SQL in Supabase once to record visits.</div>`) + `
     <div class="chips"><button class="chip ${tab === "need" ? "on" : ""}" data-vt="need">To visit (${need.length})</button><button class="chip ${tab === "done" ? "on" : ""}" data-vt="done">Visits (${done.length})</button></div>
     <div class="card">${tab === "need"
       ? need.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th class="hide-sm">Missed in a row</th><th class="hide-sm">Last seen</th><th>Phone</th><th></th></tr></thead><tbody>
-        ${need.map(x => `<tr><td>${whoBtn(x)}</td><td>${flagBadge(x)}</td><td class="hide-sm">${x.missed}</td><td class="muted hide-sm">${esc(nice(x.seen))}</td><td>${tel(x)}</td>
+        ${need.map(x => `<tr><td>${whoBtn(x)}${msgTag(lastMsg(x.id))}</td><td>${flagBadge(x)}</td><td class="hide-sm">${x.missed}</td><td class="muted hide-sm">${esc(nice(x.seen))}</td><td class="muted">${tel(x)}</td>
           <td>${canVisit() ? `<button class="pill-btn sm primary" data-visit="${esc(x.id)}">Log visit</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`
         : `<p class="empty">Nobody needs a visit right now.</p>`
       : done.length ? `<div class="scroll"><table><thead><tr><th>Date</th><th>Name</th><th>Visited by</th><th class="hide-sm">Note</th><th></th></tr></thead><tbody>
@@ -4855,13 +4860,13 @@ async function signups(el) {
       ${r.notes ? `<div class="msg" style="margin-top:10px">${esc(r.notes)}</div>` : ""}
       ${match ? `<p class="note">Already on the register as <b>${esc(match.full_name)}</b> (${typeName(match).toLowerCase()}). Approving updates that person and adds nobody new.</p>` : ""}
       <div class="row" style="margin-top:14px"><label class="check"><input type="checkbox" data-tick checked> Mark present on ${esc(r.first_visit ? full(r.first_visit) : "today")}</label>
-        <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap">${r.phone ? `<button class="pill-btn" data-msg>${svg("community")}Message</button>` : ""}<button class="pill-btn primary" data-ok>Approve</button><button class="pill-btn" data-no>Reject</button></div></div></div>`;
+        <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap">${r.phone || r.email ? `<button class="pill-btn" data-msg>${svg("community")}Message</button>` : ""}<button class="pill-btn primary" data-ok>Approve</button><button class="pill-btn" data-no>Reject</button></div></div></div>`;
   }).join("") : `<div class="card"><p class="empty">No sign-ups waiting.</p></div>`) + ``;
   bindFormLink(el);
   el.querySelectorAll(".signup").forEach(card => {
     const id = card.dataset.reg, name = card.querySelector("h2").textContent, lock = on => card.querySelectorAll("button").forEach(b => b.disabled = on);
     const reg = regs.find(r => r.id === id);
-    card.querySelector("[data-msg]")?.addEventListener("click", () => textPerson({name: reg.full_name, phone: reg.phone, mid: reg.member_id || null, kind: "thanks", day: reg.first_visit || "", noContact: reg.wants_contact === false}));
+    card.querySelector("[data-msg]")?.addEventListener("click", () => textPerson({name: reg.full_name, phone: reg.phone, email: reg.email, mid: reg.member_id || null, kind: "thanks", day: reg.first_visit || "", noContact: reg.wants_contact === false}));
     card.querySelector("[data-ok]").onclick = async () => {
       lock(true);
       try {
