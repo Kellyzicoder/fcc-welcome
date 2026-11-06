@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-const UPDATED = "6 November 2026";
+const UPDATED = "7 November 2026";
 
 export default function Privacy() {
   const email = process.env.PRIVACY_EMAIL?.trim();
@@ -29,6 +29,7 @@ export default function Privacy() {
           <li><b>From the welcome form:</b> your name and phone, and if you give them your email, who invited you, and anything you'd like prayer or help with.</li>
           <li><b>About people in our congregations:</b> name, phone, email, address and birthday where given, which services, Bacenta and Centa meetings you came to, and notes the team makes to look after you (such as a follow-up call or a home visit).</li>
           <li><b>For people who sign in to the app (our team):</b> your email, name, role and church; your settings; when you last signed in; and what you did in the app (the activity log), such as ticking attendance or downloading a list.</li>
+          <li><b>New converts:</b> the name and phone of someone who gives their life to Christ, when and where, who is looking after them, the next steps they've taken (a call, a visit, the foundation class, baptism) and notes to help care for them.</li>
           <li><b>Community messages</b> that team members send each other in the app.</li>
           <li><b>Phone notifications:</b> if you turn on reminders, your phone's notification address (not your number) and the times you chose.</li>
         </ul>
@@ -47,6 +48,7 @@ export default function Privacy() {
         <ul>
           <li>Someone not seen at church for five years has their name and contact details wiped automatically. Attendance numbers stay, without a name.</li>
           <li>Community messages are deleted after 180 days.</li>
+          <li>New convert records are deleted five years after the day they gave their life to Christ.</li>
           <li>The activity log keeps 12 months.</li>
           <li>A team member can delete their own sign-in at any time (below).</li>
         </ul>
