@@ -1424,6 +1424,12 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 .chat-opts {display: flex; flex-direction: column; gap: 4px;}
 .tp-count {font-size: 13px; font-weight: 600; color: var(--ink-3); margin-left: 6px;}
 .tp-next {display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line);} .tp-next .link {margin: 0 auto 0 0; font-size: 13.5px;}
+/* Community: the test alert */
+.chat-tag.test {color: #b7791f;} .chat-msg.mine .chat-tag.test {color: #fff3c4;} .chat-test {font-size: 13px; margin: 2px 0 0; padding: 0; text-align: left;}
+/* Follow-up: four lists as buttons, the rest under More */
+.fu-chips {align-items: center;} .chip-n {display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 6px; border-radius: 999px; background: var(--soft); font-size: 12px; font-weight: 700; color: var(--ink-2);}
+.chip.on .chip-n {background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent);}
+select.chip.fu-more {appearance: auto; -webkit-appearance: menulist; padding-right: 8px; font: inherit; cursor: pointer; width: auto; flex: none; max-width: 240px;}
 </style>
 </head>
 <body>
