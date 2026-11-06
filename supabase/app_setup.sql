@@ -2382,6 +2382,9 @@ create policy "app: remove messages sent" on messages_sent for delete to authent
   using (app_converts_ok(church) and (sent_by = lower(auth.jwt() ->> 'email') or app_role() in ('admin', 'lead')));
 revoke all on messages_sent from anon;
 grant select, insert, delete on messages_sent to authenticated;
+-- "Can we visit?" texts (from Visits)
+alter table messages_sent drop constraint if exists messages_sent_kind_check;
+alter table messages_sent add constraint messages_sent_kind_check check (kind in ('thanks', 'missed', 'hi', 'convert', 'visit'));
 do $$
 begin
   create extension if not exists pg_cron;
