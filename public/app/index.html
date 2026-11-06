@@ -250,7 +250,11 @@ button.status-row:last-child {border-bottom: 0;} button.status-row:hover, button
 .vlist {list-style: none; margin: 0; padding: 0;} .vlist li {padding: 9px 2px; border-top: 1px solid var(--line);} .vlist li:first-child {border-top: 0;}
 .badge[title] {cursor: help;} .flag-key {display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: -4px 2px 12px; font-size: 13px; color: var(--ink-2);} .flag-key span:not(.badge) {margin-right: 8px;}
 .push-steps {margin: 12px 0 8px; padding-left: 22px; line-height: 1.7;} .push-steps li {margin-bottom: 10px;} .push-steps .pill-btn {margin: 2px 4px;}
-.push-nudge {display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; margin: 0 0 14px; padding: 12px 14px; border-radius: 16px; background: var(--accent-soft);} .push-nudge > svg {width: 22px; height: 22px; flex: none; color: var(--accent);} .push-nudge span {flex: 1; min-width: 190px;} .push-nudge small {display: block; color: var(--ink-2);}
+.push-nudge {display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; margin: 0 0 14px; padding: 14px 16px; border-radius: 16px;
+  background: var(--red-bg, #fdecec); border: 1px solid color-mix(in srgb, var(--red) 35%, transparent); color: var(--ink);}  /* red, so it stands out */
+.push-nudge > svg {width: 24px; height: 24px; flex: none; color: var(--red);} .push-nudge b {color: var(--red);} .push-nudge small {display: block; color: var(--ink-2); margin-top: 2px;}
+.nudge-btns {display: flex; flex-direction: column; gap: 8px;} .nudge-btns .pill-btn {width: 100%; justify-content: center;}  /* Turn on above Not now, at the side */
+.push-nudge .pill-btn.primary {background: var(--red); border-color: var(--red); color: #fff;}
 .fu-narrow {display: none;} @media (max-width: 700px) { .fu-wide {display: none !important;} .fu-narrow {display: block;} }  /* Follow-up: pills on wider screens, one dropdown on phones */
 
 /* services strip */
@@ -1403,6 +1407,23 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 .cv-notes {margin: 0; color: var(--ink-2); font-size: 14px; white-space: pre-wrap;}
 .cv-act {display: flex; gap: 8px; flex-wrap: wrap;}
 .sheet.cv-form {width: min(560px, 100%);} .cv-form .tp-foot .pill-btn {flex: none; width: auto;} .cv-form .cv-del {margin-right: auto; grid-column: auto;}
+/* the yellow note: put the app on the home screen (and turn on reminders) */
+.home-note {position: relative; margin: 0 0 14px; padding: 14px 44px 14px 16px; border-radius: 16px; background: #fff6d6; border: 1px solid #f0d27a; color: #3d3000;}
+.home-note > b {display: block; font-size: 15.5px; padding-right: 4px;} .home-note p {margin: 4px 0 8px; color: #5c4a00;} .home-note ol {margin: 0 0 10px; padding-left: 20px; color: #3d3000;} .home-note li {margin: 3px 0;}
+.hn-x {position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; min-height: 0; background: transparent; color: #5c4a00; border: 0;} .hn-x svg {width: 18px; height: 18px;}
+.hn-btns {display: flex; flex-wrap: wrap; gap: 8px;} .home-note .pill-btn {background: #fffdf4; border-color: #e7c766; color: #3d3000;} .home-note .hn-main {background: #f2b705; border-color: #f2b705; color: #2b2100;}
+:root[data-theme="dark"] .home-note {background: #3a3110; border-color: #6b5a1c; color: #ffe9a3;} :root[data-theme="dark"] .home-note p, :root[data-theme="dark"] .home-note ol, :root[data-theme="dark"] .hn-x {color: #f3dc8f;}
+:root[data-theme="dark"] .home-note .pill-btn {background: #2b2410; border-color: #6b5a1c; color: #ffe9a3;} :root[data-theme="dark"] .home-note .hn-main {background: #f2b705; color: #2b2100;}
+:root[data-theme="dark"] .push-nudge {background: #3a1518;}
+/* What's new, in Notifications */
+.wn-h {font-size: 16px; margin: 18px 4px 10px;} .wn-list {display: grid; gap: 10px;}
+.wn {display: flex; gap: 12px; align-items: flex-start; margin: 0; position: relative; padding-right: 44px;} .wn-txt {flex: 1; min-width: 0;} .wn-txt p {margin: 4px 0 10px; color: var(--ink-2); line-height: 1.5;}
+.wn-new {display: inline-block; vertical-align: middle; margin-left: 6px; font-size: 11px; font-weight: 700; color: #fff; background: var(--red); border-radius: 999px; padding: 1px 8px;}
+.wn-x {position: absolute; top: 10px; right: 10px; width: 30px; height: 30px; min-height: 0;} .wn-x svg {width: 16px; height: 16px;}
+/* Community: alert options; Message everyone: the count and Next */
+.chat-opts {display: flex; flex-direction: column; gap: 4px;}
+.tp-count {font-size: 13px; font-weight: 600; color: var(--ink-3); margin-left: 6px;}
+.tp-next {display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line);} .tp-next .link {margin: 0 auto 0 0; font-size: 13.5px;}
 </style>
 </head>
 <body>
