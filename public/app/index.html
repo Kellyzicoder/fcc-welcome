@@ -1378,6 +1378,10 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 }
 @keyframes dock-stretch { 0% {scale: 1 1;} 35% {scale: 1.18 .86;} 70% {scale: .97 1.04;} 100% {scale: 1 1;} }
 @media (prefers-reduced-motion: reduce) { .dock-pill, .dock {transition: none !important;} .dock-pill.go {animation: none;} }
+/* Message someone: the sheet, and the small button by a phone number on Follow-up */
+.sheet.tp {width: min(520px, 100%);} .tp textarea {resize: vertical; min-height: 150px; line-height: 1.45;}
+.tp-foot {display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end;}
+.tp-cell {display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;} .tp-cell .icon-btn {width: 30px; height: 30px; min-height: 0;} .tp-cell .icon-btn svg {width: 15px; height: 15px;}
 </style>
 </head>
 <body>
