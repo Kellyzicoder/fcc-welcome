@@ -2840,7 +2840,8 @@ function followup(el) {
     <div class="row sortbar"><div style="flex:0 0 200px"><label class="f" for="fu-day">Service date</label><input class="in" id="fu-day" type="date" value="${day || today()}" max="${today()}"></div>
       ${had ? `<p class="note" style="margin:0 0 4px;flex:1">${esc(S.names[day] || "Service")}<span class="fu-wide"> · ${esc(nice(day, true))}</span>${day !== p0.last ? ` · <button class="link" id="fu-latest" style="margin:0">Back to the latest service</button>` : ""}</p>` : ""}</div>
     <div class="chips fu-wide fu-chips">${MAIN.map(k => `<button class="chip ${S.filter === k ? "on" : ""}" data-f="${k}" ${k === "red" ? `title="Missed ${RED_AT} or more in a row"` : k === "yellow" ? `title="Missed ${YELLOW_AT}–${RED_AT - 1} in a row"` : ""}>${tabs[k]}${had ? ` <span class="chip-n">${p.people.filter(pick[k]).length}</span>` : ""}</button>`).join("")}
-      <select class="chip fu-more ${MORE.includes(S.filter) ? "on" : ""}" id="fu-more" aria-label="More lists"><option value="">More…</option>${MORE.map(k => `<option value="${k}" ${S.filter === k ? "selected" : ""}>${tabs[k]}${had ? ` (${p.people.filter(pick[k]).length})` : ""}</option>`).join("")}</select></div>
+      <span class="fu-more-wrap"><button type="button" class="chip ${MORE.includes(S.filter) ? "on" : ""}" id="fu-more" aria-haspopup="menu" aria-expanded="false">${MORE.includes(S.filter) ? tabs[S.filter] : "More"}${MORE.includes(S.filter) && had ? ` <span class="chip-n">${p.people.filter(pick[S.filter]).length}</span>` : ""} ${svg("caret")}</button>
+        <div class="w-pop fu-pop" role="menu" hidden>${MORE.map(k => `<button type="button" role="menuitem" class="${S.filter === k ? "on" : ""}" data-f="${k}">${tabs[k]}${had ? ` <span class="muted">${p.people.filter(pick[k]).length}</span>` : ""}</button>`).join("")}</div></span></div>
     <div class="fu-narrow" style="max-width:340px;margin:0 0 14px"><label class="f" for="fu-f">Show</label><select class="in" id="fu-f">${Object.entries(tabs).map(([k, t]) =>  // one dropdown instead of a row of pills, each list with its count
       `<option value="${k}" ${S.filter === k ? "selected" : ""}>${t} (${had ? p.people.filter(pick[k]).length : 0})</option>`).join("")}</select></div>  <!-- phones: the dropdown; wider screens: the pills -->
     <div class="card"><div class="card-head"><h2>${tabs[S.filter]}</h2><span class="gap"></span>${list.filter(x => x.phone).length > 1 && !S.preview ? `<button type="button" class="pill-btn sm" id="fu-all">${svg("community")}Message everyone (${list.filter(x => x.phone).length})</button>` : ""}<span style="color:var(--ink-3);font-size:13px">${list.length} people</span></div>
@@ -2850,7 +2851,10 @@ function followup(el) {
     kind: x.type === "first_timer" && p.here[x.id] ? "thanks" : x.level !== "ok" || !p.here[x.id] ? "missed" : "hi"}))}));
   el.querySelector("#fu-f").onchange = e => { S.filter = e.target.value; render(); };
   el.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { S.filter = b.dataset.f; render(); });
-  el.querySelector("#fu-more").onchange = e => { if (e.target.value) { S.filter = e.target.value; render(); } };
+  { const btn = el.querySelector("#fu-more"), pop = el.querySelector(".fu-pop");  // More: the other lists, in a small menu like the dashboard's
+    const show = on => { pop.hidden = !on; btn.setAttribute("aria-expanded", on); if (on) setTimeout(() => document.addEventListener("click", away, {once: true}), 0); };
+    const away = e => { if (!pop.contains(e.target)) show(false); else document.addEventListener("click", away, {once: true}); };
+    btn.onclick = () => show(pop.hidden); }
   calPick(el.querySelector("#fu-day"));
   el.querySelector("#fu-day").onchange = e => { S.fuDay = e.target.value; render(); };
   const back = el.querySelector("#fu-latest"); if (back) back.onclick = () => { S.fuDay = ""; render(); };
