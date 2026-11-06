@@ -2344,6 +2344,60 @@ begin
 exception when others then raise notice 'Old convert records are not tidied automatically: %', sqlerrm;
 end $$;
 
+-- ---------------------------------------------------------------- Messages sent: who has been messaged, and by whom
+-- After sending a text or WhatsApp from the app, the sender taps "Sent" and it's noted here, so the team can see who
+-- has already had a message ("Messaged · Grace, Tue") and nobody gets the same text twice. It doesn't take anyone off
+-- the call list: only a visit does. The church's admins, pastors and team see their own church's; notes go after a year.
+create table if not exists messages_sent (
+  id uuid primary key default gen_random_uuid(),
+  church text not null,
+  member_id text references members(id) on delete cascade,
+  convert_id uuid references converts(id) on delete cascade,
+  full_name text check (length(coalesce(full_name, '')) <= 120),
+  kind text not null default 'hi' check (kind in ('thanks', 'missed', 'hi', 'convert')),
+  channel text not null default 'text' check (channel in ('text', 'whatsapp', 'copy')),
+  sent_by text, sent_by_name text,
+  sent_at timestamptz not null default now());
+create index if not exists messages_sent_member on messages_sent (member_id, sent_at desc);
+create index if not exists messages_sent_church on messages_sent (church, sent_at desc);
+alter table messages_sent enable row level security;
+create or replace function app_msg_stamp() returns trigger language plpgsql security definer set search_path = public as $$
+begin  -- the sender and the time come from the sign-in, never from the app
+  new.sent_by := lower(auth.jwt() ->> 'email');
+  new.sent_by_name := coalesce((select nullif(trim(u.name), '') from app_users u where u.email = new.sent_by), new.sent_by);
+  new.sent_at := now();
+  return new;
+end $$;
+drop trigger if exists app_msg_stamp on messages_sent;
+create trigger app_msg_stamp before insert on messages_sent for each row execute function app_msg_stamp();
+drop policy if exists "app: read messages sent" on messages_sent;
+create policy "app: read messages sent" on messages_sent for select to authenticated using (app_converts_ok(church));
+drop policy if exists "app: add messages sent" on messages_sent;
+create policy "app: add messages sent" on messages_sent for insert to authenticated
+  with check (app_converts_ok(church)
+              and (member_id is null or exists (select 1 from members m where m.id = messages_sent.member_id))
+              and (convert_id is null or exists (select 1 from converts c where c.id = messages_sent.convert_id and c.church = messages_sent.church)));
+drop policy if exists "app: remove messages sent" on messages_sent;
+create policy "app: remove messages sent" on messages_sent for delete to authenticated  -- undo: the sender, or a church admin
+  using (app_converts_ok(church) and (sent_by = lower(auth.jwt() ->> 'email') or app_role() in ('admin', 'lead')));
+revoke all on messages_sent from anon;
+grant select, insert, delete on messages_sent to authenticated;
+do $$
+begin
+  create extension if not exists pg_cron;
+  perform cron.unschedule(jobid) from cron.job where jobname = 'fcc-messages-tidy';
+  perform cron.schedule('fcc-messages-tidy', '47 14 * * *', $c$delete from public.messages_sent where sent_at < now() - interval '1 year'$c$);
+exception when others then raise notice 'Old message notes are not tidied automatically: %', sqlerrm;
+end $$;
+-- a wiped person's name goes from these notes too
+create or replace function app_msg_wipe() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.wiped_at is not null and old.wiped_at is null then update messages_sent set full_name = null where member_id = new.id; end if;
+  return new;
+end $$;
+drop trigger if exists app_msg_wipe on members;
+create trigger app_msg_wipe after update of wiped_at on members for each row execute function app_msg_wipe();
+
 -- ---------------------------------------------------------------- The Google Sheet backup: everything, including what came later
 -- Visits, Centas (and who is in each), welcome-form sign-ups and new converts are copied too. The sheet's script (from
 -- Admin → Backups) copies any list it's sent into its own hidden tab, so new kinds of data need no new script later.
@@ -2380,6 +2434,7 @@ create or replace function app_backup_data() returns json language sql stable se
       from visits v left join members m on m.id = v.member_id) t),
     'signups', (select coalesce(json_agg(t order by t.created_at), '[]') from registrations t),
     'converts', (select coalesce(json_agg(t order by t.church, t.decided_on), '[]') from converts t),
+    'messages_sent', (select coalesce(json_agg(t order by t.sent_at), '[]') from messages_sent t),  -- who was messaged, by whom
     'lists', (select coalesce(json_agg(json_build_object('key', t.key, 'names', t.value) order by t.key), '[]') from settings t
               where t.key like 'pastors:%' or t.key like 'shepherds:%'),
     'signins', (select coalesce(json_agg(json_build_object('email', u.email, 'role', u.role, 'title', u.title, 'role3', u.role3, 'church', u.church,
