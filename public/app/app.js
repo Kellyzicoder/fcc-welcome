@@ -1311,7 +1311,7 @@ function render() {
         <button class="acct" data-view="account" title="Your account and settings" aria-label="Your account and settings"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${S.preview ? `Admin · viewing as ${esc(PREVIEW[S.preview.role] || "")}` : `${roleName(S.me)} · ${esc(where)}`}</small></span></button>
         <button class="out-btn" data-out title="Log out">${svg("out")}<span>Log out</span></button></div>
       <div class="body" id="view"></div></main>
-    <nav class="dock" aria-label="Main">${dock.map(([k, t]) => `<button class="${S.view === k ? "on" : ""}" data-view="${k}" aria-label="${t}" ${S.view === k ? 'aria-current="page"' : ""}>${k === "account" ? `<span class="dock-me">${esc(initials(who))}</span>` : svg(k)}<span>${t}</span></button>`).join("")}
+    <nav class="dock" aria-label="Main"><span class="dock-pill" aria-hidden="true"></span>${dock.map(([k, t]) => `<button class="${S.view === k ? "on" : ""}" data-view="${k}" aria-label="${t}" ${S.view === k ? 'aria-current="page"' : ""}>${k === "account" ? `<span class="dock-me">${esc(initials(who))}</span>` : svg(k)}<span>${t}</span></button>`).join("")}
 </nav></div>`;  // everything else: the ☰ menu at the top left
   const shell = root.querySelector(".shell"), menuBtn = root.querySelector("[data-menu]");
   sideSearch(root);
@@ -1364,7 +1364,7 @@ function render() {
   // so no battery use and the page never moves while someone is working on it). The page stays where it was scrolled to.
   root.querySelectorAll("[data-fs]").forEach(b => b.onclick = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen({navigationUI: "hide"})).catch(() => toast("This browser won't go full screen.")));
   root.querySelectorAll("[data-update]").forEach(b => b.onclick = reloadApp);  // a newer version is out: load it, on this same page
-  paintBell(); paintChatNav();
+  paintBell(); paintChatNav(); dockPill(root);
   root.querySelectorAll("[data-viewas]").forEach(b => b.onclick = () => { menu(false); viewAs(); });
   root.querySelectorAll("[data-unpreview]").forEach(b => b.onclick = endPreview);
   root.querySelectorAll("[data-switch]").forEach(b => b.onclick = () => switchView(S.me.role === "pastor" ? S.me.base : "pastor"));
@@ -1398,6 +1398,24 @@ function pageIn(el) {
     return drop.call(this);
   };
 }
+// The bottom bar on phones: a glass oval slides from the page you were on to the one you tapped, stretching a little as it goes
+function dockPill(root) {
+  const dock = root.querySelector(".dock"), pill = dock?.querySelector(".dock-pill"); if (!pill || !dock.offsetWidth) return;
+  const btns = [...dock.querySelectorAll("button")], on = dock.querySelector("button.on"), idx = btns.indexOf(on);
+  const place = (b, slide) => { pill.style.transition = slide ? "" : "none"; pill.style.opacity = b ? "1" : "0";
+    if (b) { pill.style.width = b.offsetWidth + "px"; pill.style.transform = `translateX(${b.offsetLeft}px)`; } };
+  const prev = S.dockAt >= 0 ? btns[S.dockAt] : null;
+  if (prev && on && prev !== on && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    place(prev, false); void pill.offsetWidth;
+    requestAnimationFrame(() => { place(on, true); pill.classList.remove("go"); void pill.offsetWidth; pill.classList.add("go"); });
+  } else place(on, false);
+  S.dockAt = idx;
+}
+addEventListener("resize", () => { const r = document.querySelector(".shell"); if (r) dockPill(r.parentNode); });
+// scrolling down a page: the bar shrinks a little out of the way; scrolling up brings it back
+{ let lastY = scrollY;
+  addEventListener("scroll", () => { const d = document.querySelector(".dock"), y = scrollY; if (!d) return;
+    if (Math.abs(y - lastY) < 6) return; d.classList.toggle("small", y > lastY && y > 80); lastY = y; }, {passive: true}); }
 // An arrow that jumps back to the top of a long page; it shows once you have scrolled down a fair way.
 {
   const up = Object.assign(document.createElement("button"), {className: "to-top", type: "button", title: "Back to top", innerHTML: svg("up")});
