@@ -1970,7 +1970,7 @@ grant update (centa) on bacenta_guests to authenticated;  -- moving a Bacenta-on
 alter table centas enable row level security;
 alter table centa_people enable row level security;
 
-create or replace function app_norm_name(t text) returns text language sql immutable as $$ select lower(regexp_replace(trim(t), '\s+', ' ', 'g')) $$;
+create or replace function app_norm_name(t text) returns text language sql immutable set search_path = public as $$ select lower(regexp_replace(trim(t), '\s+', ' ', 'g')) $$;
 -- may the signed-in person set up this Bacenta's Centas? Admins and church admins (their church), and its pastor
 create or replace function app_centa_admin(b uuid) returns boolean language sql stable security definer set search_path = public as
 $$ select coalesce((select (app_role() in ('admin', 'lead') and app_can_see(x.church))
@@ -2400,6 +2400,69 @@ begin
 end $$;
 drop trigger if exists app_msg_wipe on members;
 create trigger app_msg_wipe after update of wiped_at on members for each row execute function app_msg_wipe();
+
+-- ---------------------------------------------------------------- Security: public forms, sign-ins, tidying
+-- 1. The public forms (welcome form, new converts form) can't be flooded: each phone or computer can send 5 in 10 minutes
+--    and 20 a day, and each form takes at most 300 a day in all. Only a scrambled (hashed) form of the address is kept, for 2 days.
+create schema if not exists private;
+create table if not exists private.form_hits (who text not null, form text not null, at timestamptz not null default now());
+create index if not exists form_hits_who on private.form_hits (who, at);
+create index if not exists form_hits_form on private.form_hits (form, at);
+revoke all on private.form_hits from public, anon, authenticated;
+create or replace function app_form_guard() returns trigger language plpgsql security definer set search_path = public as $$
+declare h json := coalesce(nullif(current_setting('request.headers', true), ''), '{}')::json;
+        ip text := trim(coalesce(h ->> 'cf-connecting-ip', split_part(coalesce(h ->> 'x-forwarded-for', ''), ',', 1), ''));
+        k text := encode(sha256(convert_to('fcc:' || ip, 'UTF8')), 'hex');
+begin
+  if coalesce(auth.jwt() ->> 'role', 'anon') <> 'anon' then return new; end if;  -- signed-in staff aren't limited
+  delete from private.form_hits where at < now() - interval '2 days';
+  if (select count(*) from private.form_hits f where f.form = tg_table_name and f.at > now() - interval '1 day') >= 300
+     or (ip <> '' and (select count(*) from private.form_hits f where f.who = k and f.at > now() - interval '10 minutes') >= 5)
+     or (ip <> '' and (select count(*) from private.form_hits f where f.who = k and f.at > now() - interval '1 day') >= 20) then
+    raise exception 'Too many forms sent. Please try again later.' using errcode = '54000';
+  end if;
+  insert into private.form_hits (who, form) values (k, tg_table_name);
+  return new;
+end $$;
+revoke all on function app_form_guard() from public, anon, authenticated;
+drop trigger if exists app_form_guard on registrations;
+create trigger app_form_guard before insert on registrations for each row execute function app_form_guard();
+-- and no field can be stuffed with huge text
+alter table registrations drop constraint if exists registrations_notes_len;
+alter table registrations add constraint registrations_notes_len check (char_length(coalesce(notes, '')) <= 1000) not valid;
+do $$ begin  -- the New converts form (fcc-new-converts.vercel.app) gets the same limits
+  if to_regclass('public.new_converts') is not null then
+    drop trigger if exists app_form_guard on new_converts;
+    create trigger app_form_guard before insert on new_converts for each row execute function app_form_guard();
+    alter table new_converts drop constraint if exists new_converts_steps_len;
+    alter table new_converts add constraint new_converts_steps_len check (coalesce(array_length(next_steps, 1), 0) <= 10) not valid;
+  end if;
+end $$;
+
+-- 2. Only emails added in the app (Admin, or a team form that was approved) can get a sign-in. Strangers who type their
+--    email get "This email isn't set up yet" and no account, so the app can't be used to send code emails to anyone.
+--    Turn it on once in Supabase: Authentication → Hooks → Before User Created → Postgres function app_hook_before_user_created.
+create or replace function app_hook_before_user_created(event jsonb) returns jsonb language plpgsql security definer set search_path = public as $$
+begin
+  if exists (select 1 from app_users u where u.email = lower(trim(event -> 'user' ->> 'email'))) then return '{}'::jsonb; end if;
+  return jsonb_build_object('error', jsonb_build_object('http_code', 403, 'message', 'This email isn''t set up yet. Ask your church admin to add you.'));
+end $$;
+revoke all on function app_hook_before_user_created(jsonb) from public, anon, authenticated;
+do $$ begin grant execute on function app_hook_before_user_created(jsonb) to supabase_auth_admin;
+exception when undefined_object then null; end $$;
+
+-- 3. Tidying: trigger functions can't be called from the internet; fixed search paths
+do $$
+declare f record;
+begin
+  for f in select p.oid::regprocedure as sig from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+           where n.nspname = 'public' and p.prorettype = 'trigger'::regtype loop
+    execute format('revoke all on function %s from public, anon, authenticated', f.sig);
+  end loop;
+  if to_regprocedure('public.members_fill_church()') is not null then
+    alter function public.members_fill_church() set search_path = public;
+  end if;
+end $$;
 
 -- ---------------------------------------------------------------- The Google Sheet backup: everything, including what came later
 -- Visits, Centas (and who is in each), welcome-form sign-ups and new converts are copied too. The sheet's script (from
