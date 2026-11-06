@@ -287,6 +287,7 @@ function formDialog(title, fields, save, button = "Save", danger = null) {
       box.innerHTML = hits.map(r => `<button type="button" class="chip sm" data-s="${esc(r)}">${esc(r)}</button>`).join("");
     };
     inp.oninput = inp.onfocus = show;
+    if (f.many) show();  // several names: the choices show straight away, so it's clear more than one can be added
     box.onclick = e => {
       const b = e.target.closest("[data-s]"); if (!b) return;
       const kept = f.many ? inp.value.split(",").slice(0, -1).map(x => x.trim()).filter(Boolean) : [];
@@ -304,7 +305,10 @@ const CC_61 = /melbourne|sydney|brisbane|perth|adelaide|australia/i;  // churche
 const intlNum = (phone, church) => { const d = String(phone || "").replace(/[^\d+]/g, "");
   if (d.startsWith("+")) return d.slice(1); if (d.startsWith("00")) return d.slice(2);
   return (CC_61.test(church || "") ? "61" : "64") + d.replace(/^0/, ""); };
-function textPerson({name, phone, kind = "hi", day = "", noContact = false}) {
+function textPerson(o) {
+  if (o.queue) { const at = o.at || 0, p = o.queue[at]; if (!p) return;  // a list: this person, then Next for the one after
+    return textPerson({...p, kind: o.keep || p.kind, list: {queue: o.queue, at, keep: o.keep}}); }
+  const {name, phone, kind = "hi", day = "", noContact = false, list = null} = o;
   document.querySelectorAll(".modal").forEach(x => x.remove());
   const first = String(name || "").trim().split(/\s+/)[0] || "there", me = String(S.me?.name || "").trim().split(/\s+/)[0], sign = `God bless,\n${me ? me + ", " : ""}Favourite Child Church`;
   const when = day ? ` on ${new Date(day + "T12:00:00").toLocaleDateString("en-NZ", {weekday: "long", day: "numeric", month: "long"})}` : "";
@@ -315,24 +319,32 @@ function textPerson({name, phone, kind = "hi", day = "", noContact = false}) {
   if (kind !== "convert") delete T.convert;
   const d = document.createElement("div"); d.className = "modal";
   d.innerHTML = `<div class="sheet tp" role="dialog" aria-modal="true" aria-label="Message ${esc(name)}">
-    <div class="card-head"><h2>Message ${esc(first)}</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+    <div class="card-head"><h2>Message ${esc(first)}${list ? ` <small class="tp-count">${list.at + 1} of ${list.queue.length}</small>` : ""}</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
     ${noContact ? `<div class="msg" style="margin-bottom:10px">${esc(first)} said on the welcome form they'd rather not be contacted.</div>` : ""}
     <div class="chips" role="group" aria-label="Which message">${Object.entries(T).map(([k, [t]]) => `<button type="button" class="chip ${k === kind ? "on" : ""}" data-tk="${k}">${t}</button>`).join("")}</div>
     <label class="f" for="tp-msg" style="margin-top:12px">Message <small class="muted">(change it as you like)</small></label>
     <textarea class="in" id="tp-msg" rows="7"></textarea>
-    <p class="note" style="margin:8px 2px 0">To ${esc(phone)}. It's sent from your own phone, as a normal text or WhatsApp, so they'll see your number.</p>
+    <p class="note" style="margin:8px 2px 0">Sent from your phone to ${esc(phone)}.</p>
     <div class="modal-foot tp-foot"><button type="button" class="pill-btn" id="tp-copy">Copy</button>
-      <button type="button" class="pill-btn" id="tp-wa">WhatsApp</button><button type="button" class="pill-btn primary" id="tp-sms">Text message</button></div></div>`;
+      <button type="button" class="pill-btn" id="tp-wa">WhatsApp</button><button type="button" class="pill-btn primary" id="tp-sms">Text message</button></div>
+    ${list ? `<div class="tp-next">${list.at + 1 < list.queue.length ? `<button type="button" class="link" id="tp-skip">Skip ${esc(String(list.queue[list.at + 1].name || "").split(" ")[0])}'s turn: go to the next</button>
+      <button type="button" class="pill-btn primary" id="tp-go" hidden>Next: ${esc(String(list.queue[list.at + 1].name || "").split(" ")[0])} →</button>` : `<button type="button" class="pill-btn primary" id="tp-done" hidden>Done: all ${list.queue.length} ✓</button>`}</div>` : ""}</div>`;
   document.body.append(d);
   const ta = d.querySelector("#tp-msg"), onKey = e => { if (e.key === "Escape") close(); }, close = () => { d.remove(); document.removeEventListener("keydown", onKey); };
-  const pick = k => { ta.value = T[k][1]; d.querySelectorAll("[data-tk]").forEach(b => b.classList.toggle("on", b.dataset.tk === k)); };
+  let picked = kind;
+  const pick = k => { picked = k; ta.value = T[k][1]; d.querySelectorAll("[data-tk]").forEach(b => b.classList.toggle("on", b.dataset.tk === k)); };
   pick(T[kind] ? kind : "hi");
   d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); const c = e.target.closest("[data-tk]"); if (c) pick(c.dataset.tk); };
   document.addEventListener("keydown", onKey);
   const local = String(phone).replace(/[^\d+]/g, "");
-  d.querySelector("#tp-sms").onclick = () => { location.href = `sms:${local}?&body=${encodeURIComponent(ta.value)}`; };
-  d.querySelector("#tp-wa").onclick = () => { window.open(`https://wa.me/${intlNum(phone, S.church)}?text=${encodeURIComponent(ta.value)}`, "_blank", "noopener"); };
-  d.querySelector("#tp-copy").onclick = async () => { try { await navigator.clipboard.writeText(ta.value); toast("Copied. Paste it into any chat."); } catch { ta.select(); toast("Select all and copy it."); } };
+  // a list: once this one is sent (or copied), Next shows for the person after; the message picked carries on to them
+  const sent = () => { if (!list) return; d.querySelector("#tp-go, #tp-done")?.removeAttribute("hidden"); d.querySelector("#tp-skip")?.setAttribute("hidden", ""); };
+  const next = () => { close(); textPerson({queue: list.queue, at: list.at + 1, keep: picked === list.queue[list.at].kind ? list.keep : picked}); };
+  d.querySelector("#tp-go")?.addEventListener("click", next); d.querySelector("#tp-skip")?.addEventListener("click", next);
+  d.querySelector("#tp-done")?.addEventListener("click", () => { close(); toast(`All ${list.queue.length} done. Thank you!`); });
+  d.querySelector("#tp-sms").onclick = () => { sent(); location.href = `sms:${local}?&body=${encodeURIComponent(ta.value)}`; };
+  d.querySelector("#tp-wa").onclick = () => { sent(); window.open(`https://wa.me/${intlNum(phone, S.church)}?text=${encodeURIComponent(ta.value)}`, "_blank", "noopener"); };
+  d.querySelector("#tp-copy").onclick = async () => { sent(); try { await navigator.clipboard.writeText(ta.value); toast("Copied. Paste it into any chat."); } catch { ta.select(); toast("Select all and copy it."); } };
 }
 // ---------------------------------------------------------------- New converts
 // Everyone who gives their life to Christ, by name: when and where, who is looking after them, and four steps to walk
@@ -2827,9 +2839,11 @@ function followup(el) {
     <p class="flag-key fu-wide">${badge("red")}<span>missed ${RED_AT}+ in a row: call them</span>${badge("yellow")}<span>missed ${YELLOW_AT}–${RED_AT - 1} in a row: check in</span></p>
     <div class="fu-narrow" style="max-width:340px;margin:0 0 14px"><label class="f" for="fu-f">Show</label><select class="in" id="fu-f">${Object.entries(tabs).map(([k, t]) =>  // one dropdown instead of a row of pills, each list with its count
       `<option value="${k}" ${S.filter === k ? "selected" : ""}>${t} (${had ? p.people.filter(pick[k]).length : 0})</option>`).join("")}</select></div>  <!-- phones: the dropdown; wider screens: the pills -->
-    <div class="card"><div class="card-head"><h2>${tabs[S.filter]}</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${list.length} people</span></div>
+    <div class="card"><div class="card-head"><h2>${tabs[S.filter]}</h2><span class="gap"></span>${list.filter(x => x.phone).length > 1 && !S.preview ? `<button type="button" class="pill-btn sm" id="fu-all">${svg("community")}Message everyone (${list.filter(x => x.phone).length})</button>` : ""}<span style="color:var(--ink-3);font-size:13px">${list.length} people</span></div>
       ${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th class="hide-sm">Pastor</th><th>Phone</th></tr></thead>
       <tbody>${rowsHtml(list, true)}</tbody></table></div>` : `<p class="empty">${had ? "Nobody in this list." : `No service was recorded on ${esc(nice(day || today(), true))}.`}</p>`}</div>`;
+  el.querySelector("#fu-all")?.addEventListener("click", () => textPerson({queue: list.filter(x => x.phone).map(x => ({name: x.full_name, phone: x.phone, day: x.first_visit || "",
+    kind: x.type === "first_timer" && p.here[x.id] ? "thanks" : x.level !== "ok" || !p.here[x.id] ? "missed" : "hi"}))}));
   el.querySelector("#fu-f").onchange = e => { S.filter = e.target.value; render(); };
   el.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { S.filter = b.dataset.f; render(); });
   calPick(el.querySelector("#fu-day"));
@@ -4720,11 +4734,12 @@ function visitDialog(m) {
   formDialog(`Log a visit: ${m.full_name}`, [
     {k: "outcome", label: "Did you see them?", type: "select", value: "visited", options: [["visited", "Yes, we saw them"], ["not_seen", "No, they weren't in"]]},
     {k: "date", label: "Date", type: "date", value: today(), required: true},
-    {k: "by", label: "Who visited", value: S.me.name || "", required: true, suggest: names, many: true},
+    {k: "by", label: "Who went (everyone who visited)", value: S.me.name ? S.me.name + ", " : "", required: true, suggest: names, many: true,
+     hint: "Two or more people? Tap their names, or type them with a comma between."},
     {k: "note", label: "Note (optional)", value: ""}],
     async v => {
       if (!v.date || v.date > today()) throw new Error("Pick today or an earlier day.");
-      const by = v.by.replace(/[,\s]+$/, ""); if (!by) throw new Error("Say who visited.");
+      const by = [...new Set(v.by.split(",").map(x => x.trim().replace(/\s+/g, " ")).filter(Boolean))].join(", "); if (!by) throw new Error("Say who visited.");
       const row = await api("visits", {method: "POST", body: {member_id: m.id, visit_date: v.date, visited_by: by, note: v.note || null, ...(v.outcome === "not_seen" ? {outcome: "not_seen"} : {})}, prefer: "return=representation"});
       S.visits = [...(Array.isArray(row) ? row : [row]), ...(S.visits || [])].sort((a, b) => b.visit_date.localeCompare(a.visit_date));
       // only a visit where they were seen takes them off the call list; a try where they weren't in is kept as a record
@@ -5181,7 +5196,7 @@ async function community(el) {
       <div id="ch-pins"></div><div class="chat-list" id="ch-list" aria-live="polite"><p class="empty">Loading…</p></div>
       ${S.preview ? `<p class="note" style="margin:10px 14px">${esc(viewOnly())}</p>` : `<form class="chat-send" id="ch-form">
         <textarea class="in" id="ch-text" rows="1" maxlength="1000" placeholder="Write a message…" aria-label="Message"></textarea>
-        <div class="chat-send-row">${chatCanAlert(chan) ? `<label class="check chat-alert"><input type="checkbox" id="ch-alert"> Send as an alert <small>(pinned, and sent to phones)</small></label>` : "<span></span>"}
+        <div class="chat-send-row">${chatCanAlert(chan) ? `<div class="chat-opts"><label class="check chat-alert"><input type="checkbox" id="ch-alert"> Send as an alert <small>(pinned, and sent to phones)</small></label>${S.me.role === "admin" && chan === "everyone" && (S.churches || []).length > 1 ? `<label class="check chat-alert"><input type="checkbox" id="ch-all"> To every church <small>(each church's Everyone)</small></label>` : ""}</div>` : "<span></span>"}
           <button class="pill-btn primary" id="ch-go">Send</button></div></form>`}</section></div>`;
   const drawChans = () => { const un = S.chatUnread || {};
     el.querySelector(".chat-chans").innerHTML = chans.map(([k, t]) => `<button type="button" class="chat-chan ${k === chan ? "on" : ""}" data-chan="${esc(k)}" ${k === chan ? 'aria-current="true"' : ""}>
@@ -5228,14 +5243,25 @@ async function community(el) {
   if (form) {
     const ta = form.querySelector("#ch-text"), grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(160, ta.scrollHeight) + "px"; };
     ta.oninput = grow;
+    form.querySelector("#ch-all")?.addEventListener("change", e => { if (e.target.checked) form.querySelector("#ch-alert").checked = true; });  // every church: always an alert
     ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey && !onPhone()) { e.preventDefault(); form.requestSubmit(); } };  // a computer: Enter sends, Shift+Enter is a new line
     form.onsubmit = async e => {
-      e.preventDefault(); const body = ta.value.trim(), alert = !!form.querySelector("#ch-alert")?.checked; if (!body) return;
+      e.preventDefault(); const body = ta.value.trim(), every = !!form.querySelector("#ch-all")?.checked, alert = every || !!form.querySelector("#ch-alert")?.checked; if (!body) return;
       const go = form.querySelector("#ch-go"); go.disabled = true;
       try {
+        if (every) {  // the main admin: the same alert in every church's Everyone channel, and to every phone with notifications on
+          const ids = [];
+          for (const c of S.churches) { const [r] = await api("chat_messages?select=id,body,alert,author_email,author_name,created_at", {method: "POST", prefer: "return=representation", body: {church: c, channel: "everyone", body, alert: true}});
+            if (r) { ids.push(r.id); if (c === S.church && !msgs.some(m => m.id === r.id)) msgs.push(r); } }
+          ta.value = ""; grow(); form.querySelectorAll("#ch-alert, #ch-all").forEach(x => x.checked = false); draw(); markRead();
+          const info = await pushInfo().catch(() => null);
+          if (info?.push_url) for (const id of ids) fetch(info.push_url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({alert: id})}).catch(() => {});
+          toast(`Alert sent to all ${ids.length} churches${info?.push_url ? ", and to phones with notifications on" : ""}.`);
+          go.disabled = false; ta.focus(); return;
+        }
         const [row] = await api("chat_messages?select=id,body,alert,author_email,author_name,created_at", {method: "POST", prefer: "return=representation", body: {church: S.church, channel: chan, body, alert}});
         if (row && !msgs.some(m => m.id === row.id)) msgs.push(row);
-        ta.value = ""; grow(); if (form.querySelector("#ch-alert")) form.querySelector("#ch-alert").checked = false; draw(); markRead();
+        ta.value = ""; grow(); form.querySelectorAll("#ch-alert, #ch-all").forEach(x => x.checked = false); draw(); markRead();
         if (alert && row) {  // the alert to phones: the sender sends it once, to whoever in this channel has notifications on
           const info = await pushInfo().catch(() => null);
           if (info?.push_url) fetch(info.push_url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({alert: row.id})}).catch(() => {});
@@ -5373,7 +5399,28 @@ function searchPage(el) {
   if (S.gsFocus || !onPhone()) { S.gsFocus = false; inp.focus(); }  // on a phone the keyboard comes up when the box is tapped
 }
 // Notifications (the bell at the top): what's new or waiting for this sign-in, each a tap away
-const bellCount = () => S.preview ? 0 : (S.me.role === "admin" ? S.msgNew || 0 : 0) + (S.pending || 0) + (S.teamPending || 0) + (S.bacPending || 0) + (S.chatNew || 0);
+// What's new: a short, plain note about each new feature, shown in the bell once to the people it's for, with Show me.
+// Add the newest at the top. Each one shows for 45 days after its date.
+const WHATS_NEW = [
+  {id: "msg-2611", on: "2026-11-07", page: "followup", title: "Text or WhatsApp someone from the app",
+   text: "On Follow-up, tap the chat icon next to a phone number. A friendly message is ready, and it sends from your own phone. You can also message everyone on a list, one after another."},
+  {id: "converts-2611", on: "2026-11-07", page: "converts", title: "New converts",
+   text: "Write down everyone who gives their life to Christ, and tick off the next steps: a call, a visit, the foundation class and baptism."},
+  {id: "form-2611", on: "2026-11-07", page: "signups", title: "Your church's own welcome form",
+   text: "Your church now has its own welcome form link and a QR code to print. Sign-ups from it come straight to you. You'll find it at the top of Sign-ups."},
+  {id: "community-2611", on: "2026-11-06", page: "community", title: "Community: talk with your team",
+   text: "Chat with your church team in one place. Important news is pinned at the top and sent to everyone's phone."},
+];
+const wnKey = () => "fcc-wn:" + (S.me?.email || "");
+const wnRead = () => { try { return JSON.parse(localStorage.getItem(wnKey()) || "{}"); } catch { return {}; } };  // {id: "seen" | "hidden"}
+const wnMark = (ids, v) => { const m = wnRead(); ids.forEach(i => { if (m[i] !== "hidden") m[i] = v; }); try { localStorage.setItem(wnKey(), JSON.stringify(m)); } catch {} };
+const whatsNew = () => { if (!S.me || S.preview || S.me.role === "bishop") return [];
+  const can = new Set(pages().flatMap(g => g[1].map(x => x[0]))), m = wnRead(), since = dayShift(today(), -45);
+  return WHATS_NEW.filter(w => w.on >= since && can.has(w.page) && m[w.id] !== "hidden"); };
+const bellCount = () => S.preview ? 0 : (S.me.role === "admin" ? S.msgNew || 0 : 0) + (S.pending || 0) + (S.teamPending || 0) + (S.bacPending || 0) + (S.chatNew || 0)
+  + whatsNew().filter(w => !wnRead()[w.id]).length + (remindersOff() ? 1 : 0);
+// reminders not turned on yet on this phone or computer: one more in the bell until they are (Notifications says how)
+const remindersOff = () => !!S.me && S.me.role !== "bishop" && !S.preview && "Notification" in window && Notification.permission !== "granted";
 function paintBell() {
   const n = bellCount();
   document.querySelectorAll("[data-bell]").forEach(b => { b.querySelector(".bell-n")?.remove();
@@ -5396,12 +5443,20 @@ async function alerts(el) {
     red && can("followup") ? ["followup", n(red, "person needs a call", "people need a call"), `Missed ${RED_AT} or more Sundays in a row`, () => { S.filter = "red"; S.fuDay = ""; S.go("followup"); }] : null,
     red && !can("followup") && can("visits") ? ["visits", n(red, "person needs a call or visit", "people need a call or visit"), `Missed ${RED_AT} or more Sundays in a row`, () => S.go("visits")] : null,
     amber && can("followup") ? ["followup", n(amber, "person to check in on", "people to check in on"), `Missed ${YELLOW_AT}–${RED_AT - 1} Sundays in a row`, () => { S.filter = "yellow"; S.fuDay = ""; S.go("followup"); }] : null,
-    S.me.role !== "bishop" && "Notification" in window && Notification.permission !== "granted" && !S.preview ? ["alerts", "Turn on reminders", "Get a reminder to check people in (Your account → Check-in reminders)", () => S.go("account")] : null,
+    remindersOff() ? ["alerts", "Turn on reminders", "Get a reminder before services. Tap here, then Turn on.", () => S.go("account")] : null,
   ].filter(Boolean);
+  const wn = whatsNew(), fresh = wnRead();
   el.innerHTML = head("Notifications", "What's new and waiting for you") + (items.length
     ? `<div class="card al-list">${items.map(([ic, t, sub], i) => `<button type="button" class="al-item" data-al="${i}" style="--nc:var(--h${NAVHUE[ic] || 3})"><span class="al-ico">${svg(ic)}</span><span><b>${esc(t)}</b><small>${esc(sub)}</small></span>${svg("next")}</button>`).join("")}</div>`
-    : `<div class="card"><p class="empty" style="margin:0">You're all caught up.</p></div>`);
+    : wn.length ? "" : `<div class="card"><p class="empty" style="margin:0">You're all caught up.</p></div>`)
+    + (wn.length ? `<h2 class="wn-h">What's new</h2><div class="wn-list">${wn.map(w => `<div class="card wn" data-wn="${w.id}" style="--nc:var(--h${NAVHUE[w.page] || 3})">
+        <span class="al-ico">${svg(w.page)}</span><div class="wn-txt"><b>${esc(w.title)}${fresh[w.id] ? "" : ` <span class="wn-new">New</span>`}</b><p>${esc(w.text)}</p>
+        <button type="button" class="pill-btn sm" data-wn-go="${w.page}">Show me</button></div>
+        <button type="button" class="icon-btn wn-x" data-wn-x="${w.id}" aria-label="Hide this">${svg("close")}</button></div>`).join("")}</div>` : "");
   el.querySelectorAll("[data-al]").forEach(b => b.onclick = () => items[+b.dataset.al][3]());
+  el.querySelectorAll("[data-wn-go]").forEach(b => b.onclick = () => S.go(b.dataset.wnGo));
+  el.querySelectorAll("[data-wn-x]").forEach(b => b.onclick = () => { const m = wnRead(); m[b.dataset.wnX] = "hidden"; try { localStorage.setItem(wnKey(), JSON.stringify(m)); } catch {} b.closest(".wn").remove(); paintBell(); });
+  wnMark(wn.map(w => w.id), "seen");  // seen: they stop counting in the bell, and stay here until hidden or 45 days old
   paintBell();
 }
 function helpTopics() {
@@ -5732,29 +5787,54 @@ async function pushInfo() {  // the admin's setup: the public key and the sender
   return r && Object.fromEntries(r.map(x => [x.key, x.value]));
 }
 // Settings → Check-in reminders: turn notifications on for this phone or computer, then pick days and times
-// A one-time ask for anyone who checks people in (on Home, Dashboard and Check-in): turn on notifications to get the
-// 6am Sunday reminder. It goes once they turn them on, or tap Not now (on this phone or computer).
+// Phone reminders, on Home, Dashboard and Check-in, one card at a time:
+// - Not opened from the home screen yet: a yellow note with the steps to add it there (and turn on reminders), an × to
+//   close it, and Contact the admin for anyone who gets stuck. Shown to everyone.
+// - Opened from the home screen (or on a phone or computer that doesn't need it) but notifications off: a red card,
+//   Turn on and Not now stacked at the side. Not now hides it on this phone or computer.
+let installAsk = null;
+addEventListener("beforeinstallprompt", e => { e.preventDefault(); installAsk = e; });  // Android and computers: "Add to home screen" can be offered by a button
+const pushCan = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+async function turnOnPush() {  // asks the phone, then links it to this sign-in; true when it worked
+  if (await Notification.requestPermission() !== "granted") { toast("Notifications weren't allowed. You can turn them on later in Your account."); return false; }
+  const reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription() || await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64u(S.pushInfo.push_public_key)}), j = sub.toJSON();
+  await api("rpc/app_save_push", {method: "POST", body: {endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, tz: Intl.DateTimeFormat().resolvedOptions().timeZone}});
+  toast("Done: you'll get a reminder at 6am on Sundays."); return true;
+}
 async function pushNudge(view) {
-  if (!view || !["dashboard", "mine", "checkin"].includes(S.view) || S.preview || !["admin", "lead", "team", "pastor"].includes(S.me?.role)) return;
-  try { if (localStorage.getItem("fcc-nudge-off:" + S.me.email)) return; } catch {}
-  const ios = /iP(hone|ad|od)/.test(navigator.userAgent), home = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
-  const needHome = ios && !home, can = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
-  if (!needHome && (!can || Notification.permission !== "default")) return;
+  if (!view || !["dashboard", "mine", "checkin", "overview"].includes(S.view) || S.preview || !S.me) return;
+  const off = k => { try { return !!localStorage.getItem(k + S.me.email); } catch { return false; } }, setOff = k => { try { localStorage.setItem(k + S.me.email, "1"); } catch {} };
+  const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const android = /Android/i.test(navigator.userAgent), home = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  const ticks = ["admin", "lead", "team", "pastor"].includes(S.me.role);
   if (S.pushInfo === undefined) S.pushInfo = await pushInfo().catch(() => null);
-  if (!S.pushInfo?.push_public_key || !view.isConnected || view.querySelector(".push-nudge")) return;
-  const d = document.createElement("div"); d.className = "push-nudge";
-  d.innerHTML = `${svg("followup")}<span><b>Get a 6am Sunday reminder</b><small>${needHome ? "On iPhone, add the app to your home screen first (Share → Add to Home Screen), then open it from there." : "A notification at 6am on Sundays. You can change the time in Settings."}</small></span>
-    ${needHome ? "" : `<button type="button" class="pill-btn sm primary" data-nudge-on>Turn on</button>`}<button type="button" class="pill-btn sm" data-nudge-off>Not now</button>`;
-  const head = view.querySelector(".head"); if (head) head.after(d); else view.prepend(d);
-  d.querySelector("[data-nudge-off]").onclick = () => { try { localStorage.setItem("fcc-nudge-off:" + S.me.email, "1"); } catch {} d.remove(); };
-  d.querySelector("[data-nudge-on]")?.addEventListener("click", async () => {
-    try {
-      if (await Notification.requestPermission() !== "granted") { toast("Notifications weren't allowed. You can turn them on later in Settings."); d.remove(); return; }
-      const reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription() || await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64u(S.pushInfo.push_public_key)}), j = sub.toJSON();
-      await api("rpc/app_save_push", {method: "POST", body: {endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, tz: Intl.DateTimeFormat().resolvedOptions().timeZone}});
-      d.remove(); toast("Done: you'll get a reminder at 6am on Sundays.");
-    } catch (e) { toast("Couldn't turn them on: " + e.message); }
-  });
+  const pushOn = !!S.pushInfo?.push_public_key, wantPush = ticks && pushOn && pushCan() && Notification.permission === "default";
+  if (!view.isConnected || view.querySelector(".push-nudge, .home-note")) return;
+  const put = d => { const h = view.querySelector(".head"); if (h) h.after(d); else view.prepend(d); };
+  if (!home && (ios || android) && !off("fcc-homenote-off:")) {  // the yellow note
+    const steps = ios ? ["Tap the <b>Share</b> button at the bottom of Safari (the square with an arrow).", "Tap <b>Add to Home Screen</b>, then <b>Add</b>.", `Open FCC from your home screen${ticks && pushOn ? ", then tap <b>Turn on</b> to get reminders" : ""}.`]
+                      : ["Tap the <b>⋮</b> menu at the top right of Chrome.", "Tap <b>Add to Home screen</b> or <b>Install app</b>.", "Open FCC from your home screen."];
+    const d = document.createElement("div"); d.className = "home-note"; d.setAttribute("role", "note");
+    d.innerHTML = `<button type="button" class="icon-btn hn-x" data-hn-x aria-label="Close this note">${svg("close")}</button>
+      <b>Put FCC on your home screen${ticks && pushOn ? " and turn on reminders" : ""}</b>
+      <p>It opens like a normal app, one tap away${ticks && pushOn ? ", and you'll get a reminder at 6am on Sundays" : ""}.</p>
+      <ol>${steps.map(x => `<li>${x}</li>`).join("")}</ol>
+      <div class="hn-btns">${installAsk ? `<button type="button" class="pill-btn sm hn-main" data-hn-install>Add to home screen</button>` : ""}${!ios && wantPush ? `<button type="button" class="pill-btn sm" data-hn-push>Turn on reminders</button>` : ""}
+        <button type="button" class="pill-btn sm" data-hn-help>Not sure? Contact the admin</button></div>`;
+    put(d);
+    d.querySelector("[data-hn-x]").onclick = () => { setOff("fcc-homenote-off:"); d.remove(); };
+    d.querySelector("[data-hn-help]").onclick = () => contactDialog(helpTopics()[0]?.[1]);
+    d.querySelector("[data-hn-install]")?.addEventListener("click", async () => { const a = installAsk; installAsk = null; if (!a) return; a.prompt(); const r = await a.userChoice.catch(() => null); if (r?.outcome === "accepted") d.remove(); });
+    d.querySelector("[data-hn-push]")?.addEventListener("click", async e => { e.target.disabled = true; try { if (await turnOnPush()) e.target.remove(); } catch (err) { toast("Couldn't turn them on: " + err.message); } e.target.disabled = false; });
+    return;
+  }
+  if (!wantPush || (ios && !home) || off("fcc-nudge-off:")) return;  // the red card
+  const d = document.createElement("div"); d.className = "push-nudge"; d.setAttribute("role", "alert");
+  d.innerHTML = `${svg("followup")}<span><b>Get a 6am Sunday reminder</b><small>A notification at 6am on Sundays. You can change the time in Your account.</small></span>
+    <div class="nudge-btns"><button type="button" class="pill-btn sm primary" data-nudge-on>Turn on</button><button type="button" class="pill-btn sm" data-nudge-off>Not now</button></div>`;
+  put(d);
+  d.querySelector("[data-nudge-off]").onclick = () => { setOff("fcc-nudge-off:"); d.remove(); };
+  d.querySelector("[data-nudge-on]").onclick = async () => { try { await turnOnPush(); d.remove(); } catch (e) { toast("Couldn't turn them on: " + e.message); } };
 }
 async function remindersCard(el) {
   if (!el) return;
