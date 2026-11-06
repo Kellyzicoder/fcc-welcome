@@ -5225,7 +5225,7 @@ async function chatUnread(force) {  // new messages per channel (for the bell, t
   return S.chatUnread;
 }
 const isTest = m => String(m.body || "").startsWith("[TEST] ");  // a test alert: see testAlert in Community
-const TEST_TEXT = "This is a test of FCC alerts. When something important happens, it will look like this. You don't need to do anything.";
+const TEST_TEXT = "Test alert. Real alerts look like this. Nothing to do.";
 async function community(el) {
   const chans = chatChannels();
   if (!chans.some(c => c[0] === S.chan)) S.chan = "everyone";
@@ -5862,8 +5862,26 @@ async function pushInfo() {  // the admin's setup: the public key and the sender
 let installAsk = null;
 addEventListener("beforeinstallprompt", e => { e.preventDefault(); installAsk = e; });  // Android and computers: "Add to home screen" can be offered by a button
 const pushCan = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+// Notifications blocked: the phone won't ask again, so say where to allow them on this device
+function blockedSteps() {
+  const ua = navigator.userAgent, ios = /iP(hone|ad|od)/.test(ua), android = /Android/.test(ua), home = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  return ios ? (home ? "Open iPhone <b>Settings → Notifications → FCC</b> and turn on <b>Allow Notifications</b>." : "Add the app to your Home Screen (<b>Share → Add to Home Screen</b>) and open it from the icon.")
+    : android ? (home ? "Long-press the FCC icon → <b>App info → Notifications</b> → Allow." : "Tap the icon left of the web address → <b>Permissions → Notifications</b> → Allow.")
+    : "Click the icon left of the web address → <b>Notifications</b> → Allow, then reload.";
+}
+function blockedHelp() {
+  document.querySelectorAll(".modal").forEach(x => x.remove());
+  const d = document.createElement("div"); d.className = "modal";
+  d.innerHTML = `<div class="sheet narrow" role="dialog" aria-modal="true" aria-label="Notifications are blocked"><div class="card-head"><h2>Notifications are blocked</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+    <p style="margin:0 0 6px">${blockedSteps()}</p><p class="note" style="margin:0 2px">Then tap Turn on again.</p>
+    <div class="modal-foot"><button type="button" class="pill-btn primary" data-x>OK</button></div></div>`;
+  document.body.append(d); d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) d.remove(); };
+  return false;
+}
+const askPush = async () => { const r = await Notification.requestPermission(); if (r === "granted") return true;
+  if (r === "denied") blockedHelp(); else toast("Not turned on."); return false; };
 async function turnOnPush() {  // asks the phone, then links it to this sign-in; true when it worked
-  if (await Notification.requestPermission() !== "granted") { toast("Notifications weren't allowed. You can turn them on later in Your account."); return false; }
+  if (!await askPush()) return false;
   const reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription() || await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64u(S.pushInfo.push_public_key)}), j = sub.toJSON();
   await api("rpc/app_save_push", {method: "POST", body: {endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, tz: Intl.DateTimeFormat().resolvedOptions().timeZone}});
   toast("Done: you'll get a reminder at 6am on Sundays."); return true;
@@ -5917,7 +5935,7 @@ async function remindersCard(el) {
   if (on) save(sub).catch(() => {});  // keeps this device linked to whoever is signed in on it
   const list = await api("reminders?select=id,dow,at&order=dow,at").catch(() => []);
   el.innerHTML = `<p class="note" style="margin:0 2px 8px">A notification on this ${matchMedia("(max-width: 1080px)").matches ? "phone" : "computer"} at the times you pick. Tap it to open Check-in.</p>
-    ${Notification.permission === "denied" ? `<p class="note">Notifications are blocked for this app. Allow them in your settings, then come back.</p>`
+    ${Notification.permission === "denied" ? `<p class="note">Notifications are blocked. ${blockedSteps()}</p>`
       : on ? "" : `<button type="button" class="pill-btn primary" id="rem-on" style="margin:0 0 8px">Turn on notifications</button>`}
     ${list.map(r => `<div class="set-row"><div><b>${REM_DAYS[r.dow]}</b><small>${esc(String(r.at).slice(0, 5))}</small></div><div class="set-ctl"><button type="button" class="pill-btn sm" data-rem-del="${esc(r.id)}">Remove</button></div></div>`).join("")}
     <div class="set-row" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><select class="in" id="rem-day" style="flex:1;min-width:120px" aria-label="Day">${REM_DAYS.map((d, i) => `<option value="${i}">${d}</option>`).join("")}</select>
@@ -5925,7 +5943,7 @@ async function remindersCard(el) {
     ${on ? `<div class="set-row"><span style="flex:1"></span><button type="button" class="pill-btn sm" id="rem-test">Send a test</button></div>` : ""}`;
   const $ = q => el.querySelector(q);
   const turnOn = async () => {
-    if (await Notification.requestPermission() !== "granted") { toast("Notifications weren't allowed."); return false; }
+    if (!await askPush()) return false;
     sub = await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64u(info.push_public_key)}); await save(sub); return true;
   };
   $("#rem-on")?.addEventListener("click", async () => { try { if (await turnOn()) { toast("Notifications are on."); remindersCard(el); } } catch (e) { toast("Couldn't turn them on: " + e.message); } });
