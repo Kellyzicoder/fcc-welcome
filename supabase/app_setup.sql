@@ -2402,8 +2402,9 @@ drop trigger if exists app_msg_wipe on members;
 create trigger app_msg_wipe after update of wiped_at on members for each row execute function app_msg_wipe();
 
 -- ---------------------------------------------------------------- Security: public forms, sign-ins, tidying
--- 1. The public forms (welcome form, new converts form) can't be flooded: each phone or computer can send 5 in 10 minutes
---    and 20 a day, and each form takes at most 300 a day in all. Only a scrambled (hashed) form of the address is kept, for 2 days.
+-- 1. The public forms can't be flooded. Welcome form: each phone or computer can send 5 in 10 minutes and 20 a day.
+--    New converts form: 20 in 10 minutes and 200 a day (one church phone or iPad may be passed round after an altar call).
+--    Each form takes at most 300 a day in all. Only a scrambled (hashed) form of the address is kept, for 2 days.
 create schema if not exists private;
 create table if not exists private.form_hits (who text not null, form text not null, at timestamptz not null default now());
 create index if not exists form_hits_who on private.form_hits (who, at);
@@ -2413,12 +2414,14 @@ create or replace function app_form_guard() returns trigger language plpgsql sec
 declare h json := coalesce(nullif(current_setting('request.headers', true), ''), '{}')::json;
         ip text := trim(coalesce(h ->> 'cf-connecting-ip', split_part(coalesce(h ->> 'x-forwarded-for', ''), ',', 1), ''));
         k text := encode(sha256(convert_to('fcc:' || ip, 'UTF8')), 'hex');
+        per10 int := case when tg_table_name = 'new_converts' then 20 else 5 end;
+        perday int := case when tg_table_name = 'new_converts' then 200 else 20 end;
 begin
   if coalesce(auth.jwt() ->> 'role', 'anon') <> 'anon' then return new; end if;  -- signed-in staff aren't limited
   delete from private.form_hits where at < now() - interval '2 days';
   if (select count(*) from private.form_hits f where f.form = tg_table_name and f.at > now() - interval '1 day') >= 300
-     or (ip <> '' and (select count(*) from private.form_hits f where f.who = k and f.at > now() - interval '10 minutes') >= 5)
-     or (ip <> '' and (select count(*) from private.form_hits f where f.who = k and f.at > now() - interval '1 day') >= 20) then
+     or (ip <> '' and (select count(*) from private.form_hits f where f.who = k and f.form = tg_table_name and f.at > now() - interval '10 minutes') >= per10)
+     or (ip <> '' and (select count(*) from private.form_hits f where f.who = k and f.form = tg_table_name and f.at > now() - interval '1 day') >= perday) then
     raise exception 'Too many forms sent. Please try again later.' using errcode = '54000';
   end if;
   insert into private.form_hits (who, form) values (k, tg_table_name);
