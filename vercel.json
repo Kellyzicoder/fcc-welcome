@@ -27,33 +27,11 @@
       "permanent": false
     },
     {
-      "source": "/privacy",
-      "has": [
-        {
-          "type": "host",
-          "value": "fcc-welcome.vercel.app"
-        }
-      ],
-      "destination": "https://fcc-attendance.vercel.app/privacy",
-      "permanent": false
-    },
-    {
-      "source": "/:path((?!first-timer-thanks).*)",
-      "has": [
-        {
-          "type": "host",
-          "value": "fcc-welcome.vercel.app"
-        }
-      ],
-      "destination": "https://fcc-connect.vercel.app/",
-      "permanent": false
-    },
-    {
       "source": "/:path((?:app|app-config|app-help|app-send|app-live|demo)(?:/.*)?)",
       "has": [
         {
           "type": "host",
-          "value": "fcc-connect.vercel.app"
+          "value": "fcc-welcome.vercel.app"
         }
       ],
       "destination": "/",
@@ -64,7 +42,7 @@
       "has": [
         {
           "type": "host",
-          "value": "fcc-connect.vercel.app"
+          "value": "fcc-welcome.vercel.app"
         }
       ],
       "destination": "/",

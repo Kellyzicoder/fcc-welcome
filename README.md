@@ -4,9 +4,9 @@ The attendance app for **Favourite Child Church**: check-in on a phone, the cong
 follow-up, pastor and church dashboards, and the welcome form for first-timers. It shares one Supabase database
 with the [FCC Attendance Tracker](https://fcc-attendance.streamlit.app) (Streamlit).
 
-**Live:** <https://fcc-attendance.vercel.app/app/> · **Welcome form:** <https://fcc-connect.vercel.app> · **Privacy:** <https://fcc-attendance.vercel.app/privacy>
+**Live:** <https://fcc-attendance.vercel.app/app/> · **Welcome form:** <https://fcc-welcome.vercel.app> (each church: fcc-welcome.vercel.app/melbourne and so on) · **Privacy:** <https://fcc-attendance.vercel.app/privacy>
 
-Each address shows only its own part (see `redirects` in `vercel.json`). The old address, fcc-welcome.vercel.app, forwards: `/app/…` to the app, everything else to the welcome form.
+Each address shows only its own part (see `redirects` in `vercel.json`): the app is only on fcc-attendance, the welcome form only on fcc-welcome, and `/app/…` on fcc-welcome forwards to the app.
 
 > The repo is still called `fcc-welcome` because it started as the welcome form. Keep the Vercel project name as it
 > is: it sets the web address, which is saved in people's Home Screen icons and in Supabase's sign-in settings.
