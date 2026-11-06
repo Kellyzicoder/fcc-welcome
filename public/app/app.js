@@ -308,10 +308,16 @@ const CC_61 = /melbourne|sydney|brisbane|perth|adelaide|australia/i;  // churche
 const intlNum = (phone, church) => { const d = String(phone || "").replace(/[^\d+]/g, "");
   if (d.startsWith("+")) return d.slice(1); if (d.startsWith("00")) return d.slice(2);
   return (CC_61.test(church || "") ? "61" : "64") + d.replace(/^0/, ""); };
+// Who has been messaged: the sender taps Sent after sending, and it shows as "Messaged · Grace, Tue" on Follow-up
+const lastMsg = (id, key = "member_id") => id ? (S.msgs || []).find(x => x[key] === id) : null;  // newest first
+const msgDay = ts => { const d = new Date(ts), t = new Date(); if (d.toDateString() === t.toDateString()) return "today";
+  return (t - d) / 864e5 < 6 ? d.toLocaleDateString("en-NZ", {weekday: "short"}) : d.toLocaleDateString("en-NZ", {day: "numeric", month: "short"}); };
+const msgTag = x => x ? `<small class="tp-did" title="Messaged by ${esc(x.sent_by_name || "")} on ${esc(new Date(x.sent_at).toLocaleString("en-NZ", {dateStyle: "medium", timeStyle: "short"}))}">${svg("tick")}Messaged · ${esc(String(x.sent_by_name || "").split(" ")[0])}, ${esc(msgDay(x.sent_at))}</small>` : "";
+const msgRecent = (id, days = 7) => { const x = lastMsg(id); return !!x && Date.now() - new Date(x.sent_at) < days * 864e5; };
 function textPerson(o) {
-  if (o.queue) { const at = o.at || 0, p = o.queue[at]; if (!p) return;  // a list: this person, then Next for the one after
-    return textPerson({...p, kind: o.keep || p.kind, list: {queue: o.queue, at, keep: o.keep}}); }
-  const {name, phone, kind = "hi", day = "", noContact = false, list = null} = o;
+  if (o.queue) { const at = o.at || 0, p = o.queue[at]; if (!p) return;  // a list: this person, then the next one after Sent or Skip
+    return textPerson({...p, kind: o.keep || p.kind, list: {queue: o.queue, at, keep: o.keep, full: o.full}}); }
+  const {name, phone, kind = "hi", day = "", noContact = false, list = null, mid = null, cid = null, church = S.church} = o;
   document.querySelectorAll(".modal").forEach(x => x.remove());
   const first = String(name || "").trim().split(/\s+/)[0] || "there", me = String(S.me?.name || "").trim().split(/\s+/)[0], sign = `God bless,\n${me ? me + ", " : ""}Favourite Child Church`;
   const when = day ? ` on ${new Date(day + "T12:00:00").toLocaleDateString("en-NZ", {weekday: "long", day: "numeric", month: "long"})}` : "";
@@ -330,8 +336,10 @@ function textPerson(o) {
     <p class="note" style="margin:8px 2px 0">Sent from your phone to ${esc(phone)}.</p>
     <div class="modal-foot tp-foot"><button type="button" class="pill-btn" id="tp-copy">Copy</button>
       <button type="button" class="pill-btn" id="tp-wa">WhatsApp</button><button type="button" class="pill-btn primary" id="tp-sms">Text message</button></div>
-    ${list ? `<div class="tp-next">${list.at + 1 < list.queue.length ? `<button type="button" class="link" id="tp-skip">Skip ${esc(String(list.queue[list.at + 1].name || "").split(" ")[0])}'s turn: go to the next</button>
-      <button type="button" class="pill-btn primary" id="tp-go" hidden>Next: ${esc(String(list.queue[list.at + 1].name || "").split(" ")[0])} →</button>` : `<button type="button" class="pill-btn primary" id="tp-done" hidden>Done: all ${list.queue.length} ✓</button>`}</div>` : ""}</div>`;
+    <div class="tp-ask" hidden><span>Did it send?</span><span class="gap"></span><button type="button" class="pill-btn" id="tp-no">Not yet</button>
+      <button type="button" class="pill-btn primary" id="tp-yes">${svg("tick")}Sent${list ? list.at + 1 < list.queue.length ? " · next" : " · done" : ""}</button></div>
+    ${list ? `<div class="tp-next">${list.at === 0 && list.full && list.full.length > list.queue.length ? `<span class="note">Leaving out ${list.full.length - list.queue.length} messaged this week. <button type="button" class="link" id="tp-incl">Include them</button></span>` : ""}
+      <button type="button" class="link" id="tp-skip">${list.at + 1 < list.queue.length ? `Skip: go to ${esc(String(list.queue[list.at + 1].name || "").split(" ")[0])}` : "Skip: finish"}</button></div>` : ""}</div>`;
   document.body.append(d);
   const ta = d.querySelector("#tp-msg"), onKey = e => { if (e.key === "Escape") close(); }, close = () => { d.remove(); document.removeEventListener("keydown", onKey); };
   let picked = kind;
@@ -340,14 +348,25 @@ function textPerson(o) {
   d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); const c = e.target.closest("[data-tk]"); if (c) pick(c.dataset.tk); };
   document.addEventListener("keydown", onKey);
   const local = String(phone).replace(/[^\d+]/g, "");
-  // a list: once this one is sent (or copied), Next shows for the person after; the message picked carries on to them
-  const sent = () => { if (!list) return; d.querySelector("#tp-go, #tp-done")?.removeAttribute("hidden"); d.querySelector("#tp-skip")?.setAttribute("hidden", ""); };
-  const next = () => { close(); textPerson({queue: list.queue, at: list.at + 1, keep: picked === list.queue[list.at].kind ? list.keep : picked}); };
-  d.querySelector("#tp-go")?.addEventListener("click", next); d.querySelector("#tp-skip")?.addEventListener("click", next);
-  d.querySelector("#tp-done")?.addEventListener("click", () => { close(); toast(`All ${list.queue.length} done. Thank you!`); });
-  d.querySelector("#tp-sms").onclick = () => { sent(); location.href = `sms:${local}?&body=${encodeURIComponent(ta.value)}`; };
-  d.querySelector("#tp-wa").onclick = () => { sent(); window.open(`https://wa.me/${intlNum(phone, S.church)}?text=${encodeURIComponent(ta.value)}`, "_blank", "noopener"); };
-  d.querySelector("#tp-copy").onclick = async () => { sent(); try { await navigator.clipboard.writeText(ta.value); toast("Copied. Paste it into any chat."); } catch { ta.select(); toast("Select all and copy it."); } };
+  // after Text message, WhatsApp or Copy: "Did it send?" Sent notes it (who, when, which message), so the team can see
+  // they've been messaged; in a list it then goes on to the next person, keeping the message picked
+  let via = "text";
+  const ask = d.querySelector(".tp-ask"), sent = ch => { via = ch; ask.hidden = false; };
+  const next = () => { close(); if (list.at + 1 >= list.queue.length) { toast(`All ${list.queue.length} done. Thank you!`); render(); return; }
+    textPerson({queue: list.queue, full: list.full, at: list.at + 1, keep: picked === list.queue[list.at].kind ? list.keep : picked}); };
+  d.querySelector("#tp-skip")?.addEventListener("click", next);
+  d.querySelector("#tp-incl")?.addEventListener("click", () => { close(); textPerson({queue: list.full, at: 0, keep: list.keep}); });
+  d.querySelector("#tp-no").onclick = () => { ask.hidden = true; };
+  d.querySelector("#tp-yes").onclick = async e => { e.currentTarget.disabled = true;
+    try { const row = await api("messages_sent", {method: "POST", prefer: "return=representation",
+        body: {church, member_id: mid || null, convert_id: cid || null, full_name: String(name || "").slice(0, 120), kind: T[picked] ? picked : "hi", channel: via}});
+      if (S.msgs) S.msgs = [...(Array.isArray(row) ? row : [row]), ...S.msgs]; }
+    catch (err) { toast(/messages_sent|relation|schema cache/i.test(err.message) ? "Sent, but not noted: run the latest setup SQL once." : "Not noted: " + err.message); }
+    if (list) return next();
+    close(); toast(`Noted: ${first} has been messaged.`); render(); };
+  d.querySelector("#tp-sms").onclick = () => { sent("text"); location.href = `sms:${local}?&body=${encodeURIComponent(ta.value)}`; };
+  d.querySelector("#tp-wa").onclick = () => { sent("whatsapp"); window.open(`https://wa.me/${intlNum(phone, S.church)}?text=${encodeURIComponent(ta.value)}`, "_blank", "noopener"); };
+  d.querySelector("#tp-copy").onclick = async () => { sent("copy"); try { await navigator.clipboard.writeText(ta.value); toast("Copied. Paste it into any chat."); } catch { ta.select(); toast("Select all and copy it."); } };
 }
 // ---------------------------------------------------------------- New converts
 // Everyone who gives their life to Christ, by name: when and where, who is looking after them, and four steps to walk
@@ -371,7 +390,7 @@ async function converts(el) {
   const card = r => { const n = CV_STEPS.filter(([k]) => r[k]).length;
     return `<div class="card cv" data-cv="${esc(r.id)}"><div class="cv-top"><span ${avaStyle(r.full_name)}>${esc(initials(r.full_name))}</span>
       <div class="cv-who"><b>${r.member_id ? `<button type="button" class="link" data-person="${esc(r.member_id)}">${esc(r.full_name)}</button>` : esc(r.full_name)}</b>
-        <small>${esc(nice2(r.decided_on))} · ${esc(CV_PLACE[r.place] || "")}${r.assigned_to ? ` · with ${esc(shortTitle(r.assigned_to))}` : ""}</small></div>
+        <small>${esc(nice2(r.decided_on))} · ${esc(CV_PLACE[r.place] || "")}${r.assigned_to ? ` · with ${esc(shortTitle(r.assigned_to))}` : ""}</small>${msgTag(lastMsg(r.id, "convert_id"))}</div>
       <span class="cv-n" title="${n} of 4 steps done">${n}/4</span></div>
       <div class="cv-steps">${CV_STEPS.map(([k, t]) => `<button type="button" class="cv-step ${r[k] ? "on" : ""}" data-step="${k}" ${ro ? "disabled" : ""} aria-pressed="${!!r[k]}" title="${r[k] ? `${t} on ${esc(nice2(r[k]))}. Tap to undo.` : `Tap when ${t.toLowerCase()} is done`}">${r[k] ? svg("tick") : ""}${t}</button>`).join("")}</div>
       ${r.notes ? `<p class="cv-notes">${esc(r.notes)}</p>` : ""}
@@ -390,7 +409,7 @@ async function converts(el) {
     c.querySelectorAll("[data-step]").forEach(b => b.onclick = async () => { const k = b.dataset.step, v = r[k] ? null : today(); b.disabled = true;
       try { await api(`converts?id=eq.${r.id}`, {method: "PATCH", prefer: "return=minimal", body: {[k]: v}}); r[k] = v; render(); if (v && done(r)) toast(`${r.full_name.split(" ")[0]} has done all four steps. Praise God!`); }
       catch (e) { b.disabled = false; toast("Not saved: " + e.message); } });
-    c.querySelector("[data-cvmsg]")?.addEventListener("click", () => textPerson({name: r.full_name, phone: r.phone, kind: "convert", day: r.decided_on}));
+    c.querySelector("[data-cvmsg]")?.addEventListener("click", () => textPerson({name: r.full_name, phone: r.phone, kind: "convert", day: r.decided_on, cid: r.id, mid: r.member_id || null, church: r.church}));
     c.querySelector("[data-cvedit]")?.addEventListener("click", () => convertForm(r)); });
   // add or change one convert
   function convertForm(r) {
@@ -1191,6 +1210,7 @@ async function load() {
   S.centas = await all("centas?select=id,bacenta,name,shepherd,active").catch(() => []);  // and who shepherds which Centa
   S.visits = await all(`visits?select=id,member_id,visit_date,visited_by,note,outcome,added_by,created_at&visit_date=gte.${since}&order=visit_date.desc`)
     .catch(() => all(`visits?select=id,member_id,visit_date,visited_by,note,added_by,created_at&visit_date=gte.${since}&order=visit_date.desc`)).catch(() => null);  // null until the setup SQL with visits is run
+  S.msgs = await all(`messages_sent?select=id,church,member_id,convert_id,full_name,kind,channel,sent_by,sent_by_name,sent_at&sent_at=gte.${since}&order=sent_at.desc`).catch(() => null);  // who has been messaged (null until the setup SQL with it is run)
   // names added at a Bacenta waiting for a church admin to approve (the count on the Bacentas menu item)
   S.bacPending = ["admin", "lead"].includes(S.me.role) ? newSince((await all("bacenta_guests?select=id,bacenta,created_at&status=eq.pending").catch(() => []))
     .filter(g => (S.bacList || []).some(b => b.id === g.bacenta && b.church === S.church)), "bacentas") : 0;
@@ -1503,7 +1523,7 @@ function render() {
   root.querySelectorAll("[data-switch]").forEach(b => b.onclick = () => switchView(S.me.role === "pastor" ? S.me.base : "pastor"));
   const view = document.getElementById("view");
   view.onclick = e => {
-    const tx = e.target.closest("[data-msgto]"); if (tx) { const p = picture(), x = p.people.find(y => y.id === tx.dataset.msgto); if (x) textPerson({name: x.full_name, phone: x.phone,
+    const tx = e.target.closest("[data-msgto]"); if (tx) { const p = picture(), x = p.people.find(y => y.id === tx.dataset.msgto); if (x) textPerson({name: x.full_name, phone: x.phone, mid: x.id,
       day: x.first_visit || "", kind: x.type === "first_timer" && p.here[x.id] ? "thanks" : x.level !== "ok" || !p.here[x.id] ? "missed" : "hi"}); return; }  // the message button by a phone number
     const b = e.target.closest("[data-person]"); if (b) { S.person = b.dataset.person; go("person"); return; }
     const t = e.target.closest("[data-to-pastor]"); if (t) { S.pastor = t.dataset.toPastor; S.pastorJump = true; go("pastors"); return; }
@@ -1789,7 +1809,7 @@ function calendar(el, p) {  // a month of services: days with a service show how
   el.querySelectorAll("[data-day]").forEach(b => b.onclick = () => { S.date = b.dataset.day; S.view = "checkin"; render(); });
 }
 function rowsHtml(list, cols) {
-  return list.map(p => `<tr><td>${whoBtn(p)}</td><td>${flagBadge(p)}</td><td>${p.missed}</td>
+  return list.map(p => `<tr><td>${whoBtn(p)}${msgTag(lastMsg(p.id))}</td><td>${flagBadge(p)}</td><td>${p.missed}</td>
     <td class="muted hide-sm">${esc(nice(p.seen))}</td>${cols ? `<td class="muted hide-sm">${esc(p.pastor || "")}</td>` : ""}<td class="muted">${p.phone ? `<span class="tp-cell">${esc(p.phone)}<button type="button" class="icon-btn sm" data-msgto="${esc(p.id)}" title="Message ${esc(p.full_name)}" aria-label="Message ${esc(p.full_name)}">${svg("community")}</button></span>` : ""}</td></tr>`).join("");
 }
 // ---------------------------------------------------------------- dashboard: widgets each person can add, remove, drag and resize
@@ -2835,6 +2855,7 @@ function followup(el) {
   const pick = {need: x => x.level !== "ok", red: x => x.flag === "red", yellow: x => x.flag === "yellow", once: x => x.flag === "blue", blue: x => !p.here[x.id] && started(x), came: x => !!p.here[x.id], visited: x => !!x.visited, all: () => true};
   if (!tabs[S.filter]) S.filter = "need";
   const list = had ? p.people.filter(pick[S.filter]) : [];
+  const withPhone = list.filter(x => x.phone), fresh = withPhone.filter(x => !msgRecent(x.id));  // Message everyone leaves out anyone messaged this week
   el.innerHTML = head("Follow-up", esc(S.church),
     `<button class="pill-btn" id="dl">Download this list</button>`) + `
     <div class="row sortbar"><div style="flex:0 0 200px"><label class="f" for="fu-day">Service date</label><input class="in" id="fu-day" type="date" value="${day || today()}" max="${today()}"></div>
@@ -2844,11 +2865,11 @@ function followup(el) {
         <div class="w-pop fu-pop" role="menu" hidden>${MORE.map(k => `<button type="button" role="menuitem" class="${S.filter === k ? "on" : ""}" data-f="${k}">${tabs[k]}${had ? ` <span class="muted">${p.people.filter(pick[k]).length}</span>` : ""}</button>`).join("")}</div></span></div>
     <div class="fu-narrow" style="max-width:340px;margin:0 0 14px"><label class="f" for="fu-f">Show</label><select class="in" id="fu-f">${Object.entries(tabs).map(([k, t]) =>  // one dropdown instead of a row of pills, each list with its count
       `<option value="${k}" ${S.filter === k ? "selected" : ""}>${t} (${had ? p.people.filter(pick[k]).length : 0})</option>`).join("")}</select></div>  <!-- phones: the dropdown; wider screens: the pills -->
-    <div class="card"><div class="card-head"><h2>${tabs[S.filter]}</h2><span class="gap"></span>${list.filter(x => x.phone).length > 1 && !S.preview ? `<button type="button" class="pill-btn sm" id="fu-all">${svg("community")}Message everyone (${list.filter(x => x.phone).length})</button>` : ""}<span style="color:var(--ink-3);font-size:13px">${list.length} people</span></div>
+    <div class="card"><div class="card-head"><h2>${tabs[S.filter]}</h2><span class="gap"></span>${withPhone.length > 1 && !S.preview ? `<button type="button" class="pill-btn sm" id="fu-all" title="${fresh.length < withPhone.length ? `Leaves out ${withPhone.length - fresh.length} messaged in the last 7 days` : ""}">${svg("community")}Message everyone (${(fresh.length || withPhone.length)})</button>` : ""}<span style="color:var(--ink-3);font-size:13px">${list.length} people</span></div>
       ${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th class="hide-sm">Pastor</th><th>Phone</th></tr></thead>
       <tbody>${rowsHtml(list, true)}</tbody></table></div>` : `<p class="empty">${had ? "Nobody in this list." : `No service was recorded on ${esc(nice(day || today(), true))}.`}</p>`}</div>`;
-  el.querySelector("#fu-all")?.addEventListener("click", () => textPerson({queue: list.filter(x => x.phone).map(x => ({name: x.full_name, phone: x.phone, day: x.first_visit || "",
-    kind: x.type === "first_timer" && p.here[x.id] ? "thanks" : x.level !== "ok" || !p.here[x.id] ? "missed" : "hi"}))}));
+  { const q = x => ({name: x.full_name, phone: x.phone, mid: x.id, day: x.first_visit || "", kind: x.type === "first_timer" && p.here[x.id] ? "thanks" : x.level !== "ok" || !p.here[x.id] ? "missed" : "hi"});
+    el.querySelector("#fu-all")?.addEventListener("click", () => textPerson({queue: (fresh.length ? fresh : withPhone).map(q), full: withPhone.map(q)})); }
   el.querySelector("#fu-f").onchange = e => { S.filter = e.target.value; render(); };
   el.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { S.filter = b.dataset.f; render(); });
   { const btn = el.querySelector("#fu-more"), pop = el.querySelector(".fu-pop");  // More: the other lists, in a small menu like the dashboard's
@@ -4668,8 +4689,11 @@ async function person(el) {
   const canEdit = ["admin", "lead"].includes(S.me.role) && !S.preview;  // the same people who can edit on Congregation
   const top = head(m ? esc(m.full_name) : "Person", esc(S.church), m ? `${m.phone && !S.preview ? `<button class="pill-btn" id="pe-text">${svg("community")}Message</button>` : ""}${canEdit ? `<button class="pill-btn" id="pe-edit">${svg("edit")}Edit</button>` : ""}<button class="pill-btn" id="dl">Download</button>` : "");
   const bind = () => { const b = el.querySelector("#pe-edit"); if (b) b.onclick = () => editPerson(m);
+    el.querySelectorAll("[data-mdel]").forEach(x => x.onclick = async () => { x.disabled = true;  // take back a "Sent" tapped by mistake
+      try { await api(`messages_sent?id=eq.${encodeURIComponent(x.dataset.mdel)}`, {method: "DELETE"}); S.msgs = S.msgs.filter(y => y.id !== x.dataset.mdel); toast("Removed."); render(); }
+      catch (e) { x.disabled = false; toast("Not removed: " + e.message); } });
     const t = el.querySelector("#pe-text"); if (t) t.onclick = () => { const st = picture().people.find(x => x.id === m.id);
-      textPerson({name: m.full_name, phone: m.phone, day: m.first_visit || "", kind: m.type === "first_timer" ? "thanks" : st && st.level !== "ok" ? "missed" : "hi"}); }; };
+      textPerson({name: m.full_name, phone: m.phone, mid: m.id, day: m.first_visit || "", kind: m.type === "first_timer" ? "thanks" : st && st.level !== "ok" ? "missed" : "hi"}); }; };
   if (!m) { el.innerHTML = top + `<div class="card"><p class="empty" style="margin:0 0 12px">Tap a name on any list to see their attendance.</p><button class="pill-btn" data-go-people>Open Congregation</button></div>`;
     el.querySelector("[data-go-people]").onclick = () => { S.view = "people"; render(); }; return; }
   el.innerHTML = top + `<p class="empty">Loading…</p>`; bind();
@@ -4707,6 +4731,10 @@ async function person(el) {
       <p class="facts">${[typeName(m), isKid(m) ? "Child" : "Adult", m.phone || ""].filter(Boolean).map(esc).join(" · ")}${pastorsOf(m).length ? `<br>Pastor: ${pastorsOf(m).map(pastorBtn).join(", ")}` : ""}${shepherdsOf(m).length ? `<br>Shepherd: ${shepherdsOf(m).map(esc).join(", ")}` : ""}</p></div>
     ${S.visits ? (() => { const vs = S.visits.filter(v => v.member_id === m.id); return `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Visits</h2><span class="gap"></span>${canVisit() ? `<button class="pill-btn sm" id="pe-visit">Log visit</button>` : ""}</div>
       ${vs.length ? `<ul class="vlist">${vs.map(v => `<li><b>${esc(full(v.visit_date))}</b> · ${esc(v.visited_by)}${v.outcome === "not_seen" ? " · they weren't in" : ""}${v.note ? `<br><span class="muted">${esc(v.note)}</span>` : ""}</li>`).join("")}</ul>` : `<p class="empty" style="margin:0">No visits recorded.</p>`}</div>`; })() : ""}
+    ${(() => { const ms = (S.msgs || []).filter(x => x.member_id === m.id); if (!ms.length) return "";  // messages sent to them, newest first
+      const K = {thanks: "Thank you for coming", missed: "We missed you", hi: "Just saying hi", convert: "Welcome to the family"}, V = {text: "text", whatsapp: "WhatsApp", copy: "copied"};
+      const mine = x => x.sent_by === S.me.email || ["admin", "lead"].includes(S.me.role);
+      return `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Messages</h2></div><ul class="vlist">${ms.map(x => `<li><b>${esc(full(new Date(x.sent_at).toLocaleDateString("en-CA")))}</b> · ${esc(x.sent_by_name || "")} · ${esc(K[x.kind] || "")} (${esc(V[x.channel] || "")})${mine(x) && !S.preview ? ` <button type="button" class="link" data-mdel="${esc(x.id)}" style="margin:0 0 0 6px;font-size:13px">Remove</button>` : ""}</li>`).join("")}</ul></div>`; })()}
     ${flock.length || asPastor ? `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Their people</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${flock.length} ${flock.length === 1 ? "person" : "people"}</span>
         ${asPastor ? `<button class="pill-btn sm" data-to-pastor="${esc(asPastor)}">Open in Pastors</button>` : ""}</div>
       ${flock.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Came${p.last ? " · " + esc(nice(p.last)) : ""}</th><th>Status</th><th>Missed in a row</th><th>Phone</th></tr></thead><tbody>
@@ -4834,7 +4862,7 @@ async function signups(el) {
   el.querySelectorAll(".signup").forEach(card => {
     const id = card.dataset.reg, name = card.querySelector("h2").textContent, lock = on => card.querySelectorAll("button").forEach(b => b.disabled = on);
     const reg = regs.find(r => r.id === id);
-    card.querySelector("[data-msg]")?.addEventListener("click", () => textPerson({name: reg.full_name, phone: reg.phone, kind: "thanks", day: reg.first_visit || "", noContact: reg.wants_contact === false}));
+    card.querySelector("[data-msg]")?.addEventListener("click", () => textPerson({name: reg.full_name, phone: reg.phone, mid: reg.member_id || null, kind: "thanks", day: reg.first_visit || "", noContact: reg.wants_contact === false}));
     card.querySelector("[data-ok]").onclick = async () => {
       lock(true);
       try {

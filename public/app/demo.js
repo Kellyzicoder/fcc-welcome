@@ -226,6 +226,7 @@
       const merge = /merge-duplicates/.test(prefer || ""), ignore = /ignore-duplicates/.test(prefer || "");
       for (const r of list) {
         if (table === "help_messages" && !r.id) r.id = crypto.randomUUID?.() || String(Date.now());
+        if (table === "messages_sent") Object.assign(r, {id: crypto.randomUUID?.() || String(Date.now()), sent_at: new Date().toISOString(), sent_by: AS?.email || "demo@example.com", sent_by_name: AS?.name || "Demo Admin"});  // like the database: the sender and time from the sign-in
         if (table === "bacenta_guests") r.status = AS ? "pending" : "approved";  // like the database: a shepherd's names wait for approval
         const i = keys.length ? rows.findIndex(x => keys.every(k => String(x[k]) === String(r[k]))) : -1;
         if (i >= 0) { if (merge) rows[i] = {...rows[i], ...r}; else if (!ignore) return json({message: "That's already saved."}, 409); }
