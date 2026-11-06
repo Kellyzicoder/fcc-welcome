@@ -83,7 +83,7 @@ const isSelf = (pastor, m) => !!bare(pastor) && bare(pastor) === bare(m.full_nam
 const genderOf = m => ({f: "Female", female: "Female", m: "Male", male: "Male"})[norm(m.gender)] || "";
 const rolesOf = m => String(m.role || "").split(",").map(x => x.trim().replace(/\s+/g, " ")).filter(Boolean);  // "Tech Team, Worship Team" is two roles
 const byName = (a, b) => norm(a.full_name).localeCompare(norm(b.full_name));
-const canApprove = () => S.me.role === "admin" || (S.me.role === "lead" && S.me.church === S.me.home);
+const canApprove = () => S.me.role === "admin" || S.me.role === "lead";  // each church's admins handle its own sign-ups
 const canTeam = () => ["admin", "lead"].includes(S.me.role);  // Team forms: an admin (every church) or a church admin (their own)
 // WhatsApp text: a line is a string, or [emoji, text]; the emoji is left out when emojis are switched off
 const wa = lines => lines.map(l => Array.isArray(l) ? (S.emoji ? `${l[0]} ${l[1]}` : l[1]) : l).join("\n").trim();
@@ -310,7 +310,9 @@ function textPerson({name, phone, kind = "hi", day = "", noContact = false}) {
   const when = day ? ` on ${new Date(day + "T12:00:00").toLocaleDateString("en-NZ", {weekday: "long", day: "numeric", month: "long"})}` : "";
   const T = {thanks: ["Thank you for coming", `Hi ${first}, thank you so much for visiting Favourite Child Church${when}. It was a joy to have you with us. We'd love to see you again soon. You're always welcome!\n\n${sign}`],
              missed: ["We missed you", `Hi ${first}, we missed you at church! Hope you're doing well. Is there anything we can pray about or help with? It would be lovely to see you soon.\n\n${sign}`],
+             convert: ["Welcome to the family", `Hi ${first}, we're so happy you gave your life to Jesus${when}! Welcome to the family. We'd love to help you grow, and someone will be in touch to walk with you. Praying for you!\n\n${sign}`],
              hi: ["Just saying hi", `Hi ${first}, just checking in to say hello from Favourite Child Church. Hope your week is going well!\n\n${sign}`]};
+  if (kind !== "convert") delete T.convert;
   const d = document.createElement("div"); d.className = "modal";
   d.innerHTML = `<div class="sheet tp" role="dialog" aria-modal="true" aria-label="Message ${esc(name)}">
     <div class="card-head"><h2>Message ${esc(first)}</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
@@ -331,6 +333,87 @@ function textPerson({name, phone, kind = "hi", day = "", noContact = false}) {
   d.querySelector("#tp-sms").onclick = () => { location.href = `sms:${local}?&body=${encodeURIComponent(ta.value)}`; };
   d.querySelector("#tp-wa").onclick = () => { window.open(`https://wa.me/${intlNum(phone, S.church)}?text=${encodeURIComponent(ta.value)}`, "_blank", "noopener"); };
   d.querySelector("#tp-copy").onclick = async () => { try { await navigator.clipboard.writeText(ta.value); toast("Copied. Paste it into any chat."); } catch { ta.select(); toast("Select all and copy it."); } };
+}
+// ---------------------------------------------------------------- New converts
+// Everyone who gives their life to Christ, by name: when and where, who is looking after them, and four steps to walk
+// with them (a call, a visit, the foundation class, baptism). Each step is one tap. The database keeps each church's own.
+const CV_STEPS = [["called_on", "Called"], ["visited_on", "Visited"], ["foundation_on", "Foundation class"], ["baptised_on", "Baptised"]];
+const CV_PLACE = {service: "Sunday service", midweek: "Midweek service", bacenta: "Bacenta", outreach: "Outreach", other: "Somewhere else"};
+async function converts(el) {
+  const sub = esc(S.church), canDel = ["admin", "lead"].includes(S.me.role) && !S.preview, ro = !!S.preview;
+  const btns = ro ? "" : `<button class="pill-btn primary" id="cv-add">${svg("plus")}Add a convert</button>`;
+  el.innerHTML = head("New converts", sub, btns) + `<p class="empty">Loading…</p>`;
+  let rows;
+  try { rows = await all(`converts?select=*&church=eq.${encodeURIComponent(S.church)}&order=decided_on.desc,created_at.desc`); }
+  catch (e) { el.innerHTML = head("New converts", sub) + `<div class="msg bad">${/converts|relation|schema cache/i.test(e.message) ? "New converts needs the latest setup SQL: run it in Supabase once, then open this page again." : esc(e.message)}</div>`; return; }
+  if (S.view !== "converts") return;
+  const done = r => CV_STEPS.every(([k]) => r[k]), yr = today().slice(0, 4), mo = today().slice(0, 7);
+  const F = {open: ["Still walking with", r => !done(r)], done: ["All four steps done", done], all: ["Everyone", () => true]};
+  if (!F[S.cvF]) S.cvF = "open";
+  const list = rows.filter(F[S.cvF][1]);
+  const stat = (n, t) => `<div class="cv-stat"><b>${n}</b><span>${t}</span></div>`;
+  const nice2 = d => d ? new Date(d + "T12:00:00").toLocaleDateString("en-NZ", {day: "numeric", month: "short", year: d.slice(0, 4) === yr ? undefined : "numeric"}) : "";
+  const card = r => { const n = CV_STEPS.filter(([k]) => r[k]).length;
+    return `<div class="card cv" data-cv="${esc(r.id)}"><div class="cv-top"><span ${avaStyle(r.full_name)}>${esc(initials(r.full_name))}</span>
+      <div class="cv-who"><b>${r.member_id ? `<button type="button" class="link" data-person="${esc(r.member_id)}">${esc(r.full_name)}</button>` : esc(r.full_name)}</b>
+        <small>${esc(nice2(r.decided_on))} · ${esc(CV_PLACE[r.place] || "")}${r.assigned_to ? ` · with ${esc(shortTitle(r.assigned_to))}` : ""}</small></div>
+      <span class="cv-n" title="${n} of 4 steps done">${n}/4</span></div>
+      <div class="cv-steps">${CV_STEPS.map(([k, t]) => `<button type="button" class="cv-step ${r[k] ? "on" : ""}" data-step="${k}" ${ro ? "disabled" : ""} aria-pressed="${!!r[k]}" title="${r[k] ? `${t} on ${esc(nice2(r[k]))}. Tap to undo.` : `Tap when ${t.toLowerCase()} is done`}">${r[k] ? svg("tick") : ""}${t}</button>`).join("")}</div>
+      ${r.notes ? `<p class="cv-notes">${esc(r.notes)}</p>` : ""}
+      <div class="cv-act">${r.phone ? `<button type="button" class="pill-btn sm" data-cvmsg>${svg("community")}Message</button>` : ""}${ro ? "" : `<button type="button" class="pill-btn sm" data-cvedit>${svg("edit")}Edit</button>`}</div></div>`; };
+  el.innerHTML = head("New converts", sub, btns) + `
+    <div class="cv-stats">${stat(rows.filter(r => r.decided_on.startsWith(mo)).length, "this month")}${stat(rows.filter(r => r.decided_on.startsWith(yr)).length, "this year")}${stat(rows.filter(r => !done(r)).length, "still walking with")}${stat(rows.filter(r => (r.baptised_on || "").startsWith(yr)).length, "baptised this year")}</div>
+    <div class="chips" style="margin:0 0 12px">${Object.entries(F).map(([k, [t, f]]) => `<button type="button" class="chip ${S.cvF === k ? "on" : ""}" data-cvf="${k}">${t} (${rows.filter(f).length})</button>`).join("")}</div>
+    ${list.length ? `<div class="cv-list">${list.map(card).join("")}</div>` : `<div class="card"><p class="empty">${rows.length ? "Nobody in this list." : `No new converts recorded at ${esc(S.church)} yet.${ro ? "" : " Tap <b>Add a convert</b> after an altar call."}`}</p></div>`}
+    ${rows.length && !ro ? `<p style="margin-top:14px"><button type="button" class="link" id="cv-dl" style="margin:0">Download the list</button></p>` : ""}`;
+  el.querySelectorAll("[data-cvf]").forEach(b => b.onclick = () => { S.cvF = b.dataset.cvf; render(); });
+  el.querySelector("#cv-add")?.addEventListener("click", () => convertForm(null));
+  el.querySelector("#cv-dl")?.addEventListener("click", () => download(`New_converts_${S.church}_${today()}.csv`,
+    [["Church", "Name", "Phone", "Decided on", "Where", "Looked after by", ...CV_STEPS.map(x => x[1]), "Notes"],
+     ...rows.map(r => [r.church, r.full_name, r.phone || "", r.decided_on, CV_PLACE[r.place] || "", r.assigned_to || "", ...CV_STEPS.map(([k]) => r[k] || ""), r.notes || ""])]));
+  el.querySelectorAll(".cv").forEach(c => { const r = rows.find(x => x.id === c.dataset.cv);
+    c.querySelectorAll("[data-step]").forEach(b => b.onclick = async () => { const k = b.dataset.step, v = r[k] ? null : today(); b.disabled = true;
+      try { await api(`converts?id=eq.${r.id}`, {method: "PATCH", prefer: "return=minimal", body: {[k]: v}}); r[k] = v; render(); if (v && done(r)) toast(`${r.full_name.split(" ")[0]} has done all four steps. Praise God!`); }
+      catch (e) { b.disabled = false; toast("Not saved: " + e.message); } });
+    c.querySelector("[data-cvmsg]")?.addEventListener("click", () => textPerson({name: r.full_name, phone: r.phone, kind: "convert", day: r.decided_on}));
+    c.querySelector("[data-cvedit]")?.addEventListener("click", () => convertForm(r)); });
+  // add or change one convert
+  function convertForm(r) {
+    document.querySelectorAll(".modal").forEach(x => x.remove());
+    const care = [...new Set([...(S.pastorList[S.church] || []), ...(S.shepherdList?.[S.church] || [])])].sort();
+    const names = S.members.filter(m => churchOf(m) === S.church && m.full_name !== "Removed person");
+    const d = document.createElement("div"); d.className = "modal";
+    d.innerHTML = `<form class="sheet cv-form" role="dialog" aria-modal="true" aria-label="${r ? "Change" : "Add"} a new convert">
+      <div class="card-head"><h2>${r ? "Change details" : "Add a new convert"}</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+      <div class="fields">
+        <div><label class="f" for="cv-name">Name</label><input class="in" id="cv-name" list="cv-names" required minlength="2" maxlength="120" autocomplete="off" value="${esc(r?.full_name || "")}" placeholder="Full name">
+          <datalist id="cv-names">${names.map(m => `<option value="${esc(m.full_name)}">`).join("")}</datalist><small class="muted" id="cv-match"></small></div>
+        <div><label class="f" for="cv-phone">Phone</label><input class="in" id="cv-phone" type="tel" maxlength="30" value="${esc(r?.phone || "")}" placeholder="So someone can call them"></div>
+        <div class="row"><div><label class="f" for="cv-day">Gave their life on</label><input class="in" id="cv-day" type="date" required max="${today()}" value="${esc(r?.decided_on || today())}"></div>
+          <div><label class="f" for="cv-place">Where</label><select class="in" id="cv-place">${Object.entries(CV_PLACE).map(([k, t]) => `<option value="${k}" ${(r?.place || "service") === k ? "selected" : ""}>${t}</option>`).join("")}</select></div></div>
+        <div><label class="f" for="cv-care">Looked after by</label><select class="in" id="cv-care"><option value="">Nobody yet</option>${[...new Set([...care, ...(r?.assigned_to && !care.includes(r.assigned_to) ? [r.assigned_to] : [])])].map(n => `<option ${r?.assigned_to === n ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
+        <div><label class="f" for="cv-notes">Notes <small class="muted">(prayer points, questions, family)</small></label><textarea class="in" id="cv-notes" rows="3" maxlength="2000">${esc(r?.notes || "")}</textarea></div>
+      </div>
+      <div class="modal-foot tp-foot">${r && canDel ? `<button type="button" class="pill-btn danger cv-del" id="cv-del">Remove</button>` : ""}<button type="button" class="pill-btn" data-x>Cancel</button><button class="pill-btn primary" id="cv-save">${r ? "Save" : "Add"}</button></div></form>`;
+    document.body.append(d);
+    const $ = id => d.querySelector("#" + id), close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
+    d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
+    document.addEventListener("keydown", onKey);
+    let mid = r?.member_id || null;
+    const match = () => { const m = names.find(x => norm(x.full_name) === norm($("cv-name").value)); mid = m?.id || null;
+      $("cv-match").textContent = m ? `On the congregation list${m.phone ? "" : " (no phone saved)"}: their page will link here.` : "";
+      if (m?.phone && !$("cv-phone").value) $("cv-phone").value = m.phone; };
+    $("cv-name").oninput = match; match(); $("cv-name").focus();
+    $("cv-del")?.addEventListener("click", async e => { if (!e.target.dataset.sure) { e.target.dataset.sure = 1; e.target.textContent = "Tap again to remove"; return; }
+      try { await api(`converts?id=eq.${r.id}`, {method: "DELETE", prefer: "return=minimal"}); close(); toast("Removed."); render(); } catch (err) { toast("Not removed: " + err.message); } });
+    d.querySelector("form").onsubmit = async e => { e.preventDefault(); const go = $("cv-save"); go.disabled = true;
+      const body = {full_name: $("cv-name").value.trim(), phone: $("cv-phone").value.trim() || null, decided_on: $("cv-day").value || today(), place: $("cv-place").value,
+                    assigned_to: $("cv-care").value || null, notes: $("cv-notes").value.trim() || null, member_id: mid};
+      try { if (r) await api(`converts?id=eq.${r.id}`, {method: "PATCH", prefer: "return=minimal", body});
+            else await api("converts", {method: "POST", prefer: "return=minimal", body: {...body, church: S.church}});
+            close(); toast(r ? "Saved." : `${body.full_name.split(" ")[0]} added. Welcome to the family!`); render(); }
+      catch (err) { go.disabled = false; toast(/converts|schema cache/i.test(err.message) ? "Run the latest setup SQL in Supabase first." : "Not saved: " + err.message); } };
+  }
 }
 // Where a finished summary can go. WhatsApp is always there on phones; Settings → Sharing summaries adds the others.
 const SHARE = [["instagram", "Instagram"], ["messenger", "Messenger"], ["telegram", "Telegram"], ["sms", "Text message"], ["email", "Email"]];
@@ -958,7 +1041,7 @@ async function start() {
     S.church = S.me.role === "admin" ? (S.churches.includes(S.church) ? S.church : S.me.home) : S.me.church || S.me.home;
     if (S.me.role === "pastor" && S.me.base === "admin" && !S.preview) S.church = await pastorChurch();
     await load();
-    S.pending = canApprove() ? await api("registrations?select=created_at&status=eq.pending").then(newSignups).catch(() => 0) : 0;
+    S.pending = canApprove() ? await api(`registrations?select=created_at&status=eq.pending&church=eq.${encodeURIComponent(S.church)}`).then(newSignups).catch(() => 0) : 0;
   }
   render();
   let seen = true; try { seen = localStorage.getItem("fcc-tour:" + S.me.email) === TOUR_V; } catch {}
@@ -1111,7 +1194,7 @@ async function freshen() {
     all(`services?select=service_date,name&service_date=gte.${since}`),
     all(`service_parts?select=service_date,part,name&church=eq.${encodeURIComponent(S.church)}&service_date=gte.${since}&order=service_date,part`).catch(() => null),
     all(`service_ticks?select=service_date,part,member_id&service_date=gte.${since}`).catch(() => null),
-    canApprove() ? api("registrations?select=created_at&status=eq.pending").then(newSignups).catch(() => S.pending) : 0,
+    canApprove() ? api(`registrations?select=created_at&status=eq.pending&church=eq.${encodeURIComponent(S.church)}`).then(newSignups).catch(() => S.pending) : 0,
     canTeam() ? api("team_requests?select=created_at&status=eq.pending").then(r => newSince(r, "teamforms")).catch(() => 0) : 0]);  // all at once, not one after another
   const sig = JSON.stringify([members, ticks, services, parts, pticks, pending, teamPending]), changed = sig !== S.freshSig; S.freshSig = sig;
   S.members = S.me.role === "pastor" && S.me.base !== "pastor" ? members.filter(m => careOf(m).some(n => norm(n) === norm(S.me.pastor))) : members;
@@ -1179,6 +1262,7 @@ const ICON = {
   checkin: '<path d="M5 12l5 5 9-10"/>',
   visits: '<path d="M3 11l9-7 9 7"/><path d="M5 9.5V20h14V9.5"/><path d="M9 14.5l2 2 4-4"/>',
   followup: '<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  converts: '<path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7a4.3 4.3 0 0 1 7.5 2.8C19.5 15.4 12 20 12 20z"/><path d="M12 10.5v4M10 12.5h4"/>',
   community: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 10.5h7M8.5 14h4.5"/>',
   bell: '<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/>', alerts: '<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/>',
   people: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
@@ -1245,10 +1329,10 @@ function navGroup(h, items, btns) {
 function pages() {  // the menu, in groups; what each role can actually load is decided by the database
   const r = S.me.role;
   if (r === "bishop") return [["", [["overview", "All churches"], ["search", "Search"], ["help", "Help"]]]];
-  if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ["visits", "Visits"], ...((S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ["community", "Community"], ["search", "Search"], ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people (and the Bacentas they oversee or shepherd)
+  if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ["visits", "Visits"], ["converts", "New converts"], ...((S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ["community", "Community"], ["search", "Search"], ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people (and the Bacentas they oversee or shepherd)
   // Grouped by what people come to do: take attendance, look after people, share the numbers, run the churches, settings
   return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["followup", "Follow-up"], ...(r === "team" ? [] : [["visits", "Visits"]])]],
-          ["PEOPLE", [["people", "Congregation"], ["pastors", "Pastors"], ["shepherds", "Shepherds"], ...(["admin", "lead"].includes(r) || (S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ...(canApprove() ? [["signups", "Sign-ups"]] : []), ...(canTeam() ? [["teamforms", "Team forms"]] : []), ["archive", "Archive"]]],
+          ["PEOPLE", [["people", "Congregation"], ["converts", "New converts"], ["pastors", "Pastors"], ["shepherds", "Shepherds"], ...(["admin", "lead"].includes(r) || (S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ...(canApprove() ? [["signups", "Sign-ups"]] : []), ...(canTeam() ? [["teamforms", "Team forms"]] : []), ["archive", "Archive"]]],
           ["SHARE", [["reports", "Reports"]]],
           ...(r === "admin" ? [["CHURCHES", [["overview", "Churches"]]]] : []),
           ...(r === "team" ? [] : [[r === "admin" ? "ADMIN" : "RECORDS", [...(r === "admin" ? [["admin", "Admin"]] : []), ["activity", "Activity log"]]]]),
@@ -1412,7 +1496,7 @@ function render() {
   };
   root.querySelectorAll("[data-back]").forEach(b => b.onclick = () => history.back());  // same as the phone's back gesture
   if (moved) pageIn(view);
-  ({mine, dashboard, checkin, bacentas, summary: summaryPage, search: searchPage, alerts, community, followup, visits, pastors, shepherds, people, person, signups, teamforms, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
+  ({mine, dashboard, checkin, bacentas, summary: summaryPage, search: searchPage, alerts, community, converts, followup, visits, pastors, shepherds, people, person, signups, teamforms, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
   pushNudge(view);  // the 6am Sunday reminder: a one-time ask
 }
 // Smooth movement. A new page eases in for a moment only, so ticking or editing later never makes things flicker.
@@ -1498,9 +1582,9 @@ addEventListener("popstate", () => {
   if (!S.me || !S.hist?.length) return;
   S.view = S.hist.pop(); S.goingBack = true; document.querySelectorAll(".modal").forEach(m => m.remove()); render();
 });
-const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", visits: "Visits", search: "Search", alerts: "Notifications", community: "Community", pastors: "Pastors", shepherds: "Shepherds", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", teamforms: "Team forms", archive: "Archive",
+const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", visits: "Visits", search: "Search", alerts: "Notifications", community: "Community", pastors: "Pastors", shepherds: "Shepherds", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", teamforms: "Team forms", archive: "Archive", converts: "New converts",
                activity: "Activity", reports: "Reports", overview: "All churches", admin: "Admin"};
-const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, bacentas: 3, summary: 6, followup: 3, visits: 4, search: 5, alerts: 3, community: 6, pastors: 4, shepherds: 2, people: 5, signups: 6, teamforms: 3, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
+const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, bacentas: 3, summary: 6, followup: 3, visits: 4, search: 5, alerts: 3, community: 6, pastors: 4, shepherds: 2, people: 5, signups: 6, converts: 4, teamforms: 3, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
 // A greeting on the home pages: "Good morning, Kelvin", or "Welcome back, Pastor Grace" after a day or more away.
 // Pastors and bishops are greeted with their title; a title already in their name (Pastor, Rev, Elder...) is kept.
 const GREET_TITLES = /^(pastor|ps|bishop|reverend|rev|elder|deacon|deaconess|lady|prophet|prophetess|apostle|evangelist|dr|mrs?|ms|minister)\.?$/i;
@@ -4690,16 +4774,26 @@ function clearCount(view) {  // the number on a menu item, and on its group, goe
     const n = [...g.querySelectorAll(".ngrp-b .count")].reduce((t, x) => t + (+x.textContent || 0), 0); if (n) h.textContent = n; else h.remove(); });
   setBadge();
 }
+// Each church's welcome form: its own link (and a QR code to print), so its sign-ups come to its own Sign-ups
+const slug = t => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+const formBase = () => /fcc-attendance\.vercel\.app$/.test(location.host) || window.FCC_DEMO ? "https://fcc-connect.vercel.app" : location.origin;
+const formLink = (ch = S.church) => `${formBase()}/${slug(ch)}`;
+const qrImg = (url, px = 600) => `https://api.qrserver.com/v1/create-qr-code/?size=${px}x${px}&margin=12&data=${encodeURIComponent(url)}`;
+const formLinkCard = () => `<div class="card fl-card" style="margin-bottom:14px"><div class="fl-row"><div class="fl-txt"><h2>${esc(S.church)}'s welcome form</h2>
+    <p class="note" style="margin:2px 0 8px">Share this link or print the QR code. Sign-ups from it come here.</p><a class="fl-link" href="${esc(formLink())}" target="_blank" rel="noopener">${esc(formLink().replace(/^https?:\/\//, ""))}</a>
+    <div class="fl-btns"><button type="button" class="pill-btn sm" data-fl-copy>Copy link</button><a class="pill-btn sm" href="${esc(qrImg(formLink(), 1000))}" target="_blank" rel="noopener" download="${esc(slug(S.church))}-welcome-qr.png">Open QR to print</a></div></div>
+    <img class="fl-qr" src="${esc(qrImg(formLink(), 240))}" alt="QR code for ${esc(S.church)}'s welcome form" width="120" height="120" loading="lazy"></div></div>`;
+const bindFormLink = el => { const b = el.querySelector("[data-fl-copy]"); if (b) b.onclick = async () => { try { await navigator.clipboard.writeText(formLink()); toast("Link copied."); } catch { toast(formLink()); } }; };
 async function signups(el) {
   const sub = "From the welcome form, waiting for approval";
   el.innerHTML = head("Sign-ups", sub) + `<p class="empty">Loading…</p>`;
   let regs;
-  try { regs = await api("registrations?select=id,full_name,phone,email,invited_by,first_visit,notes,wants_contact,created_at&status=eq.pending&order=created_at"); }
+  try { regs = await api(`registrations?select=id,full_name,phone,email,invited_by,first_visit,notes,wants_contact,created_at&status=eq.pending&church=eq.${encodeURIComponent(S.church)}&order=created_at`); }
   catch (e) { el.innerHTML = head("Sign-ups", sub) + `<div class="msg bad">Sign-ups can't load. Run the latest setup SQL in Supabase, then reopen this page. (${esc(e.message)})</div>`; return; }
   if (S.view !== "signups") return;
   S.pending = 0; markSeen("signups"); clearCount("signups");  // seen: the count clears
-  const home = Object.fromEntries(S.members.filter(m => churchOf(m) === S.me.home).map(m => [norm(m.full_name).replace(/\s+/g, " "), m]));
-  el.innerHTML = head("Sign-ups", sub) + (regs.length ? regs.map(r => {
+  const home = Object.fromEntries(S.members.filter(m => churchOf(m) === S.church).map(m => [norm(m.full_name).replace(/\s+/g, " "), m]));
+  el.innerHTML = head("Sign-ups", sub) + formLinkCard() + (regs.length ? regs.map(r => {
     const match = home[norm(r.full_name).replace(/\s+/g, " ")];
     const info = [["Phone", r.phone], ["Email", r.email], ["Invited by / heard via", r.invited_by], ["First visit", r.first_visit && full(r.first_visit)]].filter(x => x[1]);
     return `<div class="card signup" data-reg="${esc(r.id)}" data-match="${esc(match?.id || "")}" style="margin-bottom:14px">
@@ -4711,6 +4805,7 @@ async function signups(el) {
       <div class="row" style="margin-top:14px"><label class="check"><input type="checkbox" data-tick checked> Mark present on ${esc(r.first_visit ? full(r.first_visit) : "today")}</label>
         <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap">${r.phone ? `<button class="pill-btn" data-msg>${svg("community")}Message</button>` : ""}<button class="pill-btn primary" data-ok>Approve</button><button class="pill-btn" data-no>Reject</button></div></div></div>`;
   }).join("") : `<div class="card"><p class="empty">No sign-ups waiting.</p></div>`) + ``;
+  bindFormLink(el);
   el.querySelectorAll(".signup").forEach(card => {
     const id = card.dataset.reg, name = card.querySelector("h2").textContent, lock = on => card.querySelectorAll("button").forEach(b => b.disabled = on);
     const reg = regs.find(r => r.id === id);
@@ -5173,7 +5268,7 @@ const GS_WORDS = {dashboard: "home overview numbers widgets", mine: "home my peo
   teamforms: "team form ushers sign in link approve", archive: "archive old not seen wipe", activity: "activity log history changes who did downloads",
   reports: "reports summary whatsapp email share numbers download", overview: "churches all churches bishop at a glance grid",
   admin: "admin sign-ins users logins messages backup notifications space", help: "help questions faq support contact",
-  account: "account settings password name colour theme dark light text size reminders notifications", community: "community chat messages team talk alerts notices group",
+  account: "account settings password name colour theme dark light text size reminders notifications", community: "community chat messages team talk alerts notices group", converts: "new converts salvation saved born again decision altar call baptism baptised foundation class",
   ask: "ask a question data numbers"};
 function searchApp(q) {
   const words = norm(q).split(/\s+/).filter(Boolean); if (!words.length) return [];
