@@ -4791,7 +4791,7 @@ function clearCount(view) {  // the number on a menu item, and on its group, goe
 }
 // Each church's welcome form: its own link (and a QR code to print), so its sign-ups come to its own Sign-ups
 const slug = t => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-const formBase = () => /fcc-attendance\.vercel\.app$/.test(location.host) || window.FCC_DEMO ? "https://fcc-connect.vercel.app" : location.origin;
+const formBase = () => /fcc-attendance\.vercel\.app$/.test(location.host) || window.FCC_DEMO ? "https://fcc-welcome.vercel.app" : location.origin;
 const formLink = (ch = S.church) => `${formBase()}/${slug(ch)}`;
 const qrImg = (url, px = 600) => `https://api.qrserver.com/v1/create-qr-code/?size=${px}x${px}&margin=12&data=${encodeURIComponent(url)}`;
 const formLinkCard = () => `<div class="card fl-card" style="margin-bottom:14px"><div class="fl-row"><div class="fl-txt"><h2>${esc(S.church)}'s welcome form</h2>
