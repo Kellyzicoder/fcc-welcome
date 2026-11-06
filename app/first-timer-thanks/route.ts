@@ -1,6 +1,7 @@
 // Emails a thank-you to first-timers the morning after they fill in the welcome form.
 //
-// Run by Vercel Cron once a day (see vercel.json). Vercel sends "Authorization: Bearer <CRON_SECRET>".
+// Run by Vercel Cron once a day (see vercel.json). Vercel sends "Authorization: Bearer <CRON_SECRET>"; without it the
+// address answers "page not found", as if nothing were there.
 // That key is passed to the database, which checks it against a fingerprint it keeps privately
 // (supabase/thank_you_email.sql), so only this job can see who is due or mark them as sent.
 // Needs server-only settings on Vercel: CRON_SECRET, BREVO_API_KEY and REPORT_SENDER.
@@ -15,10 +16,14 @@ type Due = { id: string; full_name: string; email: string; first_visit: string }
 
 const say = (message: string, status: number) => Response.json({ message }, { status });
 
+// Anyone else who types this address gets an ordinary "page not found": nothing says a job is here.
+const hidden = () => new Response("404: This page could not be found.", { status: 404,
+  headers: { "Content-Type": "text/plain; charset=utf-8", "X-Robots-Tag": "noindex", "Cache-Control": "no-store" } });
+
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET, brevo = process.env.BREVO_API_KEY, sender = process.env.REPORT_SENDER;
-  if (!secret || !brevo || !sender || !URL_ || !KEY) return say("Not set up: needs CRON_SECRET, BREVO_API_KEY and REPORT_SENDER on Vercel.", 503);
-  if ((req.headers.get("authorization") ?? "") !== `Bearer ${secret}`) return say("Not allowed.", 401);
+  if (!secret || (req.headers.get("authorization") ?? "") !== `Bearer ${secret}`) return hidden();
+  if (!brevo || !sender || !URL_ || !KEY) return say("Not set up: needs BREVO_API_KEY and REPORT_SENDER on Vercel.", 503);
 
   const rpc = (name: string, body: unknown) =>
     fetch(`${URL_}/rest/v1/rpc/${name}`, { method: "POST", cache: "no-store",
