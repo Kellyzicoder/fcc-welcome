@@ -1914,7 +1914,7 @@ const WIDGETS = {
         <div class="split-bar">${parts.filter(([, k]) => c[k]).map(([t, k, h]) => `<i style="flex:${c[k]};background:var(--h${h})" title="${t}: ${c[k]}"></i>`).join("") || "<i></i>"}</div>
         <div class="split-rows">${parts.map(([t, k, h]) => `<div><span><i style="background:var(--h${h})"></i>${t} <em>(${c[k]})</em></span>${b ? `<small>${delta(c[k], b[k])} vs ${esc(nice(prev))}</small>` : ""}</div>`).join("")}</div>`;
     }},
-  live: {name: "Livestream", sub: "Watching now on YouTube, Facebook and Zoom", desc: "How many are watching your church's livestream right now, and the peak this service. Other churches connect their YouTube channel with its link.", size: "wide", icon: "live", hue: 5,
+  live: {name: "Livestream", sub: "Watching now on YouTube, Facebook and Zoom", desc: "Watching your livestream now, and the peak this service.", size: "wide", icon: "live", hue: 5,
     only: () => ["admin", "lead"].includes(S.me.role),  // the home church uses the main live dashboard; other churches connect their YouTube channel
     draw(el) {
       const PL = [["youtube", "YouTube"], ["facebook", "Facebook"], ["zoom", "Zoom"]];
@@ -2279,7 +2279,7 @@ function summaryPage(el) {
     S.platforms = list; if (el.isConnected) summaryPage(el);
   };
   box.querySelector("[data-padd]").onclick = () => formDialog("Add a platform", [{k: "name", label: "Platform name", value: "",
-      hint: "For example TikTok or Instagram. It gets its own box under Service details and its own line in the message, counted with the adults online. Every church sees it."}],
+      hint: "For example TikTok. Counted with adults online, for every church."}],
     async v => { const nm = String(v.name || "").trim().replace(/\s+/g, " ").slice(0, 30);
       if (!nm || !/[a-z0-9]/i.test(nm)) throw new Error("Type the platform's name.");
       if ([...S.platforms, "YouTube", "Facebook", "Zoom"].some(x => norm(x) === norm(nm))) throw new Error(`${nm} is already there.`);
@@ -3830,11 +3830,10 @@ async function admin(el) {
   const backupCard = `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Google Sheet backup</h2><span class="gap"></span>
       ${bkStatus && bkStatus !== "sql" ? `<span class="badge ${bkStatus.last_used && Date.now() - new Date(bkStatus.last_used) < 2 * 864e5 ? "" : "warn"}">${bkStatus.last_used ? "Last copied " + esc(ago(bkStatus.last_used)) : "Not run yet"}</span>` : ""}</div>
     ${bkStatus === "sql" ? `<p class="note" style="margin:0">Run the latest setup SQL in Supabase once to set this up.</p>` : `
-    ${bkStatus && (bkStatus.script_version || 1) < 2 ? `<div class="msg" style="margin:0 0 12px"><b>Set up again once.</b> The backup can now also copy visits, Centas, welcome-form sign-ups and new converts. Press <b>Set up again</b> below, paste the new script into the same sheet and press Run: about two minutes. Your sheet and its history stay.</div>` : ""}
-    <p class="note" style="margin:0 2px 12px">Every night a Google Sheet in your Google Drive copies everything: a tab for each church: everyone on its register, how many Sundays they've missed this year, and every Sunday of the year in colour, then the services, Bacentas and Centas, visits, sign-ups, new converts, the Pastors and Shepherds lists and the sign-ins. It runs on Google, so no computer needs to be on. The free Supabase plan keeps no backups of its own.
-      Google keeps the sheet's earlier days too (File → Version history).</p>
-    ${bkStatus ? `<p class="note" style="margin:0 2px 12px">Key made ${esc(ago(bkStatus.made_at))}${bkStatus.made_by ? " by " + esc(bkStatus.made_by) : ""}. Making a new one stops the old sheet copying.</p>` : ""}
-    <button type="button" class="pill-btn primary" id="bk-make">${bkStatus ? "Set up again (new key)" : "Set up the Google Sheet"}</button>`}</div>`;
+    ${bkStatus && (bkStatus.script_version || 1) < 2 ? `<div class="msg" style="margin:0 0 12px"><b>Set up again once</b> to also back up visits, Centas, sign-ups and converts. Use the same sheet.</div>` : ""}
+    <p class="note" style="margin:0 2px 12px">A Google Sheet copies everything every night. Older copies: File → Version history.</p>
+    ${bkStatus ? `<p class="note" style="margin:0 2px 12px">Set up ${esc(ago(bkStatus.made_at))}${bkStatus.made_by ? " by " + esc(bkStatus.made_by) : ""}.</p>` : ""}
+    <button type="button" class="pill-btn primary" id="bk-make">${bkStatus ? "Set up again" : "Set up the Google Sheet"}</button>`}</div>`;
   const spaceCard = `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Database space</h2><span class="gap"></span>
       ${space ? `<span style="color:var(--ink-3);font-size:13px">${mb(LIMIT - space.total)} left</span>` : ""}</div>
     ${space ? `<div class="meter ${pct >= 90 ? "bad" : pct >= 70 ? "warn" : ""}" role="meter" aria-valuemin="0" aria-valuemax="500" aria-valuenow="${(space.total / 1048576).toFixed(1)}" aria-label="Database space used"><i style="width:${Math.max(pct, 1).toFixed(1)}%"></i></div>
@@ -3863,7 +3862,7 @@ async function admin(el) {
   if (!TABS.some(t => t[0] === S.adminTab)) S.adminTab = fresh.length ? "messages" : "names";
   if (S.adminTab === "messages") { markSeen("messages"); S.msgNew = 0; }
   const tab = k => `data-at="${k}" ${S.adminTab === k ? "" : "hidden"}`;
-  el.innerHTML = head("Admin", "Who can sign in, messages from Help, and database space") + `<div class="atabs" role="tablist" aria-label="Admin">${TABS.map(([k, name, n]) =>
+  el.innerHTML = head("Admin", "Sign-ins, messages and space") + `<div class="atabs" role="tablist" aria-label="Admin">${TABS.map(([k, name, n]) =>
       `<button role="tab" data-atab="${k}" aria-selected="${S.adminTab === k}">${name}${k === "messages" && unread && S.adminTab !== "messages" ? ` <span class="anum new">${unread}</span>` : ""}</button>`).join("")}</div>
     <section ${tab("messages")}>${inboxCard}</section><section ${tab("backup")}>${backupCard}</section><section ${tab("space")}>${spaceCard}</section><section ${tab("push")}><div id="push-card"></div><div id="tech-card"></div></section>
     <section ${tab("names")}>
@@ -3889,11 +3888,11 @@ async function admin(el) {
     d.innerHTML = `<div class="sheet narrow" role="dialog" aria-modal="true" aria-label="Set up the Google Sheet backup">
       <div class="card-head"><h2>Set up the Google Sheet backup</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
       <ol class="bk-steps">
-        <li>${bkStatus ? "Open your backup Google Sheet (the same one as before)." : "Make a new Google Sheet (sheets.new) in the Google account that should keep the backup. Name it e.g. <b>FCC backup</b>."}</li>
-        <li>In the sheet: <b>Extensions → Apps Script</b>. Delete what's there and paste the script below (Copy script).</li>
-        <li>Press <b>Save</b>, pick <b>setup</b> next to Run, and press <b>Run</b>. Allow it when Google asks (Advanced → Go to… if it warns).</li>
-        <li>It now backs up every night by itself.</li></ol>
-      <p class="note" style="margin:0 2px 8px">Keep the sheet private: the script holds the backup key, shown only now.</p>
+        <li>${bkStatus ? "Open your backup sheet." : "Make a new Google Sheet (sheets.new), e.g. <b>FCC backup</b>."}</li>
+        <li><b>Extensions → Apps Script</b>. Replace what's there with the script below.</li>
+        <li><b>Save</b>, pick <b>setup</b>, press <b>Run</b> and allow it (Advanced → Go to… if warned).</li>
+        <li>Done. It runs every night.</li></ol>
+      <p class="note" style="margin:0 2px 8px">Keep the sheet private: the script holds the key.</p>
       <textarea class="in bk-code" readonly rows="8" aria-label="The script">${esc(code)}</textarea>
       <div class="modal-foot"><button type="button" class="pill-btn" data-x>Done</button><button type="button" class="pill-btn primary" id="bk-copy">Copy script</button></div></div>`;
     document.body.append(d);
@@ -4384,7 +4383,7 @@ async function bacentas(el, mode = "manage") {
   const helpFields = x => helpOpts.length ? [
     {k: "leading", label: "Leading (besides the shepherd)", type: "multi", value: x ? helpOf(x, "leading").map(h => h.email) : [], options: helpOpts},
     {k: "assisting", label: "Assisting", type: "multi", value: x ? helpOf(x, "assisting").map(h => h.email) : [], options: helpOpts,
-     hint: "Only the people ticked here (and its shepherd and pastor) see this Bacenta. Ushers who aren't on it see nothing of it."}] : [];
+     hint: "Only these people, its shepherd and its pastor see this Bacenta."}] : [];
   const clean = v => String(v || "").replace(/\s+/g, " ").trim().slice(0, 60);
   const short = d => nice(d);
   const nameOf = em => signins.find(u => u.email === em)?.name || helpers.find(h => h.email === em)?.name || em, helpOf = (x, r) => helpers.filter(h => h.bacenta === x.id && h.role === r);
@@ -4482,11 +4481,11 @@ async function bacentas(el, mode = "manage") {
         <div class="scroll"><table><thead><tr><th>Name</th><th>Bacenta</th><th>Phone</th><th>Added by</th><th></th></tr></thead><tbody>${waiting.map(g => `<tr>
           <td><b>${esc(g.full_name)}</b></td><td>${esc(list.find(x => x.id === g.bacenta)?.name || "")}</td><td>${g.phone ? esc(g.phone) : `<span class="muted">Not given</span>`}</td><td class="muted">${esc(g.added_by || "")}</td>
           <td style="white-space:nowrap"><button class="pill-btn sm primary" data-bcok="${esc(g.id)}">Add to Congregation</button> <button class="pill-btn sm" data-bclink="${esc(g.id)}" title="They're already on the Congregation list under their name">Already on it</button> <button class="pill-btn sm" data-bcno="${esc(g.id)}">Keep as Bacenta only</button></td></tr>`).join("")}</tbody></table></div>
-        <p class="note" style="margin:10px 2px 0">They're already on their Bacenta's list either way. <b>Add to Congregation</b> puts them on the church's list with their Bacenta attendance. <b>Already on it</b> links them to their name there. <b>Keep as Bacenta only</b> leaves them off the church's list.</p></div>`;
+        <p class="note" style="margin:10px 2px 0"><b>Already on it</b> links them to their existing name. <b>Bacenta only</b> keeps them off the church list.</p></div>`;
       const done = msg => toast(msg);
       ab.querySelectorAll("[data-bcok]").forEach(x => x.onclick = () => { const g = waiting.find(y => y.id === x.dataset.bcok);
         formDialog(`Add ${g.full_name} to the Congregation list`, [{k: "typ", label: "Attendance Type", type: "select", value: "visitor", options: typeOpts,
-            hint: "Visitors are never flagged for missing Sundays. Change it later on Congregation when they start coming."}],
+            hint: "Visitors are never flagged for missing Sundays."}],
           async v => { try { await api("rpc/app_bacenta_review", {method: "POST", body: {g: g.id, ok: true, at_txt: isoLocal(), typ: v.typ}}); } catch (err) { throw new Error(bacentaSetup(err)); }
             await load(); done(`${g.full_name} is on the Congregation list now, with their Bacenta attendance.`); render(); }, "Add to Congregation"); });
       ab.querySelectorAll("[data-bcno]").forEach(x => x.onclick = async () => { const g = waiting.find(y => y.id === x.dataset.bcno); x.disabled = true;
@@ -4662,7 +4661,7 @@ async function bacentas(el, mode = "manage") {
     };
     // someone new who isn't on the church's register: they go on this Bacenta's list only, and are ticked in
     $("#bc-new")?.addEventListener("click", () => formDialog(`Add someone new to ${b.name}`, [
-      {k: "full_name", label: "Full name", value: S.bcQ || "", required: true, hint: bacAll() ? "They go on this Bacenta's list only, not the church register. When they start coming on Sundays, link them on the Bacentas page."
+      {k: "full_name", label: "Full name", value: S.bcQ || "", required: true, hint: bacAll() ? "Bacenta list only. Link them to the register once they come on Sundays."
         : "They go on this Bacenta's list now. A church admin will approve adding them to the church's Congregation list."},
       {k: "phone", label: "Phone (optional)", value: "", type: "tel"}, {k: "birthday", label: "Birthday (optional)", value: "", type: "date"}, {k: "address", label: "Address (optional)", value: ""}],
       async v => {
@@ -5061,7 +5060,7 @@ function archive(el) {
       ${list.map(m => `<tr><td>${whoBtn(m)}</td><td class="muted">${esc(full(m.seen))}</td><td class="muted">${typeName(m)}</td><td class="muted">${m.kid ? "Child" : "Adult"}</td><td class="muted">${esc(m.phone || "")}</td>${canWipe
         ? `<td>${m.full_name === "Removed person" ? `<span class="muted">Wiped</span>` : `<button class="x" data-wipe="${esc(m.id)}">Wipe details</button>`}</td>` : ""}</tr>`).join("")}
       </tbody></table></div>` : `<p class="empty">Nobody is in the archive.</p>`}
-      <p class="note">They come back when ticked in again. After five years away their details are wiped automatically (name, phone, email, address and birthday); their attendance still counts in the numbers.</p></div>`;
+      <p class="note">They come back when ticked in. After five years away their details are wiped; their attendance still counts.</p></div>`;
   el.querySelectorAll("[data-wipe]").forEach(b => { let armed = false; b.onclick = async () => {  // a second tap wipes, and it can't be undone
     if (!armed) { armed = true; b.textContent = "Tap again: can't be undone"; setTimeout(() => { armed = false; b.textContent = "Wipe details"; }, 4000); return; }
     b.disabled = true;
@@ -5319,7 +5318,7 @@ async function community(el) {
     const d = document.createElement("div"); d.className = "modal";
     d.innerHTML = `<div class="sheet narrow" role="dialog" aria-modal="true" aria-label="Send a test alert">
       <div class="card-head"><h2>Send a test alert</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
-      <p style="margin:0 0 10px">Everyone in <b>${esc(c[1])}</b> with notifications on gets this on their phone, so they know what a real alert looks like. It says <b>TEST ALERT</b> and isn't pinned.</p>
+      <p style="margin:0 0 10px">Shows everyone in <b>${esc(c[1])}</b> what a real alert looks like. Marked <b>TEST ALERT</b>, not pinned.</p>
       <div class="chat-pin" style="margin-bottom:12px">${svg("bell")}<div><b>TEST ALERT · ${esc(c[1])}</b><p>${esc(TEST_TEXT)}</p></div></div>
       ${every ? `<label class="check"><input type="checkbox" id="ta-all"> Send to every church</label>` : ""}
       <div class="modal-foot tp-foot"><button type="button" class="pill-btn" data-x>Cancel</button><button type="button" class="pill-btn primary" id="ta-go">Send test alert</button></div></div>`;
@@ -5471,13 +5470,13 @@ function searchPage(el) {
 // Add the newest at the top. Each one shows for 45 days after its date.
 const WHATS_NEW = [
   {id: "msg-2611", on: "2026-11-07", page: "followup", title: "Text or WhatsApp someone from the app",
-   text: "On Follow-up, tap the chat icon next to a phone number. A friendly message is ready, and it sends from your own phone. You can also message everyone on a list, one after another."},
+   text: "On Follow-up, tap the chat icon by a phone number. A message is ready to send from your phone."},
   {id: "converts-2611", on: "2026-11-07", page: "converts", title: "New converts",
-   text: "Write down everyone who gives their life to Christ, and tick off the next steps: a call, a visit, the foundation class and baptism."},
+   text: "Record each new convert and tick off their next steps."},
   {id: "form-2611", on: "2026-11-07", page: "signups", title: "Your church's own welcome form",
-   text: "Your church now has its own welcome form link and a QR code to print. Sign-ups from it come straight to you. You'll find it at the top of Sign-ups."},
+   text: "Your church's own welcome form link and QR code, at the top of Sign-ups."},
   {id: "community-2611", on: "2026-11-06", page: "community", title: "Community: talk with your team",
-   text: "Chat with your church team in one place. Important news is pinned at the top and sent to everyone's phone."},
+   text: "Chat with your church team. Alerts are pinned and sent to phones."},
 ];
 const wnKey = () => "fcc-wn:" + (S.me?.email || "");
 const wnRead = () => { try { return JSON.parse(localStorage.getItem(wnKey()) || "{}"); } catch { return {}; } };  // {id: "seen" | "hidden"}
@@ -5537,33 +5536,33 @@ function helpTopics() {
         lead: "You see everything for your own church: check-in, the congregation list, reports and follow-up.",
         team: "You can tick people in on Check-in and look up people in your church.",
         pastor: "You see only the people assigned to you: how many came, who wasn't there and who needs a call."}[r] || "Ask the admin below if you need to see more."],
-      ["The app looks old or out of date", "Pull the page down to refresh. If it still looks old, close the app fully (swipe it away) and open it again. It updates itself after that."],
+      ["The app looks old or out of date", "Pull down to refresh. Still old? Close the app fully and open it again."],
     ]],
     ...(ticks ? [["checkin", "Check-in", [
       ["I can't see a person on the list", "Check the church name at the top is the right one, then use the search box." + (adds ? " If they are new, add them at the bottom of Check-in." : " If they are new, ask an usher or church admin to add them.")],
       ["I ticked the wrong person", "Tap their name again to untick them. Nothing else is changed."],
-      ...(adds ? [["Someone new came but I don't have their number", "That's fine: the phone number is optional on Check-in. Add it later with Edit on the Congregation page."]] : []),
+      ...(adds ? [["Someone new came but I don't have their number", "That's fine: it's optional. Add it later on Congregation."]] : []),
       ["It says the service is locked", "Tap Unlock at the top of Check-in, make your change, then tap Save & lock again so the ticks stay safe."],
     ]]] : []),
     ["people", "People and follow-up", [
-      ["What do red and amber mean?", `Amber, "Check in": missed ${YELLOW_AT}–${RED_AT - 1} services in a row. Red, "Needs a call": missed ${RED_AT} or more. These are the people to call. Blue, "Missed this one": missed only this service. Visitors are never flagged. On a computer, rest the mouse on a label to see this again.`],
+      ["What do red and amber mean?", `Amber, "Check in": missed ${YELLOW_AT}–${RED_AT - 1} in a row. Red, "Needs a call": missed ${RED_AT} or more. Blue: missed only this one. Visitors are never flagged.`],
       ["A name, phone number or role is wrong", edits ? "Open Congregation, find the person and tap Edit." : "Ask your church admin to fix it, or send a message to the admin below."],
-      ["How do I share the numbers on WhatsApp?", "On a phone, tap the WhatsApp button on your home page. It writes the message for you to send. On a computer you can copy the text instead."],
+      ["How do I share the numbers on WhatsApp?", "Tap WhatsApp on your home page. On a computer, copy the text."],
     ]],
     ["account", "Sign-in and account", [
-      ["The sign-in email didn't arrive", "Wait a minute and check Spam or Junk. If you typed the email wrong, fix it and tap Email me a code again. You can also tap Resend code after 25 seconds."],
-      ["How do I sign in faster?", "Set a password: you'll be offered one after signing in with a code, or tap your name or picture at the top of the app to open Your account and set one there. Next time choose Password."],
-      ["How do I change my password?", "Tap your name or picture at the top of the app to open Your account, then type a new password twice and tap Save password. You don't need to sign out."],
-      ["I forgot my password", "If you're still signed in, just change it in Your account (tap your name or picture at the top). If you're signed out, choose Email code on the sign-in page, then set a new password in Your account."],
+      ["The sign-in email didn't arrive", "Wait a minute and check Spam. Check the email is right, then tap Resend code."],
+      ["How do I sign in faster?", "Set a password in Your account (tap your name at the top). Then choose Password to sign in."],
+      ["How do I change my password?", "Tap your name at the top, type a new password twice and tap Save password."],
+      ["I forgot my password", "Sign in with Email code, then set a new password in Your account."],
       ["I need to see more than I can", "Send a message to the admin below and say what you need."],
     ]],
   ];
   if (r === "admin" && !S.preview) t.push(["breach", "If data leaks", [  // for the admins: what to do if people's details get out
-    ["What counts as a data leak?", "Anyone who shouldn't see people's details may have seen them: a lost phone that was signed in, a password someone else knows, a list or download sent to the wrong person, or a problem in the app or the database."],
-    ["First: stop it", "1. Remove or change the sign-in involved (Admin → Sign-ins → Remove), or change the password.\n2. If the database itself may be exposed: in Supabase, make new API keys, put the new key in Vercel and redeploy. Ask the tech admin.\n3. Make a new backup key in Admin → Backups so the old one stops working.\n4. Write down what happened, when you found out, and whose details may be affected. The Activity log shows downloads and changes."],
-    ["Who must we tell? (New Zealand)", "If it has caused, or may cause, serious harm, the Privacy Act says you must tell the Privacy Commissioner and the people affected as soon as you can. They suggest within 72 hours.\nUse NotifyUs on privacy.org.nz: its self-check helps you decide if it's serious, and you can describe what happened without sending anyone's details."],
+    ["What counts as a data leak?", "Someone who shouldn't may have seen people's details: a lost signed-in phone, a shared password, a list sent to the wrong person, or an app fault."],
+    ["First: stop it", "1. Remove or change the sign-in involved (Admin → Sign-ins → Remove), or change the password.\n2. If the database itself may be exposed: in Supabase, make new API keys, put the new key in Vercel and redeploy. Ask the tech admin.\n3. Make a new backup key in Admin → Backups so the old one stops working.\n4. Note what happened, when, and whose details. The Activity log shows downloads and changes."],
+    ["Who must we tell? (New Zealand)", "If it may cause serious harm, tell the Privacy Commissioner and the people affected, ideally within 72 hours.\nUse NotifyUs on privacy.org.nz to check if it's serious."],
     ["Who must we tell? (Australia)", "Small not-for-profits (under $3 million a year) are usually outside the breach scheme. Tell the people affected anyway. If unsure, check oaic.gov.au."],
-    ["Telling the people affected", "A short text or email: what happened, which details were involved, what you've done about it, what they can do (for example, watch for scam calls), and who to contact. Keep a note of who you told and when."],
+    ["Telling the people affected", "A short text or email: what happened, which details, what you've done, what they can do, and who to contact. Note who you told and when."],
     ["Afterwards", "Fix what let it happen, and note what you'd do differently. This isn't legal advice: for anything serious, ask a lawyer."],
   ]]);
   return t;
@@ -5791,7 +5790,7 @@ function account(el) {
       <button class="pill-btn primary" data-switch>${svg("pastors")}${switchLabel()}</button></div>` : ""}
     <div class="card"><button class="pill-btn" data-bye>${svg("out")}Log out</button></div>
     ${S.preview ? "" : `<div class="card del-me"><div class="card-head"><h2>Delete my account</h2></div>
-      <p class="note" style="margin-top:0">Removes your sign-in, your settings, phone notifications and reminders, and your Community messages. It can't be undone.
+      <p class="note" style="margin-top:0">Removes your sign-in, settings and Community messages. It can't be undone.
         Church records stay with the church: the congregation list, attendance and visits. <a href="/privacy" target="_blank" rel="noopener">Privacy</a></p>
       <label class="f" for="del-word">To confirm, type DELETE</label>
       <input class="in" id="del-word" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="DELETE">
@@ -5898,7 +5897,7 @@ async function pushNudge(view) {
   }
   if (!wantPush || (ios && !home) || off("fcc-nudge-off:")) return;  // the red card
   const d = document.createElement("div"); d.className = "push-nudge"; d.setAttribute("role", "alert");
-  d.innerHTML = `${svg("followup")}<span><b>Get a 6am Sunday reminder</b><small>A notification at 6am on Sundays. You can change the time in Your account.</small></span>
+  d.innerHTML = `${svg("followup")}<span><b>Get a 6am Sunday reminder</b><small>Change the time in Your account.</small></span>
     <div class="nudge-btns"><button type="button" class="pill-btn sm primary" data-nudge-on>Turn on</button><button type="button" class="pill-btn sm" data-nudge-off>Not now</button></div>`;
   put(d);
   d.querySelector("[data-nudge-off]").onclick = () => { setOff("fcc-nudge-off:"); d.remove(); };
@@ -5954,7 +5953,7 @@ async function techCard(el) {
   const c = await api("settings?select=value&key=eq.tech_contact").then(r => { try { return JSON.parse(r?.[0]?.value || "{}") || {}; } catch { return {}; } }).catch(() => null);
   if (c === null) { el.innerHTML = ""; return; }
   el.innerHTML = `<div class="card" style="margin-top:14px"><div class="card-head"><h2>If the app won't load</h2></div>
-    <p class="note" style="margin:0 2px 10px">People see a page with Try again and these ways to reach you. The admins are also told by email.</p>
+    <p class="note" style="margin:0 2px 10px">Shown when the app can't load. Admins are emailed too.</p>
     <div class="bk-two"><div><label class="f" for="tc-wa">WhatsApp number</label><input class="in" id="tc-wa" inputmode="tel" maxlength="25" placeholder="+64 21 555 0101" value="${esc(c.whatsapp || "")}"></div>
       <div><label class="f" for="tc-em">Email</label><input class="in" id="tc-em" type="email" maxlength="120" placeholder="you@example.com" value="${esc(c.email || "")}"></div></div>
     <button type="button" class="pill-btn" id="tc-save" style="margin-top:10px">Save</button></div>`;
@@ -5969,22 +5968,22 @@ async function pushSetup(el) {
   const info = await pushInfo();
   el.innerHTML = `<div class="card"><div class="card-head"><h2>Notifications</h2></div>
     ${!info ? `<p class="note">Run the latest setup SQL in Supabase first.</p>` : info.push_public_key
-      ? `<p class="note" style="margin:0 2px 10px">Set up. Everyone can add check-in reminders in Settings.</p><button type="button" class="pill-btn sm" id="push-make">Set up again</button>`
-      : `<p class="note" style="margin:0 2px 10px">Lets people get a check-in reminder on their phone. A one-time setup of about 5 minutes.</p><button type="button" class="pill-btn primary" id="push-make">Start setup</button>`}
+      ? `<p class="note" style="margin:0 2px 10px">Working. Nothing to do here.</p><button type="button" class="pill-btn sm" id="push-make">Make new keys</button><p class="note" style="margin:6px 2px 0">Only if something broke: everyone must turn notifications on again.</p>`
+      : `<p class="note" style="margin:0 2px 10px">Check-in reminders on phones. About 5 minutes, once.</p><button type="button" class="pill-btn primary" id="push-make">Start setup</button>`}
     <div id="push-steps"></div></div>`;
   const make = el.querySelector("#push-make"); if (!make) return;
   make.onclick = async () => {
-    if (info.push_public_key && make.dataset.sure !== "1") { make.dataset.sure = "1"; make.textContent = "Tap again: new keys stop everyone's reminders until they turn them on again"; return; }
+    if (info.push_public_key && make.dataset.sure !== "1") { make.dataset.sure = "1"; make.textContent = "Tap again to make new keys"; return; }
     try {
       const k = await crypto.subtle.generateKey({name: "ECDSA", namedCurve: "P-256"}, true, ["sign"]), j = await crypto.subtle.exportKey("jwk", k.privateKey);
       const pub = toB64u(new Uint8Array([4, ...b64u(j.x), ...b64u(j.y)])), url = S.cfg.url.replace(/\/$/, "") + "/functions/v1/send-reminders";
       await api("rpc/app_set_push", {method: "POST", body: {pub, url}});
       el.querySelector("#push-steps").innerHTML = `<ol class="push-steps">
-        <li>In Supabase, open <b>Edge Functions</b> → <b>Deploy a new function</b> → <b>Via editor</b>. Name it <b>send-reminders</b>, replace the code with this one <button type="button" class="pill-btn sm" data-copy="fn">Copy code</button> and press <b>Deploy</b>.</li>
+        <li>Supabase → <b>Edge Functions</b> → <b>Deploy a new function</b> → <b>Via editor</b>. Name it <b>send-reminders</b>, paste this code <button type="button" class="pill-btn sm" data-copy="fn">Copy code</button> and press <b>Deploy</b>.</li>
         <li>In the function's <b>Details</b>, turn off <b>Verify JWT</b> and save.</li>
         <li>In <b>Edge Functions</b> → <b>Secrets</b>, add these two:<br><b>VAPID_PUBLIC_KEY</b> <button type="button" class="pill-btn sm" data-copy="pub">Copy</button><br><b>VAPID_PRIVATE_KEY</b> <button type="button" class="pill-btn sm" data-copy="priv">Copy</button></li>
         <li>Done. In <b>Settings → Check-in reminders</b>, turn on notifications and press <b>Send a test</b>.</li></ol>
-        <p class="note">The private key is only shown now and isn't saved anywhere: copy it before leaving this page.</p>`;
+        <p class="note">Copy the private key now: it isn't shown again.</p>`;
       const vals = {fn: PUSH_FN, pub, priv: j.d};
       el.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => { try { await navigator.clipboard.writeText(vals[b.dataset.copy]); toast("Copied."); } catch { toast("Couldn't copy."); } });
       make.remove(); toast("Keys made. Follow the steps below.");
@@ -6049,7 +6048,7 @@ function settings(box) {
       ${flip("set-contrast", "Stronger contrast", "Darker grey text and clearer lines.", v.contrast)}
       ${flip("set-motion", "Reduce motion", "Turns off sliding and fading.", v.motion)}</div>
     <div class="card set-card"><div class="card-head"><h2>Home-screen icon</h2></div>
-      ${row("Opens", "Full screen hides the browser, like an app. It takes effect when you add the app to your home screen: already added? Remove the icon and add it again (Share → Add to Home Screen).",
+      ${row("Opens", "Full screen looks like an app. Takes effect when you add it to your home screen again.",
         `<div class="seg" role="group" aria-label="Home-screen icon opens">${[["", "In the browser"], ["app", "Full screen"]].map(([k, t]) => `<button type="button" data-home-pick="${k}" aria-pressed="${(v.home || "") === k}">${t}</button>`).join("")}</div>`)}</div>
     <div class="card set-card"><div class="card-head"><h2>Menu and start page</h2></div>
       ${row("Start page", "The page you land on when you open the app.", `<select class="in" id="set-start" aria-label="Start page"><option value="">Default</option>${starts.map(([k, t]) =>
