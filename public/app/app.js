@@ -298,6 +298,40 @@ function formDialog(title, fields, save, button = "Save", danger = null) {
   d.querySelector("input, select")?.focus();
 }
 
+// Message one person from the app: a ready-made text (thank you for coming / we missed you / just saying hi) that can be
+// changed, then sent from the phone's own Messages app or WhatsApp, or copied. Free: it goes from the sender's own phone.
+const CC_61 = /melbourne|sydney|brisbane|perth|adelaide|australia/i;  // churches in Australia; the rest are in New Zealand
+const intlNum = (phone, church) => { const d = String(phone || "").replace(/[^\d+]/g, "");
+  if (d.startsWith("+")) return d.slice(1); if (d.startsWith("00")) return d.slice(2);
+  return (CC_61.test(church || "") ? "61" : "64") + d.replace(/^0/, ""); };
+function textPerson({name, phone, kind = "hi", day = "", noContact = false}) {
+  document.querySelectorAll(".modal").forEach(x => x.remove());
+  const first = String(name || "").trim().split(/\s+/)[0] || "there", me = String(S.me?.name || "").trim().split(/\s+/)[0], sign = `God bless,\n${me ? me + ", " : ""}Favourite Child Church`;
+  const when = day ? ` on ${new Date(day + "T12:00:00").toLocaleDateString("en-NZ", {weekday: "long", day: "numeric", month: "long"})}` : "";
+  const T = {thanks: ["Thank you for coming", `Hi ${first}, thank you so much for visiting Favourite Child Church${when}. It was a joy to have you with us. We'd love to see you again soon. You're always welcome!\n\n${sign}`],
+             missed: ["We missed you", `Hi ${first}, we missed you at church! Hope you're doing well. Is there anything we can pray about or help with? It would be lovely to see you soon.\n\n${sign}`],
+             hi: ["Just saying hi", `Hi ${first}, just checking in to say hello from Favourite Child Church. Hope your week is going well!\n\n${sign}`]};
+  const d = document.createElement("div"); d.className = "modal";
+  d.innerHTML = `<div class="sheet tp" role="dialog" aria-modal="true" aria-label="Message ${esc(name)}">
+    <div class="card-head"><h2>Message ${esc(first)}</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+    ${noContact ? `<div class="msg" style="margin-bottom:10px">${esc(first)} said on the welcome form they'd rather not be contacted.</div>` : ""}
+    <div class="chips" role="group" aria-label="Which message">${Object.entries(T).map(([k, [t]]) => `<button type="button" class="chip ${k === kind ? "on" : ""}" data-tk="${k}">${t}</button>`).join("")}</div>
+    <label class="f" for="tp-msg" style="margin-top:12px">Message <small class="muted">(change it as you like)</small></label>
+    <textarea class="in" id="tp-msg" rows="7"></textarea>
+    <p class="note" style="margin:8px 2px 0">To ${esc(phone)}. It's sent from your own phone, as a normal text or WhatsApp, so they'll see your number.</p>
+    <div class="modal-foot tp-foot"><button type="button" class="pill-btn" id="tp-copy">Copy</button>
+      <button type="button" class="pill-btn" id="tp-wa">WhatsApp</button><button type="button" class="pill-btn primary" id="tp-sms">Text message</button></div></div>`;
+  document.body.append(d);
+  const ta = d.querySelector("#tp-msg"), onKey = e => { if (e.key === "Escape") close(); }, close = () => { d.remove(); document.removeEventListener("keydown", onKey); };
+  const pick = k => { ta.value = T[k][1]; d.querySelectorAll("[data-tk]").forEach(b => b.classList.toggle("on", b.dataset.tk === k)); };
+  pick(T[kind] ? kind : "hi");
+  d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); const c = e.target.closest("[data-tk]"); if (c) pick(c.dataset.tk); };
+  document.addEventListener("keydown", onKey);
+  const local = String(phone).replace(/[^\d+]/g, "");
+  d.querySelector("#tp-sms").onclick = () => { location.href = `sms:${local}?&body=${encodeURIComponent(ta.value)}`; };
+  d.querySelector("#tp-wa").onclick = () => { window.open(`https://wa.me/${intlNum(phone, S.church)}?text=${encodeURIComponent(ta.value)}`, "_blank", "noopener"); };
+  d.querySelector("#tp-copy").onclick = async () => { try { await navigator.clipboard.writeText(ta.value); toast("Copied. Paste it into any chat."); } catch { ta.select(); toast("Select all and copy it."); } };
+}
 // Where a finished summary can go. WhatsApp is always there on phones; Settings → Sharing summaries adds the others.
 const SHARE = [["instagram", "Instagram"], ["messenger", "Messenger"], ["telegram", "Telegram"], ["sms", "Text message"], ["email", "Email"]];
 const shareTo = () => { const v = look().share; return Array.isArray(v) ? v.filter(k => SHARE.some(s => s[0] === k)) : []; };
@@ -1370,6 +1404,8 @@ function render() {
   root.querySelectorAll("[data-switch]").forEach(b => b.onclick = () => switchView(S.me.role === "pastor" ? S.me.base : "pastor"));
   const view = document.getElementById("view");
   view.onclick = e => {
+    const tx = e.target.closest("[data-msgto]"); if (tx) { const p = picture(), x = p.people.find(y => y.id === tx.dataset.msgto); if (x) textPerson({name: x.full_name, phone: x.phone,
+      day: x.first_visit || "", kind: x.type === "first_timer" && p.here[x.id] ? "thanks" : x.level !== "ok" || !p.here[x.id] ? "missed" : "hi"}); return; }  // the message button by a phone number
     const b = e.target.closest("[data-person]"); if (b) { S.person = b.dataset.person; go("person"); return; }
     const t = e.target.closest("[data-to-pastor]"); if (t) { S.pastor = t.dataset.toPastor; S.pastorJump = true; go("pastors"); return; }
     const sh = e.target.closest("[data-to-shepherd]"); if (sh) { S.shepherd = sh.dataset.toShepherd; S.pastorJump = true; go("shepherds"); }
@@ -1655,7 +1691,7 @@ function calendar(el, p) {  // a month of services: days with a service show how
 }
 function rowsHtml(list, cols) {
   return list.map(p => `<tr><td>${whoBtn(p)}</td><td>${flagBadge(p)}</td><td>${p.missed}</td>
-    <td class="muted hide-sm">${esc(nice(p.seen))}</td>${cols ? `<td class="muted hide-sm">${esc(p.pastor || "")}</td>` : ""}<td class="muted">${esc(p.phone || "")}</td></tr>`).join("");
+    <td class="muted hide-sm">${esc(nice(p.seen))}</td>${cols ? `<td class="muted hide-sm">${esc(p.pastor || "")}</td>` : ""}<td class="muted">${p.phone ? `<span class="tp-cell">${esc(p.phone)}<button type="button" class="icon-btn sm" data-msgto="${esc(p.id)}" title="Message ${esc(p.full_name)}" aria-label="Message ${esc(p.full_name)}">${svg("community")}</button></span>` : ""}</td></tr>`).join("");
 }
 // ---------------------------------------------------------------- dashboard: widgets each person can add, remove, drag and resize
 // Each widget: name, sub (line under the title), size (full = whole row, wide/narrow = left/right column), hue (its colour), draw(body, p).
@@ -4522,8 +4558,10 @@ async function person(el) {
   const p = picture(), mine = p.mine.slice().sort(byName), m = mine.find(x => x.id === S.person);
   // Opened by tapping a name on any list, so there's no search box here (finding people is on Congregation)
   const canEdit = ["admin", "lead"].includes(S.me.role) && !S.preview;  // the same people who can edit on Congregation
-  const top = head(m ? esc(m.full_name) : "Person", esc(S.church), m ? `${canEdit ? `<button class="pill-btn" id="pe-edit">${svg("edit")}Edit</button>` : ""}<button class="pill-btn" id="dl">Download</button>` : "");
-  const bind = () => { const b = el.querySelector("#pe-edit"); if (b) b.onclick = () => editPerson(m); };
+  const top = head(m ? esc(m.full_name) : "Person", esc(S.church), m ? `${m.phone && !S.preview ? `<button class="pill-btn" id="pe-text">${svg("community")}Message</button>` : ""}${canEdit ? `<button class="pill-btn" id="pe-edit">${svg("edit")}Edit</button>` : ""}<button class="pill-btn" id="dl">Download</button>` : "");
+  const bind = () => { const b = el.querySelector("#pe-edit"); if (b) b.onclick = () => editPerson(m);
+    const t = el.querySelector("#pe-text"); if (t) t.onclick = () => { const st = picture().people.find(x => x.id === m.id);
+      textPerson({name: m.full_name, phone: m.phone, day: m.first_visit || "", kind: m.type === "first_timer" ? "thanks" : st && st.level !== "ok" ? "missed" : "hi"}); }; };
   if (!m) { el.innerHTML = top + `<div class="card"><p class="empty" style="margin:0 0 12px">Tap a name on any list to see their attendance.</p><button class="pill-btn" data-go-people>Open Congregation</button></div>`;
     el.querySelector("[data-go-people]").onclick = () => { S.view = "people"; render(); }; return; }
   el.innerHTML = top + `<p class="empty">Loading…</p>`; bind();
@@ -4671,10 +4709,12 @@ async function signups(el) {
       ${r.notes ? `<div class="msg" style="margin-top:10px">${esc(r.notes)}</div>` : ""}
       ${match ? `<p class="note">Already on the register as <b>${esc(match.full_name)}</b> (${typeName(match).toLowerCase()}). Approving updates that person and adds nobody new.</p>` : ""}
       <div class="row" style="margin-top:14px"><label class="check"><input type="checkbox" data-tick checked> Mark present on ${esc(r.first_visit ? full(r.first_visit) : "today")}</label>
-        <div style="flex:0 0 auto;display:flex;gap:8px"><button class="pill-btn primary" data-ok>Approve</button><button class="pill-btn" data-no>Reject</button></div></div></div>`;
+        <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap">${r.phone ? `<button class="pill-btn" data-msg>${svg("community")}Message</button>` : ""}<button class="pill-btn primary" data-ok>Approve</button><button class="pill-btn" data-no>Reject</button></div></div></div>`;
   }).join("") : `<div class="card"><p class="empty">No sign-ups waiting.</p></div>`) + ``;
   el.querySelectorAll(".signup").forEach(card => {
     const id = card.dataset.reg, name = card.querySelector("h2").textContent, lock = on => card.querySelectorAll("button").forEach(b => b.disabled = on);
+    const reg = regs.find(r => r.id === id);
+    card.querySelector("[data-msg]")?.addEventListener("click", () => textPerson({name: reg.full_name, phone: reg.phone, kind: "thanks", day: reg.first_visit || "", noContact: reg.wants_contact === false}));
     card.querySelector("[data-ok]").onclick = async () => {
       lock(true);
       try {
