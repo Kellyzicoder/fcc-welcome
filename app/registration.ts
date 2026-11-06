@@ -81,7 +81,8 @@ export function newRequestId(): string {
  * saved and the visitor presses Send again, the database already has that id and answers 409 (conflict),
  * which we treat as "already saved" instead of creating a duplicate.
  */
-export async function submitSignUp(raw: SignUp, cfg: SupabaseConfig, requestId?: string): Promise<void> {
+/** `church`: the church whose link was used (e.g. /melbourne); none means the home church. */
+export async function submitSignUp(raw: SignUp, cfg: SupabaseConfig, requestId?: string, church?: string): Promise<void> {
   const v = tidy(raw);
   const body = {
     ...(requestId ? { id: requestId } : {}),
@@ -93,6 +94,7 @@ export async function submitSignUp(raw: SignUp, cfg: SupabaseConfig, requestId?:
     wants_contact: v.wantsContact,
     first_visit: nzToday(),
     status: "pending",
+    ...(church ? { church } : {}),
   };
   let res: Response;
   try {
