@@ -2344,6 +2344,45 @@ begin
 exception when others then raise notice 'Old convert records are not tidied automatically: %', sqlerrm;
 end $$;
 
+-- ---------------------------------------------------------------- New converts form → the app's New converts page
+-- People fill in the public form (fcc-new-converts.vercel.app) themselves. Their entries show on the app's New converts page,
+-- where the church's team adds them with one tap (or dismisses a duplicate). Entries with no church go to the home church.
+create table if not exists new_converts (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz not null default now(),
+  full_name text not null check (char_length(full_name) between 1 and 120),
+  phone text check (char_length(phone) <= 40), email text check (char_length(email) <= 200),
+  gender text check (gender in ('Male', 'Female')), age_group text check (char_length(age_group) <= 30),
+  suburb text check (char_length(suburb) <= 120), church text check (char_length(church) <= 80),
+  decision text check (decision in ('Gave my life to Jesus', 'Rededicated my life to Jesus')),
+  heard_from text check (char_length(heard_from) <= 80), next_steps text[],
+  prayer_request text check (char_length(prayer_request) <= 2000), consent boolean not null default false,
+  check (coalesce(phone, '') <> '' or coalesce(email, '') <> ''));
+alter table new_converts enable row level security;
+alter table new_converts add column if not exists convert_id uuid references converts(id) on delete set null;  -- added in the app
+alter table new_converts add column if not exists dismissed_at timestamptz;  -- or dismissed (a duplicate, a test)
+drop policy if exists "form can submit new convert" on new_converts;
+create policy "form can submit new convert" on new_converts for insert to anon, authenticated
+  with check (consent = true and convert_id is null and dismissed_at is null);
+drop policy if exists "app: converts team sees form entries" on new_converts;
+create policy "app: converts team sees form entries" on new_converts for select to authenticated
+  using (app_converts_ok(coalesce(nullif(trim(church), ''), app_home_church())));
+drop policy if exists "app: converts team handles form entries" on new_converts;
+create policy "app: converts team handles form entries" on new_converts for update to authenticated
+  using (app_converts_ok(coalesce(nullif(trim(church), ''), app_home_church())))
+  with check (app_converts_ok(coalesce(nullif(trim(church), ''), app_home_church())));
+revoke all on new_converts from anon, authenticated;
+grant insert on new_converts to anon;
+grant select, insert on new_converts to authenticated;
+grant update (convert_id, dismissed_at) on new_converts to authenticated;
+do $$
+begin
+  create extension if not exists pg_cron;
+  perform cron.unschedule(jobid) from cron.job where jobname = 'fcc-convert-forms-tidy';
+  perform cron.schedule('fcc-convert-forms-tidy', '43 14 * * *', $c$delete from public.new_converts where created_at < now() - interval '5 years'$c$);
+exception when others then raise notice 'Old convert forms are not tidied automatically: %', sqlerrm;
+end $$;
+
 -- ---------------------------------------------------------------- Messages sent: who has been messaged, and by whom
 -- After sending a text or WhatsApp from the app, the sender taps "Sent" and it's noted here, so the team can see who
 -- has already had a message ("Messaged · Grace, Tue") and nobody gets the same text twice. It doesn't take anyone off
@@ -2437,6 +2476,7 @@ create or replace function app_backup_data() returns json language sql stable se
       from visits v left join members m on m.id = v.member_id) t),
     'signups', (select coalesce(json_agg(t order by t.created_at), '[]') from registrations t),
     'converts', (select coalesce(json_agg(t order by t.church, t.decided_on), '[]') from converts t),
+    'convert_forms', (select coalesce(json_agg(t order by t.created_at), '[]') from new_converts t),  -- the New converts form
     'messages_sent', (select coalesce(json_agg(t order by t.sent_at), '[]') from messages_sent t),  -- who was messaged, by whom
     'lists', (select coalesce(json_agg(json_build_object('key', t.key, 'names', t.value) order by t.key), '[]') from settings t
               where t.key like 'pastors:%' or t.key like 'shepherds:%'),
