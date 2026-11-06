@@ -2481,6 +2481,10 @@ begin
          left(coalesce(m.author_name, 'Someone') || ': ' || case when test then substr(m.body, 8) else m.body end, 180), '/app/?go=community'::text
   from app_users u join push_subs s on lower(s.email) = u.email
   where (test or u.email is distinct from m.author_email) and u.role <> 'bishop' and (u.role = 'admin' or u.church = m.church)
+    -- "To every church" makes one message per church: the main admins (who see every church) get it once, from the first
+    and not (u.role = 'admin' and exists (select 1 from chat_messages o where o.id <> m.id and o.church <> m.church
+             and o.author_email = m.author_email and o.channel = m.channel and o.body = m.body
+             and (o.created_at, o.id) < (m.created_at, m.id) and o.created_at > m.created_at - interval '2 minutes'))
     and case m.channel when 'everyone' then true when 'leaders' then u.role in ('admin', 'lead', 'pastor') when 'ushers' then u.role in ('admin', 'lead', 'team')
       else u.role in ('admin', 'lead')
         or exists (select 1 from bacenta_helpers h where h.bacenta = b.id and h.email = u.email)
