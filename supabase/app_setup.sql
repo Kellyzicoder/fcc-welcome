@@ -2344,4 +2344,92 @@ begin
 exception when others then raise notice 'Old convert records are not tidied automatically: %', sqlerrm;
 end $$;
 
+-- ---------------------------------------------------------------- The Google Sheet backup: everything, including what came later
+-- Visits, Centas (and who is in each), welcome-form sign-ups and new converts are copied too. The sheet's script (from
+-- Admin → Backups) copies any list it's sent into its own hidden tab, so new kinds of data need no new script later.
+-- The script says which version it is, so Admin → Backups can say when it should be set up again.
+alter table backup_keys add column if not exists script_version int not null default 1;
+create or replace function app_backup_data() returns json language sql stable security definer set search_path = public as $$
+  select json_build_object('made_at', now(), 'home', app_home_church(),
+    'churches', (select coalesce(json_agg(t order by t.name), '[]') from churches t),
+    'members', (select coalesce(json_agg(t order by t.full_name), '[]') from members t),
+    'attendance', (select coalesce(json_agg(t order by t.service_date, t.full_name), '[]') from (  -- each check-in with the person's name and church
+      select a.*, m.full_name, coalesce(nullif(trim(m.church), ''), app_home_church()) as church
+      from attendance a left join members m on m.id = a.member_id) t),
+    'services', (select coalesce(json_agg(t order by t.service_date), '[]') from services t),
+    'service_parts', (select coalesce(json_agg(t order by t.service_date), '[]') from service_parts t),
+    'service_ticks', (select coalesce(json_agg(t order by t.service_date), '[]') from service_ticks t),
+    'bacentas', (select coalesce(json_agg(t order by t.church, t.name), '[]') from bacentas t),
+    'bacenta_ticks', (select coalesce(json_agg(t order by t.meeting_date, t.bacenta_name, t.full_name), '[]') from (
+      select k.*, b.name as bacenta_name, b.church, m.full_name
+      from bacenta_ticks k join bacentas b on b.id = k.bacenta left join members m on m.id = k.member_id) t),
+    'bacenta_helpers', (select coalesce(json_agg(t order by t.bacenta, t.email), '[]') from bacenta_helpers t),
+    'bacenta_guests', (select coalesce(json_agg(t order by t.full_name), '[]') from (
+      select g.*, b.name as bacenta_name, b.church from bacenta_guests g join bacentas b on b.id = g.bacenta) t),
+    'bacenta_guest_ticks', (select coalesce(json_agg(t order by t.meeting_date, t.full_name), '[]') from (
+      select k.*, g.full_name, b.name as bacenta_name from bacenta_guest_ticks k join bacenta_guests g on g.id = k.guest join bacentas b on b.id = k.bacenta) t),
+    'bacenta_skips', (select coalesce(json_agg(t order by t.meeting_date), '[]') from (
+      select k.*, b.name as bacenta_name, b.church from bacenta_skips k join bacentas b on b.id = k.bacenta) t),
+    'centas', (select coalesce(json_agg(t order by t.church, t.bacenta_name, t.name), '[]') from (  -- each Centa with its Bacenta's name
+      select k.*, b.name as bacenta_name, b.church from centas k join bacentas b on b.id = k.bacenta) t),
+    'centa_people', (select coalesce(json_agg(t order by t.centa_name, t.full_name), '[]') from (  -- who is in each Centa
+      select cp.*, m.full_name, k.name as centa_name, b.name as bacenta_name
+      from centa_people cp left join members m on m.id = cp.member_id left join centas k on k.id = cp.centa left join bacentas b on b.id = k.bacenta) t),
+    'visits', (select coalesce(json_agg(t order by t.visit_date, t.full_name), '[]') from (  -- each visit with the person's name and church
+      select v.*, m.full_name, coalesce(nullif(trim(m.church), ''), app_home_church()) as church
+      from visits v left join members m on m.id = v.member_id) t),
+    'signups', (select coalesce(json_agg(t order by t.created_at), '[]') from registrations t),
+    'converts', (select coalesce(json_agg(t order by t.church, t.decided_on), '[]') from converts t),
+    'lists', (select coalesce(json_agg(json_build_object('key', t.key, 'names', t.value) order by t.key), '[]') from settings t
+              where t.key like 'pastors:%' or t.key like 'shepherds:%'),
+    'signins', (select coalesce(json_agg(json_build_object('email', u.email, 'role', u.role, 'title', u.title, 'role3', u.role3, 'church', u.church,
+                  'name', u.name, 'pastor', u.pastor) order by u.email), '[]') from app_users u))
+$$;
+revoke all on function app_backup_data() from public, anon, authenticated;
+drop function if exists app_backup(text);
+create or replace function app_backup(backup_key text, v int default 1) returns json language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce(backup_key, '') = '' or not exists (select 1 from backup_keys where hash = sha256(convert_to(backup_key, 'UTF8'))) then
+    raise exception 'not allowed'; end if;
+  update backup_keys set last_used = now(), script_version = greatest(1, least(coalesce(v, 1), 99)) where id = 1;
+  insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)  -- each copy shows in the Activity log
+  values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF'), 'backup', null, null, 'everything, to the backup', 'Backup', 'done');
+  return app_backup_data();
+end $$;
+revoke all on function app_backup(text, int) from public;
+grant execute on function app_backup(text, int) to anon, authenticated;
+create or replace function app_backup_status() returns json language plpgsql stable security definer set search_path = public as $$
+begin
+  if not app_is_tech() then raise exception 'not allowed'; end if;
+  return (select json_build_object('made_at', made_at, 'made_by', made_by, 'last_used', last_used, 'script_version', script_version) from backup_keys where id = 1);
+end $$;
+revoke all on function app_backup_status() from public, anon;
+grant execute on function app_backup_status() to authenticated;
+
+-- ---------------------------------------------------------------- Test alerts
+-- A test alert is a Community alert whose text starts with "[TEST] ". On phones it shows as "TEST ALERT · Everyone", with
+-- the words after the label, and it goes to the sender too, so everyone (the sender included) sees what a real alert looks like.
+create or replace function app_alert_targets(mid uuid) returns table (endpoint text, p256dh text, auth text, title text, body text, url text)
+language plpgsql security definer set search_path = public as $$
+declare m chat_messages; b bacentas; label text; test boolean;
+begin
+  update chat_messages c set pushed_at = now() where c.id = mid and c.alert and c.pushed_at is null and c.created_at > now() - interval '10 minutes' returning * into m;
+  if m.id is null then return; end if;
+  test := m.body like '[TEST] %';
+  if m.channel ~ '^bacenta:' then select * into b from bacentas x where x.id = substr(m.channel, 9)::uuid; end if;
+  label := case m.channel when 'everyone' then 'Everyone' when 'leaders' then 'Leaders' when 'ushers' then 'Ushers' else coalesce(b.name, 'Bacenta') end;
+  return query
+  select s.endpoint, s.p256dh, s.auth, case when test then 'TEST ALERT · ' else 'Alert · ' end || label,
+         left(coalesce(m.author_name, 'Someone') || ': ' || case when test then substr(m.body, 8) else m.body end, 180), '/app/?go=community'::text
+  from app_users u join push_subs s on lower(s.email) = u.email
+  where (test or u.email is distinct from m.author_email) and u.role <> 'bishop' and (u.role = 'admin' or u.church = m.church)
+    and case m.channel when 'everyone' then true when 'leaders' then u.role in ('admin', 'lead', 'pastor') when 'ushers' then u.role in ('admin', 'lead', 'team')
+      else u.role in ('admin', 'lead')
+        or exists (select 1 from bacenta_helpers h where h.bacenta = b.id and h.email = u.email)
+        or (u.role = 'pastor' and app_norm_name(u.pastor) in (app_norm_name(b.shepherd), app_norm_name(b.pastor)))
+        or (u.role = 'pastor' and exists (select 1 from centas k where k.bacenta = b.id and k.active and app_norm_name(k.shepherd) = app_norm_name(u.pastor))) end;
+end $$;
+revoke all on function app_alert_targets(uuid) from public, anon, authenticated;
+grant execute on function app_alert_targets(uuid) to service_role;
+
 notify pgrst, 'reload schema';
