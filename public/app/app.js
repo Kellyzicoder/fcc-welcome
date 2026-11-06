@@ -106,7 +106,7 @@ function setup() {
 }
 function backup() {
   const r = UrlFetchApp.fetch(URL_ + "/rest/v1/rpc/app_backup", {method: "post", contentType: "application/json", muteHttpExceptions: true,
-    headers: {apikey: PUBLIC_KEY, Authorization: "Bearer " + PUBLIC_KEY}, payload: JSON.stringify({backup_key: BACKUP_KEY})});
+    headers: {apikey: PUBLIC_KEY, Authorization: "Bearer " + PUBLIC_KEY}, payload: JSON.stringify({backup_key: BACKUP_KEY, v: 2})});
   const ss = SpreadsheetApp.getActive(), log = ss.getSheetByName("Backup log") || ss.insertSheet("Backup log");
   if (r.getResponseCode() !== 200) { log.appendRow([new Date(), "Failed", r.getContentText().slice(0, 300)]); throw new Error("Backup failed: " + r.getContentText()); }
   const d = JSON.parse(r.getContentText()), home = d.home || "Home church", done = [], kept = new Set(["Backup log"]), order = [], churchTabs = [];
@@ -195,9 +195,12 @@ function backup() {
   // everything else, kept for a full restore but hidden so the sheet stays tidy (to see them: View → Hidden sheets)
   const raw = (name, list) => { const sh = tab(name), keys = [...new Set((list || []).flatMap(x => Object.keys(x)))]; sh.hideSheet(); done.push(name + " " + (list || []).length);
     if (keys.length) sh.getRange(1, 1, list.length + 1, keys.length).setNumberFormat("@").setValues(text([keys, ...list.map(x => keys.map(k => x[k]))])); };
-  for (const [name, key] of [["data: people", "members"], ["data: attendance", "attendance"], ["data: churches", "churches"], ["data: services", "services"],
-    ["data: service parts", "service_parts"], ["data: service ticks", "service_ticks"], ["data: bacentas", "bacentas"], ["data: bacenta attendance", "bacenta_ticks"], ["data: bacenta weeks off", "bacenta_skips"], ["data: bacenta-only people", "bacenta_guests"], ["data: bacenta-only attendance", "bacenta_guest_ticks"],
-    ["data: pastor lists", "lists"], ["data: sign-ins", "signins"]]) raw(name, d[key]);
+  // every list the app sends gets its own hidden tab, so anything the app adds later is copied too, with no new script
+  const NAMES = {members: "people", attendance: "attendance", churches: "churches", services: "services", service_parts: "service parts", service_ticks: "service ticks",
+    bacentas: "bacentas", bacenta_ticks: "bacenta attendance", bacenta_skips: "bacenta weeks off", bacenta_guests: "bacenta-only people", bacenta_guest_ticks: "bacenta-only attendance",
+    bacenta_helpers: "bacenta helpers", centas: "centas", centa_people: "centa members", visits: "visits", signups: "welcome form sign-ups", converts: "new converts",
+    lists: "pastor lists", signins: "sign-ins"};
+  for (const key of Object.keys(d)) if (Array.isArray(d[key])) raw("data: " + (NAMES[key] || key.replace(/_/g, " ")), d[key]);
   // A church that's gone (deleted or renamed in the app) keeps its last copy: renamed "… (removed date)", moved to the end, never deleted.
   // Older layouts' tabs go. Any tab of your own stays.
   const props = PropertiesService.getScriptProperties(), before = JSON.parse(props.getProperty("churchTabs") || "[]");
@@ -2827,7 +2830,8 @@ function followup(el) {
   const p0 = picture(), day = S.fuDay && S.fuDay !== p0.last ? S.fuDay : p0.last, had = !!day && p0.dates.includes(day);
   const p = had && day !== p0.last ? picture(day) : p0;
   const started = x => ([x.date_joined, x.first_visit].filter(Boolean).sort()[0] || (x.created_at || "").slice(0, 10) || "0000") <= day;
-  const tabs = {need: "Needs follow-up", red: `Needs a call (${RED_AT}+ missed)`, yellow: `Check in (${YELLOW_AT}–${RED_AT - 1} missed)`, once: "Missed this one", blue: "Missed this service", came: "Came", visited: "Visited", all: "Everyone"};
+  const tabs = {need: "Needs follow-up", red: "Needs a call", yellow: "Check in", once: "Missed only this one", blue: "Everyone who missed this", came: "Came", visited: "Visited", all: "Everyone"};
+  const MAIN = ["need", "red", "yellow", "all"], MORE = ["once", "blue", "came", "visited"];  // the main lists as buttons; the rest under More
   const pick = {need: x => x.level !== "ok", red: x => x.flag === "red", yellow: x => x.flag === "yellow", once: x => x.flag === "blue", blue: x => !p.here[x.id] && started(x), came: x => !!p.here[x.id], visited: x => !!x.visited, all: () => true};
   if (!tabs[S.filter]) S.filter = "need";
   const list = had ? p.people.filter(pick[S.filter]) : [];
@@ -2835,8 +2839,8 @@ function followup(el) {
     `<button class="pill-btn" id="dl">Download this list</button>`) + `
     <div class="row sortbar"><div style="flex:0 0 200px"><label class="f" for="fu-day">Service date</label><input class="in" id="fu-day" type="date" value="${day || today()}" max="${today()}"></div>
       ${had ? `<p class="note" style="margin:0 0 4px;flex:1">${esc(S.names[day] || "Service")}<span class="fu-wide"> · ${esc(nice(day, true))}</span>${day !== p0.last ? ` · <button class="link" id="fu-latest" style="margin:0">Back to the latest service</button>` : ""}</p>` : ""}</div>
-    <div class="chips fu-wide">${Object.entries(tabs).map(([k, t]) => `<button class="chip ${S.filter === k ? "on" : ""}" data-f="${k}">${t}</button>`).join("")}</div>
-    <p class="flag-key fu-wide">${badge("red")}<span>missed ${RED_AT}+ in a row: call them</span>${badge("yellow")}<span>missed ${YELLOW_AT}–${RED_AT - 1} in a row: check in</span></p>
+    <div class="chips fu-wide fu-chips">${MAIN.map(k => `<button class="chip ${S.filter === k ? "on" : ""}" data-f="${k}" ${k === "red" ? `title="Missed ${RED_AT} or more in a row"` : k === "yellow" ? `title="Missed ${YELLOW_AT}–${RED_AT - 1} in a row"` : ""}>${tabs[k]}${had ? ` <span class="chip-n">${p.people.filter(pick[k]).length}</span>` : ""}</button>`).join("")}
+      <select class="chip fu-more ${MORE.includes(S.filter) ? "on" : ""}" id="fu-more" aria-label="More lists"><option value="">More…</option>${MORE.map(k => `<option value="${k}" ${S.filter === k ? "selected" : ""}>${tabs[k]}${had ? ` (${p.people.filter(pick[k]).length})` : ""}</option>`).join("")}</select></div>
     <div class="fu-narrow" style="max-width:340px;margin:0 0 14px"><label class="f" for="fu-f">Show</label><select class="in" id="fu-f">${Object.entries(tabs).map(([k, t]) =>  // one dropdown instead of a row of pills, each list with its count
       `<option value="${k}" ${S.filter === k ? "selected" : ""}>${t} (${had ? p.people.filter(pick[k]).length : 0})</option>`).join("")}</select></div>  <!-- phones: the dropdown; wider screens: the pills -->
     <div class="card"><div class="card-head"><h2>${tabs[S.filter]}</h2><span class="gap"></span>${list.filter(x => x.phone).length > 1 && !S.preview ? `<button type="button" class="pill-btn sm" id="fu-all">${svg("community")}Message everyone (${list.filter(x => x.phone).length})</button>` : ""}<span style="color:var(--ink-3);font-size:13px">${list.length} people</span></div>
@@ -2846,6 +2850,7 @@ function followup(el) {
     kind: x.type === "first_timer" && p.here[x.id] ? "thanks" : x.level !== "ok" || !p.here[x.id] ? "missed" : "hi"}))}));
   el.querySelector("#fu-f").onchange = e => { S.filter = e.target.value; render(); };
   el.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { S.filter = b.dataset.f; render(); });
+  el.querySelector("#fu-more").onchange = e => { if (e.target.value) { S.filter = e.target.value; render(); } };
   calPick(el.querySelector("#fu-day"));
   el.querySelector("#fu-day").onchange = e => { S.fuDay = e.target.value; render(); };
   const back = el.querySelector("#fu-latest"); if (back) back.onclick = () => { S.fuDay = ""; render(); };
@@ -3800,7 +3805,8 @@ async function admin(el) {
   const backupCard = `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Google Sheet backup</h2><span class="gap"></span>
       ${bkStatus && bkStatus !== "sql" ? `<span class="badge ${bkStatus.last_used && Date.now() - new Date(bkStatus.last_used) < 2 * 864e5 ? "" : "warn"}">${bkStatus.last_used ? "Last copied " + esc(ago(bkStatus.last_used)) : "Not run yet"}</span>` : ""}</div>
     ${bkStatus === "sql" ? `<p class="note" style="margin:0">Run the latest setup SQL in Supabase once to set this up.</p>` : `
-    <p class="note" style="margin:0 2px 12px">Every night a Google Sheet in your Google Drive copies everything: a tab for each church: everyone on its register, how many Sundays they've missed this year, and every Sunday of the year in colour, then the services, the Pastors and Shepherds lists and the sign-ins. It runs on Google, so no computer needs to be on. The free Supabase plan keeps no backups of its own.
+    ${bkStatus && (bkStatus.script_version || 1) < 2 ? `<div class="msg" style="margin:0 0 12px"><b>Set up again once.</b> The backup can now also copy visits, Centas, welcome-form sign-ups and new converts. Press <b>Set up again</b> below, paste the new script into the same sheet and press Run: about two minutes. Your sheet and its history stay.</div>` : ""}
+    <p class="note" style="margin:0 2px 12px">Every night a Google Sheet in your Google Drive copies everything: a tab for each church: everyone on its register, how many Sundays they've missed this year, and every Sunday of the year in colour, then the services, Bacentas and Centas, visits, sign-ups, new converts, the Pastors and Shepherds lists and the sign-ins. It runs on Google, so no computer needs to be on. The free Supabase plan keeps no backups of its own.
       Google keeps the sheet's earlier days too (File → Version history).</p>
     ${bkStatus ? `<p class="note" style="margin:0 2px 12px">Key made ${esc(ago(bkStatus.made_at))}${bkStatus.made_by ? " by " + esc(bkStatus.made_by) : ""}. Making a new one stops the old sheet copying.</p>` : ""}
     <button type="button" class="pill-btn primary" id="bk-make">${bkStatus ? "Set up again (new key)" : "Set up the Google Sheet"}</button>`}</div>`;
@@ -3858,7 +3864,7 @@ async function admin(el) {
     d.innerHTML = `<div class="sheet narrow" role="dialog" aria-modal="true" aria-label="Set up the Google Sheet backup">
       <div class="card-head"><h2>Set up the Google Sheet backup</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
       <ol class="bk-steps">
-        <li>Make a new Google Sheet (sheets.new) in the Google account that should keep the backup. Name it e.g. <b>FCC backup</b>.</li>
+        <li>${bkStatus ? "Open your backup Google Sheet (the same one as before)." : "Make a new Google Sheet (sheets.new) in the Google account that should keep the backup. Name it e.g. <b>FCC backup</b>."}</li>
         <li>In the sheet: <b>Extensions → Apps Script</b>. Delete what's there and paste the script below (Copy script).</li>
         <li>Press <b>Save</b>, pick <b>setup</b> next to Run, and press <b>Run</b>. Allow it when Google asks (Advanced → Go to… if it warns).</li>
         <li>It now backs up every night by itself.</li></ol>
@@ -5187,6 +5193,8 @@ async function chatUnread(force) {  // new messages per channel (for the bell, t
   S.chatNew = Object.values(S.chatUnread).reduce((n, r) => n + r.unread, 0);
   return S.chatUnread;
 }
+const isTest = m => String(m.body || "").startsWith("[TEST] ");  // a test alert: see testAlert in Community
+const TEST_TEXT = "This is a test of FCC alerts. When something important happens, it will look like this. You don't need to do anything.";
 async function community(el) {
   const chans = chatChannels();
   if (!chans.some(c => c[0] === S.chan)) S.chan = "everyone";
@@ -5196,7 +5204,7 @@ async function community(el) {
       <div id="ch-pins"></div><div class="chat-list" id="ch-list" aria-live="polite"><p class="empty">Loading…</p></div>
       ${S.preview ? `<p class="note" style="margin:10px 14px">${esc(viewOnly())}</p>` : `<form class="chat-send" id="ch-form">
         <textarea class="in" id="ch-text" rows="1" maxlength="1000" placeholder="Write a message…" aria-label="Message"></textarea>
-        <div class="chat-send-row">${chatCanAlert(chan) ? `<div class="chat-opts"><label class="check chat-alert"><input type="checkbox" id="ch-alert"> Send as an alert <small>(pinned, and sent to phones)</small></label>${S.me.role === "admin" && chan === "everyone" && (S.churches || []).length > 1 ? `<label class="check chat-alert"><input type="checkbox" id="ch-all"> To every church <small>(each church's Everyone)</small></label>` : ""}</div>` : "<span></span>"}
+        <div class="chat-send-row">${chatCanAlert(chan) ? `<div class="chat-opts"><label class="check chat-alert"><input type="checkbox" id="ch-alert"> Send as an alert <small>(pinned, and sent to phones)</small></label>${S.me.role === "admin" && chan === "everyone" && (S.churches || []).length > 1 ? `<label class="check chat-alert"><input type="checkbox" id="ch-all"> To every church <small>(each church's Everyone)</small></label>` : ""}${["admin", "lead"].includes(S.me.role) ? `<button type="button" class="link chat-test" id="ch-test">Send a test alert</button>` : ""}</div>` : "<span></span>"}
           <button class="pill-btn primary" id="ch-go">Send</button></div></form>`}</section></div>`;
   const drawChans = () => { const un = S.chatUnread || {};
     el.querySelector(".chat-chans").innerHTML = chans.map(([k, t]) => `<button type="button" class="chat-chan ${k === chan ? "on" : ""}" data-chan="${esc(k)}" ${k === chan ? 'aria-current="true"' : ""}>
@@ -5211,13 +5219,13 @@ async function community(el) {
   const draw = () => {
     const list = el.querySelector("#ch-list"); if (!list) return;
     const near = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
-    const all = msgs.filter(m => m.alert).reverse(), pins = S.pinsAll ? all : all.slice(0, 1);  // the newest alert; the rest on tap
+    const all = msgs.filter(m => m.alert && !isTest(m)).reverse(), pins = S.pinsAll ? all : all.slice(0, 1);  // the newest alert; the rest on tap
     el.querySelector("#ch-pins").innerHTML = pins.length ? `<div class="chat-pins">${pins.map(m => `<div class="chat-pin">${svg("bell")}<div><b>${esc(m.author_name || "")}</b> · <small>${esc(day(m.created_at))}</small><p>${link(m.body)}</p></div>
       ${chatCanAlert(chan) ? `<button type="button" class="link" data-unpin="${esc(m.id)}">Unpin</button>` : ""}</div>`).join("")}${all.length > 1 ? `<button type="button" class="link chat-more" data-pinsall>${S.pinsAll ? "Show just the newest alert" : `+ ${all.length - 1} more pinned`}</button>` : ""}</div>` : "";
     let lastDay = "";
     list.innerHTML = msgs.length ? msgs.map(m => { const mine = m.author_email === me, d = day(m.created_at), sep = d !== lastDay ? `<div class="chat-day"><span>${esc(lastDay = d)}</span></div>` : "";
       return sep + `<div class="chat-msg ${mine ? "mine" : ""} ${m.alert ? "alert" : ""}" data-mid="${esc(m.id)}">${mine ? "" : `<span class="chat-ava" ${avaStyle(m.author_name || "?")}>${esc(initials(m.author_name || "?"))}</span>`}
-        <div class="chat-bub">${mine ? "" : `<b>${esc(m.author_name || "")}</b>`}${m.alert ? `<span class="chat-tag">${svg("bell")}Alert</span>` : ""}<p>${link(m.body)}</p>
+        <div class="chat-bub">${mine ? "" : `<b>${esc(m.author_name || "")}</b>`}${isTest(m) ? `<span class="chat-tag test">${svg("bell")}Test alert</span>` : m.alert ? `<span class="chat-tag">${svg("bell")}Alert</span>` : ""}<p>${link(isTest(m) ? m.body.slice(7) : m.body)}</p>
           <small>${esc(hm(m.created_at))}${!S.preview && (mine || boss) ? ` · <button type="button" class="link" data-del="${esc(m.id)}">Delete</button>` : ""}${chatCanAlert(chan) && !m.alert ? ` · <button type="button" class="link" data-pin="${esc(m.id)}">Pin as alert</button>` : ""}</small></div></div>`; }).join("")
       : `<p class="empty chat-empty">No messages in ${esc(c[1])} yet. Say hello.</p>`;
     if (first || near) list.scrollTop = list.scrollHeight; first = false;
@@ -5243,6 +5251,7 @@ async function community(el) {
   if (form) {
     const ta = form.querySelector("#ch-text"), grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(160, ta.scrollHeight) + "px"; };
     ta.oninput = grow;
+    form.querySelector("#ch-test")?.addEventListener("click", () => testAlert());
     form.querySelector("#ch-all")?.addEventListener("change", e => { if (e.target.checked) form.querySelector("#ch-alert").checked = true; });  // every church: always an alert
     ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey && !onPhone()) { e.preventDefault(); form.requestSubmit(); } };  // a computer: Enter sends, Shift+Enter is a new line
     form.onsubmit = async e => {
@@ -5269,6 +5278,33 @@ async function community(el) {
         }
       } catch (err) { toast(/row-level|policy/i.test(err.message) ? "Not sent: you can't send that here." : "Not sent: " + err.message); }
       go.disabled = false; ta.focus();
+    };
+  }
+  // A test alert, like a phone's emergency alert test: clearly labelled, sent to everyone's phone (the sender's too), not pinned
+  function testAlert() {
+    document.querySelectorAll(".modal").forEach(x => x.remove());
+    const every = S.me.role === "admin" && chan === "everyone" && (S.churches || []).length > 1;
+    const d = document.createElement("div"); d.className = "modal";
+    d.innerHTML = `<div class="sheet narrow" role="dialog" aria-modal="true" aria-label="Send a test alert">
+      <div class="card-head"><h2>Send a test alert</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+      <p style="margin:0 0 10px">Everyone in <b>${esc(c[1])}</b> with notifications on gets this on their phone, so they know what a real alert looks like. It says <b>TEST ALERT</b> and isn't pinned.</p>
+      <div class="chat-pin" style="margin-bottom:12px">${svg("bell")}<div><b>TEST ALERT · ${esc(c[1])}</b><p>${esc(TEST_TEXT)}</p></div></div>
+      ${every ? `<label class="check"><input type="checkbox" id="ta-all"> Send to every church</label>` : ""}
+      <div class="modal-foot tp-foot"><button type="button" class="pill-btn" data-x>Cancel</button><button type="button" class="pill-btn primary" id="ta-go">Send test alert</button></div></div>`;
+    document.body.append(d);
+    const close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
+    d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
+    document.addEventListener("keydown", onKey);
+    d.querySelector("#ta-go").onclick = async e => { e.target.disabled = true;
+      const where = d.querySelector("#ta-all")?.checked ? S.churches.map(ch => [ch, "everyone"]) : [[S.church, chan]], ids = [];
+      try {
+        for (const [ch, cn] of where) { const [r] = await api("chat_messages?select=id,body,alert,author_email,author_name,created_at", {method: "POST", prefer: "return=representation", body: {church: ch, channel: cn, body: "[TEST] " + TEST_TEXT, alert: true}});
+          if (r) { ids.push(r.id); if (ch === S.church && cn === chan && !msgs.some(m => m.id === r.id)) msgs.push(r); } }
+        const info = await pushInfo().catch(() => null);
+        if (info?.push_url) for (const id of ids) fetch(info.push_url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({alert: id})}).catch(() => {});
+        close(); draw(); markRead();
+        toast(info?.push_url ? `Test alert sent${ids.length > 1 ? ` to ${ids.length} churches` : ""}. It should reach phones in a few seconds, yours too.` : "Test alert posted. (Phone notifications aren't set up yet.)");
+      } catch (err) { e.target.disabled = false; toast("Not sent: " + err.message); }
     };
   }
   // live: a new message, deleted one or pin arrives straight away; if that connection can't be made, check every 15 seconds
