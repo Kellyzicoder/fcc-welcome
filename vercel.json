@@ -16,7 +16,62 @@
   ],
   "redirects": [
     {
+      "source": "/app/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "fcc-welcome.vercel.app"
+        }
+      ],
+      "destination": "https://fcc-attendance.vercel.app/app/:path*",
+      "permanent": false
+    },
+    {
+      "source": "/privacy",
+      "has": [
+        {
+          "type": "host",
+          "value": "fcc-welcome.vercel.app"
+        }
+      ],
+      "destination": "https://fcc-attendance.vercel.app/privacy",
+      "permanent": false
+    },
+    {
+      "source": "/:path((?!first-timer-thanks).*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "fcc-welcome.vercel.app"
+        }
+      ],
+      "destination": "https://fcc-connect.vercel.app/",
+      "permanent": false
+    },
+    {
+      "source": "/:path((?!_next/|logo\\.png|favicon\\.ico|privacy|first-timer-thanks).+)",
+      "has": [
+        {
+          "type": "host",
+          "value": "fcc-connect.vercel.app"
+        }
+      ],
+      "destination": "/",
+      "permanent": false
+    },
+    {
       "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "fcc-attendance.vercel.app"
+        }
+      ],
+      "destination": "/app/index.html",
+      "permanent": false
+    },
+    {
+      "source": "/:path((?!app/|app$|app-config|app-help|app-send|app-live|privacy|demo|first-timer-thanks|_next/|logo\\.png|favicon\\.ico|u1\\.png|app-preview).+)",
       "has": [
         {
           "type": "host",
