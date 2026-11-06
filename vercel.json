@@ -49,7 +49,18 @@
       "permanent": false
     },
     {
-      "source": "/:path((?!_next/|logo\\.png|favicon\\.ico|privacy|first-timer-thanks).+)",
+      "source": "/:path((?:app|app-config|app-help|app-send|app-live|demo)(?:/.*)?)",
+      "has": [
+        {
+          "type": "host",
+          "value": "fcc-connect.vercel.app"
+        }
+      ],
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/:path((?!_next/)[^/]+/.+)",
       "has": [
         {
           "type": "host",

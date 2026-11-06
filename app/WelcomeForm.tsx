@@ -5,13 +5,13 @@ import { LIMITS, SubmitError, newRequestId, submitSignUp, validate, type FieldEr
 
 const EMPTY: SignUp = { fullName: "", phone: "", email: "", invitedBy: "", notes: "", wantsContact: true };
 
-type Props = { config: SupabaseConfig | null };
+type Props = { config: SupabaseConfig | null; church?: string };
 
 // Shared device mode (?shared=1): for a church iPad or phone that many people use.
 // After someone sends the form, it clears itself and starts again for the next person.
 const RESET_AFTER = 10; // seconds
 
-export default function WelcomeForm({ config }: Props) {
+export default function WelcomeForm({ config, church }: Props) {
   const [values, setValues] = useState<SignUp>(EMPTY);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [status, setStatus] = useState<"idle" | "sending" | "done">("idle");
@@ -69,7 +69,7 @@ export default function WelcomeForm({ config }: Props) {
     setStatus("sending");
     try {
       if (!requestId.current) requestId.current = newRequestId();
-      if (!honeypot) await submitSignUp(values, config, requestId.current); // bots fill the hidden field; skip them
+      if (!honeypot) await submitSignUp(values, config, requestId.current, church); // bots fill the hidden field; skip them
       requestId.current = ""; // saved: the next person gets a fresh id
       setSentName(values.fullName.trim().split(/\s+/)[0] ?? "");
       setSentWantsContact(values.wantsContact);

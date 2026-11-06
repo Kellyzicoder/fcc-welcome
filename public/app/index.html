@@ -1382,6 +1382,27 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 .sheet.tp {width: min(520px, 100%);} .tp textarea {resize: vertical; min-height: 150px; line-height: 1.45;}
 .tp-foot {display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end;}
 .tp-cell {display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;} .tp-cell .icon-btn {width: 30px; height: 30px; min-height: 0;} .tp-cell .icon-btn svg {width: 15px; height: 15px;}
+/* each church's welcome-form link, on Sign-ups */
+.fl-row {display: flex; gap: 16px; align-items: center;} .fl-txt {flex: 1; min-width: 0;} .fl-txt h2 {margin: 0; font-size: 17px;}
+.fl-link {font-weight: 600; color: var(--accent); word-break: break-all;} .fl-btns {display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;}
+.fl-qr {width: 120px; height: 120px; border-radius: 12px; background: #fff; padding: 4px; flex: none; border: 1px solid var(--line);}
+@media (max-width: 520px) { .fl-qr {width: 92px; height: 92px;} }
+/* New converts */
+.cv-stats {display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0 0 14px;}
+.cv-stat {background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px;} .cv-stat b {display: block; font-size: 24px; line-height: 1.1;} .cv-stat span {color: var(--ink-3); font-size: 13px;}
+@media (max-width: 640px) { .cv-stats {grid-template-columns: repeat(2, minmax(0, 1fr));} }
+.cv-list {display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px;}
+.cv {margin: 0; display: flex; flex-direction: column; gap: 10px;}
+.cv-top {display: flex; align-items: center; gap: 10px;} .cv-top > span:first-child {width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 13px; flex: none;}
+.cv-who {flex: 1; min-width: 0;} .cv-who b {display: block;} .cv-who b .link {margin: 0; padding: 0; font: inherit; color: inherit; text-decoration: underline; text-decoration-color: var(--line);} .cv-who small {color: var(--ink-3);}
+.cv-n {font-size: 12.5px; font-weight: 700; color: var(--ink-3); background: var(--soft); border-radius: 999px; padding: 3px 9px;}
+.cv-steps {display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px;}
+.cv-step {display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; border-radius: 10px; border: 1px dashed var(--line); background: none; color: var(--ink-2); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;}
+.cv-step svg {width: 15px; height: 15px;} .cv-step.on {border-style: solid; border-color: transparent; background: color-mix(in srgb, var(--green, #1f9d55) 14%, transparent); color: var(--green, #1f9d55);}
+.cv-step:disabled {cursor: default;}
+.cv-notes {margin: 0; color: var(--ink-2); font-size: 14px; white-space: pre-wrap;}
+.cv-act {display: flex; gap: 8px; flex-wrap: wrap;}
+.sheet.cv-form {width: min(560px, 100%);} .cv-form .tp-foot .pill-btn {flex: none; width: auto;} .cv-form .cv-del {margin-right: auto; grid-column: auto;}
 </style>
 </head>
 <body>

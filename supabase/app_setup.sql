@@ -2214,4 +2214,134 @@ end $$;
 revoke all on function app_delete_me() from public, anon;
 grant execute on function app_delete_me() to authenticated;
 
+-- ---------------------------------------------------------------- The welcome form for every church
+-- Each church has its own link, e.g. fcc-connect.vercel.app/melbourne (its name in small letters, spaces as dashes).
+-- A sign-up belongs to the church whose link was used (the plain link: the home church). That church's admins approve
+-- it, and so does the main admin; nobody else sees it.
+alter table registrations add column if not exists church text;
+create or replace function app_slug(t text) returns text language sql immutable set search_path = public as
+$$ select trim(both '-' from regexp_replace(lower(trim(coalesce(t, ''))), '[^a-z0-9]+', '-', 'g')) $$;
+-- the form asks which church a link is for (anyone can ask; it only answers with a church's name)
+create or replace function app_form_church(s text) returns text language sql stable security definer set search_path = public as
+$$ select name from churches where app_slug(name) = app_slug(s) and app_slug(s) <> '' order by name limit 1 $$;
+revoke all on function app_form_church(text) from public;
+grant execute on function app_form_church(text) to anon, authenticated;
+-- a sign-up's church is always a real church: one the form named, or else the home church
+create or replace function app_reg_church() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  new.church := coalesce((select name from churches where name = nullif(trim(new.church), '')), app_home_church());
+  return new;
+end $$;
+drop trigger if exists app_reg_church on registrations;
+create trigger app_reg_church before insert on registrations for each row execute function app_reg_church();
+update registrations set church = app_home_church() where church is null;
+create index if not exists registrations_church on registrations (church, status);
+-- who handles a church's sign-ups: the main admin, and that church's admins
+create or replace function app_can_approve_for(ch text) returns boolean language sql stable security definer set search_path = public as
+$$ select coalesce(app_role() = 'admin' or (app_role() = 'lead' and app_church() = coalesce(nullif(trim(ch), ''), app_home_church())), false) $$;
+revoke all on function app_can_approve_for(text) from public, anon;
+grant execute on function app_can_approve_for(text) to authenticated;
+drop policy if exists "app: see sign-ups" on registrations;
+create policy "app: see sign-ups" on registrations for select to authenticated using (app_can_approve_for(church));
+create or replace function app_approve_signup(reg uuid, match_id text default null, check_in boolean default true,
+                                              at_txt text default null) returns text
+language plpgsql security definer set search_path = public as $$
+declare r registrations%rowtype; mid text; visit date; ch text;
+        stamp text := left(coalesce(nullif(trim(at_txt), ''), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF')), 40);
+        log_id text := substr(replace(gen_random_uuid()::text, '-', ''), 1, 12);
+begin
+  select coalesce(nullif(trim(x.church), ''), app_home_church()) into ch from registrations x where x.id = reg;
+  if ch is null or not app_can_approve_for(ch) then raise exception 'not allowed'; end if;
+  update registrations set status = 'approved' where id = reg and status = 'pending' returning * into r;
+  if not found then raise exception 'already handled'; end if;
+  visit := coalesce(r.first_visit, (now() at time zone 'Pacific/Auckland')::date);
+  if match_id is not null then  -- existing person: only fill in what the form gave, never blank anything
+    update members set phone = coalesce(nullif(trim(r.phone), ''), phone), email = coalesce(nullif(trim(r.email), ''), email),
+                       invited_by = coalesce(nullif(trim(r.invited_by), ''), invited_by), version = version + 1
+     where id = match_id and coalesce(nullif(trim(church), ''), app_home_church()) = ch;
+    if not found then raise exception 'that person is not on this church''s register'; end if;
+    mid := match_id;
+  else
+    mid := substr(replace(gen_random_uuid()::text, '-', ''), 1, 12);
+    insert into members (id, full_name, phone, email, invited_by, type, status, first_visit, follow_up, created_at, church)
+    values (mid, regexp_replace(trim(r.full_name), '\s+', ' ', 'g'), trim(coalesce(r.phone, '')), trim(coalesce(r.email, '')),
+            trim(coalesce(r.invited_by, '')), 'first_timer', '', visit,
+            'Welcome form' || case when coalesce(r.wants_contact, true) then '' else ' · prefers no contact' end
+              || case when trim(coalesce(r.notes, '')) <> '' then ' · ' || trim(r.notes) else '' end, stamp, ch);
+  end if;
+  if check_in then
+    insert into services (service_date, name) values (visit, 'Sunday Service') on conflict (service_date) do nothing;
+    insert into attendance (service_date, member_id, checked_at) values (visit, mid, stamp) on conflict do nothing;
+    insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+    values (log_id || 't', stamp, 'tick', visit, mid, '', app_who(), 'done');
+  end if;
+  update registrations set member_id = mid where id = reg;
+  insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+  values (log_id, stamp, 'signup_approved', null, mid,
+          case when match_id is null then 'new first-timer' else 'matched existing person' end, app_who(), 'done');
+  return mid;
+end $$;
+create or replace function app_reject_signup(reg uuid, at_txt text default null) returns boolean
+language plpgsql security definer set search_path = public as $$
+declare n int; ch text; stamp text := left(coalesce(nullif(trim(at_txt), ''), to_char(now(), 'YYYY-MM-DD"T"HH24:MI:SSOF')), 40);
+begin
+  select coalesce(nullif(trim(x.church), ''), app_home_church()) into ch from registrations x where x.id = reg;
+  if ch is null or not app_can_approve_for(ch) then raise exception 'not allowed'; end if;
+  update registrations set status = 'rejected' where id = reg and status = 'pending';
+  get diagnostics n = row_count;
+  insert into activity_log (id, at, kind, service_date, member_id, detail, by_name, result)
+  values (substr(replace(gen_random_uuid()::text, '-', ''), 1, 12), stamp, 'signup_rejected', null, null, '', app_who(),
+          case when n > 0 then 'done' else 'already' end);
+  return n > 0;
+end $$;
+
+-- ---------------------------------------------------------------- New converts
+-- Everyone who gives their life to Christ, by name, at each church: when and where, who is looking after them, and
+-- four steps (a call, a visit, the foundation class, baptism). The church's admins, pastors and team see and add them
+-- for their own church; the main admin for every church; the Bishop sees none. Records go after five years.
+create table if not exists converts (
+  id uuid primary key default gen_random_uuid(),
+  church text not null,
+  full_name text not null check (length(trim(full_name)) between 2 and 120),
+  phone text check (length(coalesce(phone, '')) <= 30),
+  decided_on date not null default current_date,
+  place text not null default 'service' check (place in ('service', 'midweek', 'bacenta', 'outreach', 'other')),
+  member_id text,
+  assigned_to text check (length(coalesce(assigned_to, '')) <= 120),
+  notes text check (length(coalesce(notes, '')) <= 2000),
+  called_on date, visited_on date, foundation_on date, baptised_on date,
+  created_by text, created_at timestamptz not null default now());
+create index if not exists converts_church on converts (church, decided_on desc);
+alter table converts enable row level security;
+create or replace function app_converts_ok(ch text) returns boolean language sql stable security definer set search_path = public as
+$$ select coalesce(app_role() = 'admin' or (app_role() in ('lead', 'pastor', 'team') and app_church() = ch), false) $$;
+revoke all on function app_converts_ok(text) from public, anon;
+grant execute on function app_converts_ok(text) to authenticated;
+create or replace function app_convert_stamp() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then new.created_by := app_who(); new.created_at := now(); end if;
+  new.full_name := regexp_replace(trim(new.full_name), '\s+', ' ', 'g');
+  return new;
+end $$;
+drop trigger if exists app_convert_stamp on converts;
+create trigger app_convert_stamp before insert or update on converts for each row execute function app_convert_stamp();
+drop policy if exists "app: read converts" on converts;
+create policy "app: read converts" on converts for select to authenticated using (app_converts_ok(church));
+drop policy if exists "app: add converts" on converts;
+create policy "app: add converts" on converts for insert to authenticated with check (app_converts_ok(church));
+drop policy if exists "app: change converts" on converts;
+create policy "app: change converts" on converts for update to authenticated using (app_converts_ok(church)) with check (app_converts_ok(church));
+drop policy if exists "app: remove converts" on converts;
+create policy "app: remove converts" on converts for delete to authenticated
+  using (app_converts_ok(church) and app_role() in ('admin', 'lead'));
+revoke all on converts from anon;
+grant select, insert, update, delete on converts to authenticated;
+do $$
+begin
+  create extension if not exists pg_cron;
+  perform cron.unschedule(jobid) from cron.job where jobname = 'fcc-converts-tidy';
+  perform cron.schedule('fcc-converts-tidy', '41 14 * * *', $c$delete from public.converts where decided_on < current_date - interval '5 years'$c$);
+exception when others then raise notice 'Old convert records are not tidied automatically: %', sqlerrm;
+end $$;
+
 notify pgrst, 'reload schema';
