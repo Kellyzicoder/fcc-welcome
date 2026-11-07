@@ -2446,6 +2446,7 @@ create trigger app_msg_wipe after update of wiped_at on members for each row exe
 --    Each form takes at most 300 a day in all. Only a scrambled (hashed) form of the address is kept, for 2 days.
 create schema if not exists private;
 create table if not exists private.form_hits (who text not null, form text not null, at timestamptz not null default now());
+alter table private.form_hits enable row level security;  -- only the database's own spam check uses it
 create index if not exists form_hits_who on private.form_hits (who, at);
 create index if not exists form_hits_form on private.form_hits (form, at);
 revoke all on private.form_hits from public, anon, authenticated;
