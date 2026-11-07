@@ -375,6 +375,7 @@ function textPerson(o) {
 // ---------------------------------------------------------------- New converts
 // Everyone who gives their life to Christ, by name: when and where, who is looking after them, and four steps to walk
 // with them (a call, a visit, the foundation class, baptism). Each step is one tap. The database keeps each church's own.
+const CV_FORM = "https://fcc-new-converts.vercel.app";  // the public New converts form
 const CV_STEPS = [["called_on", "Called"], ["visited_on", "Visited"], ["foundation_on", "Foundation class"], ["baptised_on", "Baptised"]];
 const CV_PLACE = {service: "Sunday service", midweek: "Midweek service", bacenta: "Bacenta", outreach: "Outreach", other: "Somewhere else"};
 async function converts(el) {
@@ -384,6 +385,9 @@ async function converts(el) {
   let rows;
   try { rows = await all(`converts?select=*&church=eq.${encodeURIComponent(S.church)}&order=decided_on.desc,created_at.desc`); }
   catch (e) { el.innerHTML = head("New converts", sub) + `<div class="msg bad">${/converts|relation|schema cache/i.test(e.message) ? "New converts needs the latest setup SQL: run it in Supabase once, then open this page again." : esc(e.message)}</div>`; return; }
+  // the public New converts form: entries for this church not yet added or dismissed (null until the setup SQL is run)
+  const forms = (await all("new_converts?select=*&convert_id=is.null&dismissed_at=is.null&order=created_at.desc").catch(() => null) || [])
+    .filter(f => ((f.church || "").trim() || S.me.home) === S.church);
   if (S.view !== "converts") return;
   const done = r => CV_STEPS.every(([k]) => r[k]), yr = today().slice(0, 4), mo = today().slice(0, 7);
   const F = {open: ["Still walking with", r => !done(r)], done: ["All four steps done", done], all: ["Everyone", () => true]};
@@ -399,11 +403,41 @@ async function converts(el) {
       <div class="cv-steps">${CV_STEPS.map(([k, t]) => `<button type="button" class="cv-step ${r[k] ? "on" : ""}" data-step="${k}" ${ro ? "disabled" : ""} aria-pressed="${!!r[k]}" title="${r[k] ? `${t} on ${esc(nice2(r[k]))}. Tap to undo.` : `Tap when ${t.toLowerCase()} is done`}">${r[k] ? svg("tick") : ""}${t}</button>`).join("")}</div>
       ${r.notes ? `<p class="cv-notes">${esc(r.notes)}</p>` : ""}
       <div class="cv-act">${r.phone ? `<button type="button" class="pill-btn sm" data-cvmsg>${svg("community")}Message</button>` : ""}${ro ? "" : `<button type="button" class="pill-btn sm" data-cvedit>${svg("edit")}Edit</button>`}</div></div>`; };
+  const fLink = `${CV_FORM}/?church=${encodeURIComponent(S.church)}`, nzDay = t => new Date(t).toLocaleDateString("en-CA", {timeZone: "Pacific/Auckland"});
+  const formCard = f => `<div class="cvf" data-cvf-id="${esc(f.id)}"><div class="cvf-top"><b>${esc(f.full_name)}</b><small class="muted">${esc(nice2(nzDay(f.created_at)))}${f.decision === "Rededicated my life to Jesus" ? " · Rededicated" : ""}</small></div>
+      <small class="muted">${esc([f.phone, f.email, f.suburb].filter(Boolean).join(" · "))}</small>
+      ${(f.next_steps || []).length ? `<div class="cvf-tags">${f.next_steps.map(t => `<span class="badge">${esc(t)}</span>`).join("")}</div>` : ""}
+      ${f.prayer_request ? `<p class="cv-notes">${esc(f.prayer_request)}</p>` : ""}
+      ${ro ? "" : `<div class="cv-act"><button type="button" class="pill-btn sm primary" data-cvf-add>${svg("plus")}Add</button><button type="button" class="pill-btn sm" data-cvf-no>Dismiss</button></div>`}</div>`;
   el.innerHTML = head("New converts", sub, btns) + `
+    ${forms.length ? `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>From the form <span class="badge red">${forms.length}</span></h2></div><div class="cvf-list">${forms.map(formCard).join("")}</div></div>` : ""}
     <div class="cv-stats">${stat(rows.filter(r => r.decided_on.startsWith(mo)).length, "this month")}${stat(rows.filter(r => r.decided_on.startsWith(yr)).length, "this year")}${stat(rows.filter(r => !done(r)).length, "still walking with")}${stat(rows.filter(r => (r.baptised_on || "").startsWith(yr)).length, "baptised this year")}</div>
     <div class="chips" style="margin:0 0 12px">${Object.entries(F).map(([k, [t, f]]) => `<button type="button" class="chip ${S.cvF === k ? "on" : ""}" data-cvf="${k}">${t} (${rows.filter(f).length})</button>`).join("")}</div>
     ${list.length ? `<div class="cv-list">${list.map(card).join("")}</div>` : `<div class="card"><p class="empty">${rows.length ? "Nobody in this list." : `No new converts recorded at ${esc(S.church)} yet.${ro ? "" : " Tap <b>Add a convert</b> after an altar call."}`}</p></div>`}
-    ${rows.length && !ro ? `<p style="margin-top:14px"><button type="button" class="link" id="cv-dl" style="margin:0">Download the list</button></p>` : ""}`;
+    ${rows.length && !ro ? `<p style="margin-top:14px"><button type="button" class="link" id="cv-dl" style="margin:0">Download the list</button></p>` : ""}
+    <div class="card fl-card" style="margin-top:14px"><div class="fl-row"><div class="fl-txt"><h2>${esc(S.church)}'s new converts form</h2>
+      <p class="note" style="margin:2px 0 8px">For people to fill in themselves. Their answers show at the top of this page.</p><a class="fl-link" href="${esc(fLink)}" target="_blank" rel="noopener">${esc(decodeURIComponent(fLink.replace(/^https?:\/\//, "")))}</a>
+      <div class="fl-btns"><button type="button" class="pill-btn sm" id="cvf-copy">Copy link</button><a class="pill-btn sm" href="${esc(qrImg(fLink, 1000))}" target="_blank" rel="noopener">Open QR to print</a></div></div>
+      <img class="fl-qr" src="${esc(qrImg(fLink, 240))}" alt="QR code for ${esc(S.church)}'s new converts form" width="120" height="120" loading="lazy"></div></div>`;
+  el.querySelector("#cvf-copy").onclick = async () => { try { await navigator.clipboard.writeText(fLink); toast("Link copied."); } catch { toast(fLink); } };
+  // a form entry: Add makes it a convert here (steps start empty); Dismiss hides it (a duplicate or a test)
+  const CVF_PLACE = {"Sunday service": "service", "Church event or outreach": "outreach"};
+  el.querySelectorAll("[data-cvf-id]").forEach(c => { const f = forms.find(x => x.id === c.dataset.cvfId), lock = on => c.querySelectorAll("button").forEach(b => b.disabled = on);
+    c.querySelector("[data-cvf-add]")?.addEventListener("click", async () => { lock(true);
+      try {
+        const notes = [f.decision === "Rededicated my life to Jesus" ? "Rededicated their life." : "", (f.next_steps || []).length ? "Asked for: " + f.next_steps.join(", ") + "." : "",
+          f.prayer_request ? "Prayer: " + f.prayer_request : "", f.email ? "Email: " + f.email : ""].filter(Boolean).join("\n").slice(0, 2000);
+        const row = await api("converts", {method: "POST", prefer: "return=representation", body: {church: S.church, full_name: f.full_name.trim().length < 2 ? f.full_name.trim() + "." : f.full_name.trim(),
+          phone: f.phone ? f.phone.slice(0, 30) : null, decided_on: nzDay(f.created_at), place: CVF_PLACE[f.heard_from] || "other", notes: notes || null}});
+        const id = (Array.isArray(row) ? row[0] : row)?.id;
+        await api(`new_converts?id=eq.${encodeURIComponent(f.id)}`, {method: "PATCH", prefer: "return=minimal", body: {convert_id: id}});
+        toast(`${f.full_name.split(" ")[0]} is added.`); render();
+      } catch (e) { lock(false); toast("Not added: " + e.message); } });
+    c.querySelector("[data-cvf-no]")?.addEventListener("click", async e => { const b = e.currentTarget;
+      if (!b.dataset.armed) { b.dataset.armed = 1; b.textContent = "Tap again"; setTimeout(() => { delete b.dataset.armed; b.textContent = "Dismiss"; }, 4000); return; }
+      lock(true);
+      try { await api(`new_converts?id=eq.${encodeURIComponent(f.id)}`, {method: "PATCH", prefer: "return=minimal", body: {dismissed_at: new Date().toISOString()}}); toast("Dismissed."); render(); }
+      catch (err) { lock(false); toast("Not dismissed: " + err.message); } }); });
   el.querySelectorAll("[data-cvf]").forEach(b => b.onclick = () => { S.cvF = b.dataset.cvf; render(); });
   el.querySelector("#cv-add")?.addEventListener("click", () => convertForm(null));
   el.querySelector("#cv-dl")?.addEventListener("click", () => download(`New_converts_${S.church}_${today()}.csv`,
