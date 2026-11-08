@@ -79,6 +79,8 @@
   const services = [...sundays.map(d => ({service_date: d, name: "Sunday Service"})), ...weds.map(d => ({service_date: d, name: "Midweek Service"})), ...fris.map(d => ({service_date: d, name: "Youth Service"}))];
   const T = {
     churches: CH.map(name => ({name, livestream: null, created_at: "2024-01-01T00:00:00Z"})),
+    chat_messages: [{id: "al1", church: HOME, channel: "everyone", body: "Service starts at 10am this Sunday, not 9:30. Please tell your people.", alert: true,
+      author_email: "demo@example.com", author_name: "Demo Admin", created_at: new Date(Date.now() - 2 * 36e5).toISOString()}],
     new_converts: [{id: "nc1", created_at: new Date(Date.now() - 864e5).toISOString(), full_name: "Ama Boateng", phone: "021 555 0142", email: null, suburb: "Mt Albert", church: HOME,
       decision: "Gave my life to Jesus", heard_from: "Sunday service", next_steps: ["Call me", "Foundation class"], prayer_request: "For my family.", consent: true, convert_id: null, dismissed_at: null}],
     members, attendance, services, service_parts: [], service_ticks: [], bacentas, bacenta_ticks, bacenta_skips, bacenta_guests, bacenta_guest_ticks, bacenta_helpers: [{bacenta: "b1", email: "usher@example.com", role: "assisting"}],
@@ -228,6 +230,7 @@
       const merge = /merge-duplicates/.test(prefer || ""), ignore = /ignore-duplicates/.test(prefer || "");
       for (const r of list) {
         if (table === "help_messages" && !r.id) r.id = crypto.randomUUID?.() || String(Date.now());
+        if (table === "chat_messages") Object.assign(r, {id: crypto.randomUUID?.() || String(Date.now()), author_email: AS?.email || "demo@example.com", author_name: AS?.name || "Demo Admin", created_at: new Date().toISOString()});
         if (table === "converts" && !r.id) r.id = crypto.randomUUID?.() || String(Date.now());
         if (table === "messages_sent") Object.assign(r, {id: crypto.randomUUID?.() || String(Date.now()), sent_at: new Date().toISOString(), sent_by: AS?.email || "demo@example.com", sent_by_name: AS?.name || "Demo Admin"});  // like the database: the sender and time from the sign-in
         if (table === "bacenta_guests") r.status = AS ? "pending" : "approved";  // like the database: a shepherd's names wait for approval
