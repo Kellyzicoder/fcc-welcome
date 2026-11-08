@@ -250,6 +250,10 @@ button.status-row:last-child {border-bottom: 0;} button.status-row:hover, button
 .vlist {list-style: none; margin: 0; padding: 0;} .vlist li {padding: 9px 2px; border-top: 1px solid var(--line);} .vlist li:first-child {border-top: 0;}
 .badge[title] {cursor: help;} .flag-key {display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: -4px 2px 12px; font-size: 13px; color: var(--ink-2);} .flag-key span:not(.badge) {margin-right: 8px;}
 .push-steps {margin: 12px 0 8px; padding-left: 22px; line-height: 1.7;} .push-steps li {margin-bottom: 10px;} .push-steps .pill-btn {margin: 2px 4px;}
+/* Pastors and Shepherds: a name's people open under its row */
+.cg-table tr.cg-on > td {background: color-mix(in srgb, var(--accent) 7%, transparent);}
+.cg-open > td {padding: 0 0 12px !important; background: color-mix(in srgb, var(--accent) 7%, transparent);}
+.cg-panel {margin: 0 10px; padding: 12px 14px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); scroll-margin-top: 12px;} .cg-panel .card-head {gap: 8px; flex-wrap: wrap;}
 /* Alerts: the page, and the newest one at the top of Home */
 .home-alert {display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: start; margin: 0 0 14px; padding: 14px 12px 14px 16px; border-radius: 16px;
   background: var(--red-bg); border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);}
