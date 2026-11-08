@@ -4216,7 +4216,7 @@ function careGroups(el, K) {  // the Pastors and Shepherds pages: each one's peo
   const untidy = K.key === "pastors:" && S.me.role === "admin" && !S.preview ? new Set([...Object.values(S.pastorList || {}).flat(), ...S.members.flatMap(pastorsOf)].filter(n => fullTitle(n) !== n)).size : 0;
   for (const n of plist) groups[n] ??= [];  // names on the list show even before anyone is assigned to them
   const names = Object.keys(groups).sort((a, b) => (a === NONE) - (b === NONE) || a.localeCompare(b));
-  if (!names.includes(S[K.sel])) S[K.sel] = names[0] || "";
+  if (!names.includes(S[K.sel])) S[K.sel] = "";  // nobody open until a name is tapped
   const list = (groups[S[K.sel]] || []).slice().sort(byName), came = list.filter(x => p.here[x.id]), need = list.filter(x => x.level !== "ok");
   const message = (o = {}) => {
     if (o.day && !p0.dates.includes(o.day)) return null;
@@ -4229,17 +4229,16 @@ function careGroups(el, K) {  // the Pastors and Shepherds pages: each one's peo
     if (need.length) out.push("", ["📞", "Please call:"], ...need.map(x => `- ${x.full_name} (${x.missed} missed${x.phone ? ", " + x.phone : ""})`));
     return wa(out);
   };
-  el.innerHTML = head(K.words, esc(S.church),
-    S[K.sel] && S[K.sel] !== NONE ? `<button class="pill-btn" id="wa">Message for WhatsApp</button>` : "") + `
-    ${names.length ? `<div class="card" style="margin-bottom:14px"><div class="scroll"><table><thead><tr><th>${K.word}</th><th>People</th><th>Came${p.last ? " · " + esc(nice(p.last)) : ""}</th><th>Need a call</th></tr></thead><tbody>
-      ${names.map(n => { const g = groups[n]; return `<tr><td><button class="who ${n === S[K.sel] ? "sel" : ""}" data-pastor="${esc(n)}"><span>${esc(initials(n))}</span>${esc(shortTitle(n))}</button></td>
-        <td>${g.length}</td><td>${g.filter(x => p.here[x.id]).length}</td><td>${g.filter(x => x.level !== "ok").length}</td></tr>`; }).join("")}</tbody></table></div></div>
-    <div class="card" id="pastor-people" style="scroll-margin-top:12px"><div class="card-head"><h2>${esc(shortTitle(S[K.sel]))}</h2><span class="gap"></span><span style="color:var(--ink-3);font-size:13px">${list.length} ${list.length === 1 ? "person" : "people"}</span></div>
-      <div class="scroll"><table><thead><tr><th>Name</th>${canEdit ? "<th></th>" : ""}<th>Came</th><th>Status</th><th>Missed in a row</th><th>Phone</th></tr></thead><tbody>
+  const open = n => `<tr class="cg-open"><td colspan="5"><div class="cg-panel" id="pastor-people">
+      <div class="card-head"><h2>${esc(shortTitle(n))}'s people</h2><span class="gap"></span>${n !== NONE ? `<button class="pill-btn sm" id="wa">Message for WhatsApp</button>` : ""}<button type="button" class="pill-btn sm" data-pastor="${esc(n)}">Close</button></div>
+      ${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th>${canEdit ? "<th></th>" : ""}<th>Came</th><th>Status</th><th>Missed in a row</th><th>Phone</th></tr></thead><tbody>
       ${list.map(x => `<tr><td>${whoBtn(x)}</td>${canEdit ? `<td><button class="pill-btn sm" data-edit="${esc(x.id)}" aria-label="Edit ${esc(x.full_name)}">${svg("edit")}Edit</button></td>` : ""}<td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${flagBadge(x)}</td><td>${x.missed}</td><td class="muted">${esc(x.phone || "")}</td></tr>`).join("")}
-      </tbody></table></div>
-      ${list.length ? "" : `<p class="empty">Nobody is assigned to ${esc(S[K.sel])} yet.</p>`}
-      </div>`
+      </tbody></table></div>` : `<p class="empty" style="margin:0">Nobody is assigned to ${esc(shortTitle(n))} yet.</p>`}</div></td></tr>`;
+  el.innerHTML = head(K.words, esc(S.church)) + `
+    ${names.length ? `<div class="card" style="margin-bottom:14px"><p class="note" style="margin:0 2px 10px">Tap a name to see their people.</p><div class="scroll"><table class="cg-table"><thead><tr><th>${K.word}</th><th>People</th><th>Came${p.last ? " · " + esc(nice(p.last)) : ""}</th><th>Need a call</th><th></th></tr></thead><tbody>
+      ${names.map(n => { const g = groups[n], on = n === S[K.sel]; return `<tr class="${on ? "cg-on" : ""}"><td><button class="who ${on ? "sel" : ""}" data-pastor="${esc(n)}" aria-expanded="${on}"><span>${esc(initials(n))}</span>${esc(shortTitle(n))}</button></td>
+        <td>${g.length}</td><td>${g.filter(x => p.here[x.id]).length}</td><td>${g.filter(x => x.level !== "ok").length}</td>
+        <td style="text-align:right"><button type="button" class="pill-btn sm" data-pastor="${esc(n)}" aria-expanded="${on}">${on ? "Hide" : "Show people"}</button></td></tr>${on ? open(n) : ""}`; }).join("")}</tbody></table></div></div>`
       : `<p class="empty">Nobody on this register yet.</p>`}
     ${canEdit ? `<div class="card plist" id="plist"><div class="pl-head"><span class="pl-ico">${svg(K.view)}</span><div><h2>${K.word} list</h2><p>${esc(S.church)} · ${plist.length} ${plist.length === 1 ? "name" : "names"}</p></div><span class="gap"></span>
         <button type="button" class="pill-btn sm primary" id="pl-add">${svg("plus")}Add ${K.word.toLowerCase()}</button></div>
@@ -4293,7 +4292,7 @@ function careGroups(el, K) {  // the Pastors and Shepherds pages: each one's peo
     drawList();
   }
   el.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => editPerson(S.members.find(m => m.id === b.dataset.edit)));
-  el.querySelectorAll("[data-pastor]").forEach(b => b.onclick = () => { S[K.sel] = b.dataset.pastor; S.pastorJump = true; render(); });
+  el.querySelectorAll("[data-pastor]").forEach(b => b.onclick = () => { const n = b.dataset.pastor; S[K.sel] = S[K.sel] === n ? "" : n; S.pastorJump = !!S[K.sel]; render(); });  // tap again to close
   if (S.pastorJump) { S.pastorJump = false; requestAnimationFrame(() => el.querySelector("#pastor-people")?.scrollIntoView({behavior: "smooth", block: "start"})); }  // straight to their people
   const btn = el.querySelector("#wa"); if (btn) btn.onclick = () => waDialog(`Message for ${S[K.sel]}`, message, {day: p.last || today()});
 }
@@ -4409,7 +4408,7 @@ async function bacentas(el, mode = "manage") {
   // which Bacenta is open: on Check-in, one they can take (today's first); on the Bacentas page, any shown
   const pickFrom = take ? mine : shown;
   if (!pickFrom.some(x => x.id === S.bacenta)) S.bacenta = (pickFrom.find(x => x.meet_day === new Date().getDay()) || (lim && shown.find(bacMine)) || pickFrom[0])?.id || "";
-  const b = list.find(x => x.id === S.bacenta), canTick = take && !!b && b.active && !S.preview && (!lim || bacMine(b));
+  const b = list.find(x => x.id === (take || (lim && shown.length === 1) ? S.bacenta : S.bcOpen)), canTick = take && !!b && b.active && !S.preview && (!lim || bacMine(b));
   if (b && S.bcDateFor !== b.id) { S.bcDate = bacLastDay(b) || today(); S.bcDateFor = b.id; }  // opens on its latest usual day
   S.bcDate ||= today();
   const pastorOpts = () => { const names = [...new Set([...(S.pastorList?.[S.church] || []), ...list.map(x => x.pastor).filter(Boolean)])].sort();
@@ -4459,16 +4458,17 @@ async function bacentas(el, mode = "manage") {
     ${canEdit ? `<div id="bc-approve"></div>` : ""}
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>${esc(S.church)} Bacentas</h2><span class="gap"></span>
       ${hidden ? `<label class="check" style="font-size:13px"><input type="checkbox" id="bc-hid" ${S.bcHidden ? "checked" : ""}> Show hidden (${hidden})</label>` : ""}</div>
-      ${shown.length ? `<div class="scroll"><table><thead><tr><th>Bacenta</th><th>Meets</th><th>Shepherd</th><th>Pastor</th><th>Last met</th><th>Came</th><th>People</th><th>Not filled in</th>${canEdit ? "<th></th>" : ""}</tr></thead><tbody>
+      ${shown.length ? `<div class="scroll"><table><thead><tr><th>Bacenta</th><th>Meets</th><th>Shepherd</th><th>Pastor</th><th>Last met</th><th>Came</th><th>People</th><th>Not filled in</th><th></th>${canEdit ? "<th></th>" : ""}</tr></thead><tbody>
         ${shown.map(x => { const ms = meetings(x.id), last = ms[0], ppl = membersOf(x).size, miss = missing(x).length;
-          return `<tr><td><button class="who ${x.id === S.bacenta ? "sel" : ""}" data-bc="${esc(x.id)}"><span>${esc(initials(x.name))}</span>${esc(x.name)}</button>${x.active ? "" : ` <small class="muted">Hidden</small>`}</td>
+          return `<tr><td><button class="who ${x.id === b?.id ? "sel" : ""}" data-bc="${esc(x.id)}"><span>${esc(initials(x.name))}</span>${esc(x.name)}</button>${x.active ? "" : ` <small class="muted">Hidden</small>`}</td>
             <td>${x.meet_day != null ? esc(DAYS[x.meet_day] + "s") : `<span class="muted">Not set</span>`}</td>
             <td>${x.shepherd ? esc(shortTitle(x.shepherd)) : `<span class="muted">Not set</span>`}</td><td>${x.pastor ? esc(shortTitle(x.pastor)) : `<span class="muted">Not set</span>`}</td><td>${last ? esc(short(last[0])) : `<span class="muted">Not yet</span>`}</td><td>${last ? last[1] : ""}</td><td>${ppl}</td>
             <td>${x.meet_day == null ? `<span class="muted">Set its day</span>` : miss ? `<span class="badge yellow" title="Weeks in the last 8 (Monday to Sunday) with no attendance on any day and not marked Didn't meet">${miss} ${miss === 1 ? "week" : "weeks"}</span>` : `<span class="badge ok">Up to date</span>`}</td>
+            <td><button type="button" class="pill-btn sm" data-bc="${esc(x.id)}" aria-expanded="${x.id === b?.id}">${x.id === b?.id ? "Hide" : "Open"}</button></td>
             ${canEdit ? `<td><button class="pill-btn sm" data-bcedit="${esc(x.id)}" aria-label="Edit ${esc(x.name)}">${svg("edit")}Edit</button></td>` : ""}</tr>`; }).join("")}</tbody></table></div>`
         : `<p class="empty">${list.length ? "All this church's Bacentas are hidden." : `No Bacentas in ${esc(S.church)} yet.${canEdit ? " Tap Add a Bacenta." : ""}`}</p>`}</div>
     ${b ? `<div class="card" id="bc-take" style="margin-bottom:14px;scroll-margin-top:12px"><div class="card-head"><h2>${esc(b.name)}</h2><span class="gap"></span>
-        ${b.active && !S.preview && (!lim || bacMine(b)) ? `<button type="button" class="pill-btn primary sm" id="bc-go">${svg("checkin")}Take attendance</button>` : ""}</div>
+        ${b.active && !S.preview && (!lim || bacMine(b)) ? `<button type="button" class="pill-btn primary sm" id="bc-go">${svg("checkin")}Take attendance</button>` : ""}${S.bcOpen === b.id ? `<button type="button" class="pill-btn sm" data-bc="${esc(b.id)}">Close</button>` : ""}</div>
       <p class="note" style="margin:0 2px 10px">${who(b)}</p><div id="bc-miss"></div></div>
     <div id="bc-centas"></div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Follow-up</h2><span class="gap"></span><span class="muted" style="font-size:13px">Missed the last meetings in a row</span></div><div id="bc-follow"></div></div>
@@ -4508,8 +4508,8 @@ async function bacentas(el, mode = "manage") {
         x.active ? {label: "Hide Bacenta", confirm: "Tap again to hide", run: async () => { await saveB(x.id, {active: false}); toast(`${x.name} is hidden. Its past attendance is kept.`); }}
           : {label: "Show again", confirm: "Tap again to show", run: async () => { await saveB(x.id, {active: true}); toast(`${x.name} is back.`); }}); });
     el.querySelector("#bc-hid")?.addEventListener("change", e => { S.bcHidden = e.target.checked; render(); });
-    el.querySelectorAll("[data-bc]").forEach(btn => btn.onclick = () => { S.bacenta = btn.dataset.bc; S.bcQ = ""; render();
-      requestAnimationFrame(() => document.getElementById("bc-take")?.scrollIntoView({behavior: "smooth", block: "start"})); });
+    el.querySelectorAll("[data-bc]").forEach(btn => btn.onclick = () => { const id = btn.dataset.bc; S.bacenta = id; S.bcQ = ""; S.bcOpen = S.bcOpen === id ? "" : id; render();  // tap again to close
+      if (S.bcOpen) requestAnimationFrame(() => document.getElementById("bc-take")?.scrollIntoView({behavior: "smooth", block: "start"})); });
     el.querySelector("#bc-go")?.addEventListener("click", () => takeBacenta(b.id, bacLastDay(b) || today()));
     // names added at a Bacenta by a shepherd, pastor or helper, waiting for a church admin to add them to the Congregation list
     const waiting = guests.filter(g => g.status === "pending" && !g.member_id && list.some(x => x.id === g.bacenta));
