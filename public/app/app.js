@@ -314,7 +314,7 @@ const msgDay = ts => { const d = new Date(ts), t = new Date(); if (d.toDateStrin
   return (t - d) / 864e5 < 6 ? d.toLocaleDateString("en-NZ", {weekday: "short"}) : d.toLocaleDateString("en-NZ", {day: "numeric", month: "short"}); };
 const msgTag = x => x ? `<small class="tp-did" title="Messaged by ${esc(x.sent_by_name || "")} on ${esc(new Date(x.sent_at).toLocaleString("en-NZ", {dateStyle: "medium", timeStyle: "short"}))}">${svg("tick")}Messaged · ${esc(String(x.sent_by_name || "").split(" ")[0])}, ${esc(msgDay(x.sent_at))}</small>` : "";
 const msgKind = (x, p) => x.type === "first_timer" && p.here[x.id] ? "thanks" : x.level !== "ok" || !p.here[x.id] ? "missed" : "hi";
-const msgBtn = (x, kind = "") => x.phone ? `<button type="button" class="icon-btn sm" data-msgto="${esc(x.id)}" ${kind ? `data-msgkind="${kind}"` : ""} title="Message ${esc(x.full_name)}" aria-label="Message ${esc(x.full_name)}">${svg("community")}</button>` : "";
+const msgBtn = (x, kind = "") => x.phone ? `<button type="button" class="icon-btn sm" data-msgto="${esc(x.id)}" ${kind ? `data-msgkind="${kind}"` : ""} title="Message ${esc(x.full_name)}" aria-label="Message ${esc(x.full_name)}">${svg("chat")}</button>` : "";
 const msgRecent = (id, days = 7) => { const x = lastMsg(id); return !!x && Date.now() - new Date(x.sent_at) < days * 864e5; };
 function textPerson(o) {
   if (o.queue) { const at = o.at || 0, p = o.queue[at]; if (!p) return;  // a list: this person, then the next one after Sent or Skip
@@ -402,7 +402,7 @@ async function converts(el) {
       <span class="cv-n" title="${n} of 4 steps done">${n}/4</span></div>
       <div class="cv-steps">${CV_STEPS.map(([k, t]) => `<button type="button" class="cv-step ${r[k] ? "on" : ""}" data-step="${k}" ${ro ? "disabled" : ""} aria-pressed="${!!r[k]}" title="${r[k] ? `${t} on ${esc(nice2(r[k]))}. Tap to undo.` : `Tap when ${t.toLowerCase()} is done`}">${r[k] ? svg("tick") : ""}${t}</button>`).join("")}</div>
       ${r.notes ? `<p class="cv-notes">${esc(r.notes)}</p>` : ""}
-      <div class="cv-act">${r.phone ? `<button type="button" class="pill-btn sm" data-cvmsg>${svg("community")}Message</button>` : ""}${ro ? "" : `<button type="button" class="pill-btn sm" data-cvedit>${svg("edit")}Edit</button>`}</div></div>`; };
+      <div class="cv-act">${r.phone ? `<button type="button" class="pill-btn sm" data-cvmsg>${svg("chat")}Message</button>` : ""}${ro ? "" : `<button type="button" class="pill-btn sm" data-cvedit>${svg("edit")}Edit</button>`}</div></div>`; };
   const fLink = `${CV_FORM}/?church=${encodeURIComponent(S.church)}`, nzDay = t => new Date(t).toLocaleDateString("en-CA", {timeZone: "Pacific/Auckland"});
   const formCard = f => `<div class="cvf" data-cvf-id="${esc(f.id)}"><div class="cvf-top"><b>${esc(f.full_name)}</b><small class="muted">${esc(nice2(nzDay(f.created_at)))}${f.decision === "Rededicated my life to Jesus" ? " · Rededicated" : ""}</small></div>
       <small class="muted">${esc([f.phone, f.email, f.suburb].filter(Boolean).join(" · "))}</small>
@@ -1336,7 +1336,8 @@ const ICON = {
   visits: '<path d="M3 11l9-7 9 7"/><path d="M5 9.5V20h14V9.5"/><path d="M9 14.5l2 2 4-4"/>',
   followup: '<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/>',
   converts: '<path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7a4.3 4.3 0 0 1 7.5 2.8C19.5 15.4 12 20 12 20z"/><path d="M12 10.5v4M10 12.5h4"/>',
-  community: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 10.5h7M8.5 14h4.5"/>',
+  chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 10.5h7M8.5 14h4.5"/>',
+  community: '<path d="M3 10v4a1 1 0 0 0 1 1h3l5 4V5L7 9H4a1 1 0 0 0-1 1z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M19 6.5a8 8 0 0 1 0 11"/>',
   bell: '<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/>', alerts: '<path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 7H4s2-1 2-7"/><path d="M10 20a2 2 0 0 0 4 0"/>',
   people: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   overview: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
@@ -1402,14 +1403,14 @@ function navGroup(h, items, btns) {
 function pages() {  // the menu, in groups; what each role can actually load is decided by the database
   const r = S.me.role;
   if (r === "bishop") return [["", [["overview", "All churches"], ["search", "Search"], ["help", "Help"]]]];
-  if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ["visits", "Visits"], ["converts", "New converts"], ...((S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ["community", "Community"], ["search", "Search"], ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people (and the Bacentas they oversee or shepherd)
+  if (r === "pastor") return [["", [["mine", "Home"], ["checkin", "Check-in"], ["visits", "Visits"], ["converts", "New converts"], ...((S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ["community", "Alerts"], ["search", "Search"], ["ask", "Ask a question"], ["help", "Help"]]]];  // a pastor: just their own people (and the Bacentas they oversee or shepherd)
   // Grouped by what people come to do: take attendance, look after people, share the numbers, run the churches, settings
   return [["ATTENDANCE", [["dashboard", "Dashboard"], ["checkin", "Check-in"], ["followup", "Follow-up"], ...(r === "team" ? [] : [["visits", "Visits"]])]],
           ["PEOPLE", [["people", "Congregation"], ["converts", "New converts"], ["pastors", "Pastors"], ["shepherds", "Shepherds"], ...(["admin", "lead"].includes(r) || (S.bacList || []).some(b => b.active && bacMine(b)) ? [["bacentas", "Bacentas"]] : []), ...(canApprove() ? [["signups", "Sign-ups"]] : []), ...(canTeam() ? [["teamforms", "Team forms"]] : []), ["archive", "Archive"]]],
           ["SHARE", [["reports", "Reports"]]],
           ...(r === "admin" ? [["CHURCHES", [["overview", "Churches"]]]] : []),
           ...(r === "team" ? [] : [[r === "admin" ? "ADMIN" : "RECORDS", [...(r === "admin" ? [["admin", "Admin"]] : []), ["activity", "Activity log"]]]]),
-          ["", [["community", "Community"], ["search", "Search"], ["ask", "Ask a question"], ["help", "Help"]]]];
+          ["", [["community", "Alerts"], ["search", "Search"], ["ask", "Ask a question"], ["help", "Help"]]]];
 }
 // Settings each person picks for themselves: colour, theme, text size and so on. Kept on this phone or laptop, per person.
 const ACCENTS = [["#1f6fe5", "Blue"], ["#0e8a7c", "Teal"], ["#6250d6", "Violet"], ["#c8417a", "Pink"], ["#dc5f26", "Orange"], ["#2b9348", "Green"], ["#b8860b", "Gold"]];
@@ -1570,7 +1571,7 @@ function render() {
   root.querySelectorAll("[data-back]").forEach(b => b.onclick = () => history.back());  // same as the phone's back gesture
   if (moved) pageIn(view);
   ({mine, dashboard, checkin, bacentas, summary: summaryPage, search: searchPage, alerts, community, converts, followup, visits, pastors, shepherds, people, person, signups, teamforms, archive, activity, reports, overview, admin, account, help, ask}[S.view] || dashboard)(view);
-  pushNudge(view);  // the 6am Sunday reminder: a one-time ask
+  homeAlert(view).then(() => pushNudge(view));  // the newest church alert, then the 6am Sunday reminder (a one-time ask)
 }
 // Smooth movement. A new page eases in for a moment only, so ticking or editing later never makes things flicker.
 const stillMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.classList.contains("calm");
@@ -1655,7 +1656,7 @@ addEventListener("popstate", () => {
   if (!S.me || !S.hist?.length) return;
   S.view = S.hist.pop(); S.goingBack = true; document.querySelectorAll(".modal").forEach(m => m.remove()); render();
 });
-const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", visits: "Visits", search: "Search", alerts: "Notifications", community: "Community", pastors: "Pastors", shepherds: "Shepherds", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", teamforms: "Team forms", archive: "Archive", converts: "New converts",
+const TITLE = {mine: "Home", dashboard: "Dashboard", checkin: "Check-in", followup: "Follow-up", visits: "Visits", search: "Search", alerts: "Notifications", community: "Alerts", pastors: "Pastors", shepherds: "Shepherds", people: "Congregation", person: "Person", account: "Your account", help: "Help", ask: "Ask a question", signups: "Sign-ups", teamforms: "Team forms", archive: "Archive", converts: "New converts",
                activity: "Activity", reports: "Reports", overview: "All churches", admin: "Admin"};
 const NAVHUE = {dashboard: 1, mine: 1, checkin: 2, bacentas: 3, summary: 6, followup: 3, visits: 4, search: 5, alerts: 3, community: 6, pastors: 4, shepherds: 2, people: 5, signups: 6, converts: 4, teamforms: 3, archive: 4, activity: 2, reports: 3, overview: 1, admin: 4, ask: 5, help: 6, account: 1, person: 5};
 // A greeting on the home pages: "Good morning, Kelvin", or "Welcome back, Pastor Grace" after a day or more away.
@@ -2903,7 +2904,7 @@ function followup(el) {
         <div class="w-pop fu-pop" role="menu" hidden>${MORE.map(k => `<button type="button" role="menuitem" class="${S.filter === k ? "on" : ""}" data-f="${k}">${tabs[k]}${had ? ` <span class="muted">${p.people.filter(pick[k]).length}</span>` : ""}</button>`).join("")}</div></span></div>
     <div class="fu-narrow" style="max-width:340px;margin:0 0 14px"><label class="f" for="fu-f">Show</label><select class="in" id="fu-f">${Object.entries(tabs).map(([k, t]) =>  // one dropdown instead of a row of pills, each list with its count
       `<option value="${k}" ${S.filter === k ? "selected" : ""}>${t} (${had ? p.people.filter(pick[k]).length : 0})</option>`).join("")}</select></div>  <!-- phones: the dropdown; wider screens: the pills -->
-    <div class="card"><div class="card-head"><h2>${tabs[S.filter]}</h2><span class="gap"></span>${withPhone.length > 1 && !S.preview ? `<button type="button" class="pill-btn sm" id="fu-all" title="${fresh.length < withPhone.length ? `Leaves out ${withPhone.length - fresh.length} messaged in the last 7 days` : ""}">${svg("community")}Message everyone (${(fresh.length || withPhone.length)})</button>` : ""}<span style="color:var(--ink-3);font-size:13px">${list.length} people</span></div>
+    <div class="card"><div class="card-head"><h2>${tabs[S.filter]}</h2><span class="gap"></span>${withPhone.length > 1 && !S.preview ? `<button type="button" class="pill-btn sm" id="fu-all" title="${fresh.length < withPhone.length ? `Leaves out ${withPhone.length - fresh.length} messaged in the last 7 days` : ""}">${svg("chat")}Message everyone (${(fresh.length || withPhone.length)})</button>` : ""}<span style="color:var(--ink-3);font-size:13px">${list.length} people</span></div>
       ${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th class="hide-sm">Pastor</th><th>Phone</th></tr></thead>
       <tbody>${rowsHtml(list, true)}</tbody></table></div>` : `<p class="empty">${had ? "Nobody in this list." : `No service was recorded on ${esc(nice(day || today(), true))}.`}</p>`}</div>`;
   { const q = x => ({name: x.full_name, phone: x.phone, mid: x.id, day: x.first_visit || "", kind: msgKind(x, p)});
@@ -4724,7 +4725,7 @@ async function person(el) {
   const p = picture(), mine = p.mine.slice().sort(byName), m = mine.find(x => x.id === S.person);
   // Opened by tapping a name on any list, so there's no search box here (finding people is on Congregation)
   const canEdit = ["admin", "lead"].includes(S.me.role) && !S.preview;  // the same people who can edit on Congregation
-  const top = head(m ? esc(m.full_name) : "Person", esc(S.church), m ? `${m.phone && !S.preview ? `<button class="pill-btn" id="pe-text">${svg("community")}Message</button>` : ""}${canEdit ? `<button class="pill-btn" id="pe-edit">${svg("edit")}Edit</button>` : ""}<button class="pill-btn" id="dl">Download</button>` : "");
+  const top = head(m ? esc(m.full_name) : "Person", esc(S.church), m ? `${m.phone && !S.preview ? `<button class="pill-btn" id="pe-text">${svg("chat")}Message</button>` : ""}${canEdit ? `<button class="pill-btn" id="pe-edit">${svg("edit")}Edit</button>` : ""}<button class="pill-btn" id="dl">Download</button>` : "");
   const bind = () => { const b = el.querySelector("#pe-edit"); if (b) b.onclick = () => editPerson(m);
     el.querySelectorAll("[data-mdel]").forEach(x => x.onclick = async () => { x.disabled = true;  // take back a "Sent" tapped by mistake
       try { await api(`messages_sent?id=eq.${encodeURIComponent(x.dataset.mdel)}`, {method: "DELETE"}); S.msgs = S.msgs.filter(y => y.id !== x.dataset.mdel); toast("Removed."); render(); }
@@ -4893,7 +4894,7 @@ async function signups(el) {
       ${r.notes ? `<div class="msg" style="margin-top:10px">${esc(r.notes)}</div>` : ""}
       ${match ? `<p class="note">Already on the register as <b>${esc(match.full_name)}</b> (${typeName(match).toLowerCase()}). Approving updates that person and adds nobody new.</p>` : ""}
       <div class="row" style="margin-top:14px"><label class="check"><input type="checkbox" data-tick checked> Mark present on ${esc(r.first_visit ? full(r.first_visit) : "today")}</label>
-        <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap">${r.phone ? `<button class="pill-btn" data-msg>${svg("community")}Message</button>` : ""}<button class="pill-btn primary" data-ok>Approve</button><button class="pill-btn" data-no>Reject</button></div></div></div>`;
+        <div style="flex:0 0 auto;display:flex;gap:8px;flex-wrap:wrap">${r.phone ? `<button class="pill-btn" data-msg>${svg("chat")}Message</button>` : ""}<button class="pill-btn primary" data-ok>Approve</button><button class="pill-btn" data-no>Reject</button></div></div></div>`;
   }).join("") : `<div class="card"><p class="empty">No sign-ups waiting.</p></div>`) + ``;
   bindFormLink(el);
   el.querySelectorAll(".signup").forEach(card => {
@@ -5264,100 +5265,70 @@ async function chatUnread(force) {  // new messages per channel (for the bell, t
 }
 const isTest = m => String(m.body || "").startsWith("[TEST] ");  // a test alert: see testAlert in Community
 const TEST_TEXT = "Test alert. Real alerts look like this. Nothing to do.";
-async function community(el) {
-  const chans = chatChannels();
-  if (!chans.some(c => c[0] === S.chan)) S.chan = "everyone";
-  const chan = S.chan, me = (S.me.email || "").toLowerCase(), boss = ["admin", "lead"].includes(S.me.role) && !S.preview;
-  el.innerHTML = head("Community", esc(S.church)) + `<div class="chat"><nav class="chat-chans" aria-label="Channels"></nav>
-    <section class="card chat-main"><header class="chat-top"><div><h2 id="ch-name"></h2><small id="ch-who"></small></div></header>
-      <div id="ch-pins"></div><div class="chat-list" id="ch-list" aria-live="polite"><p class="empty">Loading…</p></div>
-      ${S.preview ? `<p class="note" style="margin:10px 14px">${esc(viewOnly())}</p>` : `<form class="chat-send" id="ch-form">
-        <textarea class="in" id="ch-text" rows="1" maxlength="1000" placeholder="Write a message…" aria-label="Message"></textarea>
-        <div class="chat-send-row">${chatCanAlert(chan) ? `<div class="chat-opts"><label class="check chat-alert"><input type="checkbox" id="ch-alert"> Send as an alert <small>(pinned, and sent to phones)</small></label>${S.me.role === "admin" && chan === "everyone" && (S.churches || []).length > 1 ? `<label class="check chat-alert"><input type="checkbox" id="ch-all"> To every church <small>(each church's Everyone)</small></label>` : ""}${["admin", "lead"].includes(S.me.role) ? `<button type="button" class="link chat-test" id="ch-test">Send a test alert</button>` : ""}</div>` : "<span></span>"}
-          <button class="pill-btn primary" id="ch-go">Send</button></div></form>`}</section></div>`;
-  const drawChans = () => { const un = S.chatUnread || {};
-    el.querySelector(".chat-chans").innerHTML = chans.map(([k, t]) => `<button type="button" class="chat-chan ${k === chan ? "on" : ""}" data-chan="${esc(k)}" ${k === chan ? 'aria-current="true"' : ""}>
-      <span class="chat-hash">${k.startsWith("bacenta:") ? svg("bacentas") : "#"}</span><span class="chat-cn">${esc(t)}</span>${un[k]?.unread && k !== chan ? `<span class="count">${un[k].unread}</span>` : ""}</button>`).join("");
-    el.querySelectorAll("[data-chan]").forEach(b => b.onclick = () => { S.chan = b.dataset.chan; render(); }); };
-  const c = chans.find(x => x[0] === chan); el.querySelector("#ch-name").textContent = c[1]; el.querySelector("#ch-who").textContent = c[2];
-  drawChans();
-  const q = `chat_messages?select=id,body,alert,author_email,author_name,created_at&church=eq.${encodeURIComponent(S.church)}&channel=eq.${encodeURIComponent(chan)}`;
-  let msgs = [], first = true;
-  const day = t => new Date(t).toLocaleDateString(undefined, {weekday: "short", day: "numeric", month: "short"}), hm = t => new Date(t).toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"});
+async function community(el) {  // Alerts: important news from the church's admins and pastors, pinned here and sent to phones
+  const chans = chatChannels(), me = (S.me.email || "").toLowerCase(), boss = ["admin", "lead"].includes(S.me.role) && !S.preview;
+  const senders = chans.filter(([k]) => chatCanAlert(k)), canAll = S.me.role === "admin" && (S.churches || []).length > 1;
+  const label = k => (chans.find(c => c[0] === k) || [k, "Everyone"])[1];
+  el.innerHTML = head("Alerts", esc(S.church)) + (senders.length ? `<form class="card al-send" id="al-form" style="margin-bottom:14px"><h2>Send an alert</h2>
+      <textarea class="in" id="al-text" rows="3" maxlength="1000" placeholder="What does everyone need to know?" aria-label="Alert"></textarea>
+      <div class="al-row"><label class="f" for="al-to">To</label><select class="in" id="al-to">${senders.map(([k, t]) => `<option value="${esc(k)}">${esc(t)}</option>`).join("")}</select>
+        ${canAll ? `<label class="check"><input type="checkbox" id="al-all"> Every church</label>` : ""}</div>
+      <p class="note" style="margin:8px 2px 0">It shows at the top of their Home page and goes to phones with notifications on.</p>
+      <div class="al-btns"><button type="button" class="link" id="al-test" style="margin:0">Send a test alert</button><button class="pill-btn primary" id="al-go">${svg("community")}Send alert</button></div></form>` : "")
+    + `<div class="card"><div class="card-head"><h2>Recent alerts</h2></div><div id="al-list" aria-live="polite"><p class="empty">Loading…</p></div></div>`;
+  const when = t => new Date(t).toLocaleString(undefined, {weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit"});
   const link = s => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>').replace(/\n/g, "<br>");
-  const draw = () => {
-    const list = el.querySelector("#ch-list"); if (!list) return;
-    const near = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
-    const all = msgs.filter(m => m.alert && !isTest(m)).reverse(), pins = S.pinsAll ? all : all.slice(0, 1);  // the newest alert; the rest on tap
-    el.querySelector("#ch-pins").innerHTML = pins.length ? `<div class="chat-pins">${pins.map(m => `<div class="chat-pin">${svg("bell")}<div><b>${esc(m.author_name || "")}</b> · <small>${esc(day(m.created_at))}</small><p>${link(m.body)}</p></div>
-      ${chatCanAlert(chan) ? `<button type="button" class="link" data-unpin="${esc(m.id)}">Unpin</button>` : ""}</div>`).join("")}${all.length > 1 ? `<button type="button" class="link chat-more" data-pinsall>${S.pinsAll ? "Show just the newest alert" : `+ ${all.length - 1} more pinned`}</button>` : ""}</div>` : "";
-    let lastDay = "";
-    list.innerHTML = msgs.length ? msgs.map(m => { const mine = m.author_email === me, d = day(m.created_at), sep = d !== lastDay ? `<div class="chat-day"><span>${esc(lastDay = d)}</span></div>` : "";
-      return sep + `<div class="chat-msg ${mine ? "mine" : ""} ${m.alert ? "alert" : ""}" data-mid="${esc(m.id)}">${mine ? "" : `<span class="chat-ava" ${avaStyle(m.author_name || "?")}>${esc(initials(m.author_name || "?"))}</span>`}
-        <div class="chat-bub">${mine ? "" : `<b>${esc(m.author_name || "")}</b>`}${isTest(m) ? `<span class="chat-tag test">${svg("bell")}Test alert</span>` : m.alert ? `<span class="chat-tag">${svg("bell")}Alert</span>` : ""}<p>${link(isTest(m) ? m.body.slice(7) : m.body)}</p>
-          <small>${esc(hm(m.created_at))}${!S.preview && (mine || boss) ? ` · <button type="button" class="link" data-del="${esc(m.id)}">Delete</button>` : ""}${chatCanAlert(chan) && !m.alert ? ` · <button type="button" class="link" data-pin="${esc(m.id)}">Pin as alert</button>` : ""}</small></div></div>`; }).join("")
-      : `<p class="empty chat-empty">No messages in ${esc(c[1])} yet. Say hello.</p>`;
-    if (first || near) list.scrollTop = list.scrollHeight; first = false;
-  };
-  const markRead = () => { if (S.preview) return; (S.chatUnread ||= {})[chan] && delete S.chatUnread[chan]; S.chatNew = Object.values(S.chatUnread || {}).reduce((n, r) => n + r.unread, 0); paintBell(); paintChatNav();
-    api("chat_reads?on_conflict=email,church,channel", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {email: me, church: S.church, channel: chan, last_read: new Date().toISOString()}}).catch(() => {}); };
+  const q = `chat_messages?select=id,channel,body,alert,author_email,author_name,created_at&church=eq.${encodeURIComponent(S.church)}&alert=is.true&channel=in.(${chans.map(c => `"${c[0].replace(/"/g, "")}"`).join(",")})&order=created_at.desc&limit=50`;
+  let msgs = [];
+  const draw = () => { const list = el.querySelector("#al-list"); if (!list) return;
+    list.innerHTML = msgs.length ? msgs.map(m => `<div class="al-item ${isTest(m) ? "test" : ""}">${svg("community")}<div class="al-body">
+        <div class="al-top"><b>${isTest(m) ? "Test alert" : esc(m.author_name || "")}</b><small>${esc(label(m.channel))} · ${esc(when(m.created_at))}</small></div>
+        <p>${link(isTest(m) ? m.body.slice(7) : m.body)}</p>
+        ${!S.preview && (m.author_email === me || boss) ? `<button type="button" class="link" data-al-del="${esc(m.id)}" style="margin:0;font-size:13px">Remove</button>` : ""}</div></div>`).join("")
+      : `<p class="empty" style="margin:0">No alerts yet.</p>`; };
+  const markRead = () => { if (S.preview) return; S.chatUnread = {}; S.chatNew = 0; paintBell(); paintChatNav();
+    for (const [k] of chans) api("chat_reads?on_conflict=email,church,channel", {method: "POST", prefer: "resolution=merge-duplicates,return=minimal", body: {email: me, church: S.church, channel: k, last_read: new Date().toISOString()}}).catch(() => {}); };
   const pull = async () => {
-    try { msgs = (await api(`${q}&order=created_at.desc&limit=150`)).reverse(); }
-    catch (e) { el.querySelector("#ch-list").innerHTML = `<p class="msg bad" style="margin:14px">${/chat_messages|relation|schema cache/i.test(e.message) ? "Community needs the latest setup SQL: run it in Supabase once, then open this page again." : esc(e.message)}</p>`; return; }
-    if (S.view !== "community" || S.chan !== chan) return;
+    try { msgs = await api(q); }
+    catch (e) { el.querySelector("#al-list").innerHTML = `<p class="msg bad">${/chat_messages|relation|schema cache/i.test(e.message) ? "Alerts need the latest setup SQL: run it in Supabase once, then open this page again." : esc(e.message)}</p>`; return; }
+    if (S.view !== "community") return;
     draw(); markRead();
   };
-  el.querySelector("#ch-list").onclick = async e => {
-    const del = e.target.closest("[data-del]"), pin = e.target.closest("[data-pin]");
-    if (del) { if (del.dataset.armed) { del.disabled = true; try { await api(`chat_messages?id=eq.${del.dataset.del}`, {method: "DELETE", prefer: "return=minimal"}); msgs = msgs.filter(m => m.id !== del.dataset.del); draw(); } catch (err) { toast("Not deleted: " + err.message); } }
-      else { del.dataset.armed = "1"; del.textContent = "Tap again to delete"; setTimeout(() => { if (del.isConnected) { delete del.dataset.armed; del.textContent = "Delete"; } }, 4000); } }
-    if (pin) { try { await api(`chat_messages?id=eq.${pin.dataset.pin}`, {method: "PATCH", prefer: "return=minimal", body: {alert: true}}); msgs.find(m => m.id === pin.dataset.pin).alert = true; draw(); toast("Pinned at the top of the channel."); } catch (err) { toast("Not pinned: " + err.message); } }
-  };
-  el.querySelector("#ch-pins").onclick = async e => { if (e.target.closest("[data-pinsall]")) { S.pinsAll = !S.pinsAll; return draw(); }
-    const b = e.target.closest("[data-unpin]"); if (!b) return;
-    try { await api(`chat_messages?id=eq.${b.dataset.unpin}`, {method: "PATCH", prefer: "return=minimal", body: {alert: false}}); msgs.find(m => m.id === b.dataset.unpin).alert = false; draw(); } catch (err) { toast("Not changed: " + err.message); } };
-  const form = el.querySelector("#ch-form");
+  el.querySelector("#al-list").onclick = async e => { const b = e.target.closest("[data-al-del]"); if (!b) return;  // remove: it leaves the list and Home (a second tap)
+    if (!b.dataset.armed) { b.dataset.armed = 1; b.textContent = "Tap again to remove"; setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = "Remove"; } }, 4000); return; }
+    b.disabled = true;
+    try { await api(`chat_messages?id=eq.${encodeURIComponent(b.dataset.alDel)}`, {method: "PATCH", prefer: "return=minimal", body: {alert: false}}); msgs = msgs.filter(m => m.id !== b.dataset.alDel); draw(); S.homeAlert = undefined; }
+    catch (err) { b.disabled = false; toast("Not removed: " + err.message); } };
+  // send: to phones once; "Every church" (the main admin) posts it in each church's Everyone
+  const push = async ids => { const info = await pushInfo().catch(() => null);
+    if (info?.push_url) for (const id of ids) fetch(info.push_url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({alert: id})}).catch(() => {});
+    return !!info?.push_url; };
+  const post = async (where, body) => { const ids = [];
+    for (const [ch, cn] of where) { const [r] = await api("chat_messages?select=id,channel,body,alert,author_email,author_name,created_at", {method: "POST", prefer: "return=representation", body: {church: ch, channel: cn, body, alert: true}});
+      if (r) { ids.push(r.id); if (ch === S.church) msgs.unshift(r); } }
+    draw(); markRead(); S.homeAlert = undefined; return {ids, phones: await push(ids)}; };
+  const form = el.querySelector("#al-form");
   if (form) {
-    const ta = form.querySelector("#ch-text"), grow = () => { ta.style.height = "auto"; ta.style.height = Math.min(160, ta.scrollHeight) + "px"; };
-    ta.oninput = grow;
-    form.querySelector("#ch-test")?.addEventListener("click", () => testAlert());
-    form.querySelector("#ch-all")?.addEventListener("change", e => { if (e.target.checked) form.querySelector("#ch-alert").checked = true; });  // every church: always an alert
-    ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey && !onPhone()) { e.preventDefault(); form.requestSubmit(); } };  // a computer: Enter sends, Shift+Enter is a new line
-    form.onsubmit = async e => {
-      e.preventDefault(); const body = ta.value.trim(), every = !!form.querySelector("#ch-all")?.checked, alert = every || !!form.querySelector("#ch-alert")?.checked; if (!body) return;
-      const go = form.querySelector("#ch-go"); go.disabled = true;
-      try {
-        if (every) {  // the main admin: the same alert in every church's Everyone channel, and to every phone with notifications on
-          const ids = [];
-          for (const c of S.churches) { const [r] = await api("chat_messages?select=id,body,alert,author_email,author_name,created_at", {method: "POST", prefer: "return=representation", body: {church: c, channel: "everyone", body, alert: true}});
-            if (r) { ids.push(r.id); if (c === S.church && !msgs.some(m => m.id === r.id)) msgs.push(r); } }
-          ta.value = ""; grow(); form.querySelectorAll("#ch-alert, #ch-all").forEach(x => x.checked = false); draw(); markRead();
-          const info = await pushInfo().catch(() => null);
-          if (info?.push_url) for (const id of ids) fetch(info.push_url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({alert: id})}).catch(() => {});
-          toast(`Alert sent to all ${ids.length} churches${info?.push_url ? ", and to phones with notifications on" : ""}.`);
-          go.disabled = false; ta.focus(); return;
-        }
-        const [row] = await api("chat_messages?select=id,body,alert,author_email,author_name,created_at", {method: "POST", prefer: "return=representation", body: {church: S.church, channel: chan, body, alert}});
-        if (row && !msgs.some(m => m.id === row.id)) msgs.push(row);
-        ta.value = ""; grow(); form.querySelectorAll("#ch-alert, #ch-all").forEach(x => x.checked = false); draw(); markRead();
-        if (alert && row) {  // the alert to phones: the sender sends it once, to whoever in this channel has notifications on
-          const info = await pushInfo().catch(() => null);
-          if (info?.push_url) fetch(info.push_url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({alert: row.id})}).catch(() => {});
-          toast(info?.push_url ? "Alert sent: pinned, and sent to phones with notifications on." : "Alert pinned. (Phone notifications aren't set up yet.)");
-        }
-      } catch (err) { toast(/row-level|policy/i.test(err.message) ? "Not sent: you can't send that here." : "Not sent: " + err.message); }
-      go.disabled = false; ta.focus();
-    };
+    const to = form.querySelector("#al-to"), all = form.querySelector("#al-all");
+    all?.addEventListener("change", () => { if (all.checked) to.value = "everyone"; to.disabled = all.checked; });
+    form.onsubmit = async e => { e.preventDefault(); const ta = form.querySelector("#al-text"), body = ta.value.trim(); if (!body) return ta.focus();
+      const go = form.querySelector("#al-go"); go.disabled = true;
+      try { const every = !!all?.checked, r = await post(every ? S.churches.map(c => [c, "everyone"]) : [[S.church, to.value]], body);
+        ta.value = ""; if (all) { all.checked = false; to.disabled = false; }
+        toast(`Alert sent${every ? ` to all ${r.ids.length} churches` : ""}${r.phones ? "." : ". (Phone notifications aren't set up yet.)"}`); }
+      catch (err) { toast(/row-level|policy/i.test(err.message) ? "Not sent: you can't send to them." : "Not sent: " + err.message); }
+      go.disabled = false; };
+    form.querySelector("#al-test").onclick = () => testAlert();
   }
-  // A test alert, like a phone's emergency alert test: clearly labelled, sent to everyone's phone (the sender's too), not pinned
+  // A test alert, like a phone's emergency alert test: clearly labelled, sent to everyone's phone (the sender's too)
   function testAlert() {
     document.querySelectorAll(".modal").forEach(x => x.remove());
-    const every = S.me.role === "admin" && chan === "everyone" && (S.churches || []).length > 1;
+    const chan = form?.querySelector("#al-to")?.value || "everyone", every = canAll && chan === "everyone";
     const d = document.createElement("div"); d.className = "modal";
     d.innerHTML = `<div class="sheet narrow" role="dialog" aria-modal="true" aria-label="Send a test alert">
       <div class="card-head"><h2>Send a test alert</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
-      <p style="margin:0 0 10px">Shows everyone in <b>${esc(c[1])}</b> what a real alert looks like. Marked <b>TEST ALERT</b>, not pinned.</p>
-      <div class="chat-pin" style="margin-bottom:12px">${svg("bell")}<div><b>TEST ALERT · ${esc(c[1])}</b><p>${esc(TEST_TEXT)}</p></div></div>
+      <p style="margin:0 0 10px">Shows <b>${esc(label(chan))}</b> at ${esc(S.church)} what a real alert looks like. Marked <b>TEST ALERT</b>.</p>
+      <div class="al-item test" style="margin-bottom:12px">${svg("community")}<div class="al-body"><b>TEST ALERT · ${esc(label(chan))}</b><p>${esc(TEST_TEXT)}</p></div></div>
       ${every ? `<label class="check"><input type="checkbox" id="ta-all"> Send to every church</label>` : ""}
       <div class="modal-foot tp-foot"><button type="button" class="pill-btn" data-x>Cancel</button><button type="button" class="pill-btn primary" id="ta-go">Send test alert</button></div></div>`;
     document.body.append(d);
@@ -5365,24 +5336,56 @@ async function community(el) {
     d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
     document.addEventListener("keydown", onKey);
     d.querySelector("#ta-go").onclick = async e => { e.target.disabled = true;
-      const where = d.querySelector("#ta-all")?.checked ? S.churches.map(ch => [ch, "everyone"]) : [[S.church, chan]], ids = [];
-      try {
-        for (const [ch, cn] of where) { const [r] = await api("chat_messages?select=id,body,alert,author_email,author_name,created_at", {method: "POST", prefer: "return=representation", body: {church: ch, channel: cn, body: "[TEST] " + TEST_TEXT, alert: true}});
-          if (r) { ids.push(r.id); if (ch === S.church && cn === chan && !msgs.some(m => m.id === r.id)) msgs.push(r); } }
-        const info = await pushInfo().catch(() => null);
-        if (info?.push_url) for (const id of ids) fetch(info.push_url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({alert: id})}).catch(() => {});
-        close(); draw(); markRead();
-        toast(info?.push_url ? `Test alert sent${ids.length > 1 ? ` to ${ids.length} churches` : ""}. It should reach phones in a few seconds, yours too.` : "Test alert posted. (Phone notifications aren't set up yet.)");
-      } catch (err) { e.target.disabled = false; toast("Not sent: " + err.message); }
-    };
+      try { const r = await post(d.querySelector("#ta-all")?.checked ? S.churches.map(ch => [ch, "everyone"]) : [[S.church, chan]], "[TEST] " + TEST_TEXT); close();
+        toast(r.phones ? `Test alert sent${r.ids.length > 1 ? ` to ${r.ids.length} churches` : ""}. It should reach phones in a few seconds, yours too.` : "Test alert posted. (Phone notifications aren't set up yet.)"); }
+      catch (err) { e.target.disabled = false; toast("Not sent: " + err.message); } };
   }
-  // live: a new message, deleted one or pin arrives straight away; if that connection can't be made, check every 15 seconds
-  let wait = 0; const soon = d => { const r = d?.record || d?.old_record || {}; if (r.church && r.church !== S.church) return chatUnread(true).then(drawChans);
-    clearTimeout(wait); wait = setTimeout(() => { pull(); chatUnread(true).then(() => { drawChans(); paintBell(); paintChatNav(); }); }, 300); };
+  // live: a new alert arrives straight away; if that connection can't be made, check every 15 seconds
+  let wait = 0; const soon = d => { const r = d?.record || d?.old_record || {}; if (r.church && r.church !== S.church) return;
+    clearTimeout(wait); wait = setTimeout(pull, 300); };
   S.unwatch = rtWatch("community", ["chat_messages"], soon, () => { clearInterval(S.poll); S.poll = 0; },
     () => { if (!S.poll && S.view === "community") S.poll = setInterval(pull, 15000); });
   S.onShow = pull;
-  await pull(); chatUnread(true).then(drawChans);
+  await pull();
+}
+// Cards on Home (an alert, the reminder ask, the home-screen note) can be swiped left or right to close them
+function swipeAway(el, gone) {
+  let x0 = null, y0 = 0, dx = 0, id = null, sideways = false;
+  el.style.touchAction = "pan-y";
+  el.addEventListener("pointerdown", e => { if (e.button || e.target.closest("button, a, input, select, textarea")) return;
+    x0 = e.clientX; y0 = e.clientY; dx = 0; id = e.pointerId; sideways = false; el.style.transition = "none"; });
+  el.addEventListener("pointermove", e => { if (x0 === null || e.pointerId !== id) return;
+    dx = e.clientX - x0;
+    if (!sideways) { if (Math.abs(e.clientY - y0) > 10 && Math.abs(e.clientY - y0) > Math.abs(dx)) { x0 = null; return; }  // scrolling the page
+      if (Math.abs(dx) < 8) return; sideways = true; try { el.setPointerCapture(id); } catch {} }
+    el.style.transform = `translateX(${dx}px)`; el.style.opacity = String(Math.max(0.2, 1 - Math.abs(dx) / (el.offsetWidth || 300))); });
+  const end = () => { if (x0 === null) return; x0 = null;
+    const far = Math.abs(dx) > Math.min(110, (el.offsetWidth || 300) * 0.3), slow = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.style.transition = slow ? "none" : "transform .22s ease, opacity .22s ease";
+    if (sideways && far) { el.style.transform = `translateX(${dx > 0 ? "" : "-"}110%)`; el.style.opacity = "0"; setTimeout(() => { gone(); el.remove(); }, slow ? 0 : 220); }
+    else { el.style.transform = ""; el.style.opacity = ""; } };
+  el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+}
+// The newest alert (last 7 days, not a test) at the top of Home, until this person closes it
+async function homeAlert(view) {
+  if (!view || !["dashboard", "mine", "checkin", "overview"].includes(S.view) || S.preview || !S.me || S.me.role === "bishop") return;
+  if (S.homeAlert === undefined) {
+    const chans = chatChannels().map(c => `"${c[0].replace(/"/g, "")}"`).join(",");
+    S.homeAlert = (await api(`chat_messages?select=id,channel,body,author_name,created_at&church=eq.${encodeURIComponent(S.church)}&alert=is.true&channel=in.(${chans})&created_at=gte.${new Date(Date.now() - 7 * 864e5).toISOString()}&order=created_at.desc&limit=5`).catch(() => []))
+      .find(m => !isTest(m)) || null;
+  }
+  const m = S.homeAlert, key = "fcc-alert-x:" + S.me.email;
+  let shut = ""; try { shut = localStorage.getItem(key) || ""; } catch {}
+  if (!m || shut === m.id || !view.isConnected || view.querySelector(".home-alert")) return;
+  const d = document.createElement("div"); d.className = "home-alert"; d.setAttribute("role", "alert");
+  d.innerHTML = `${svg("community")}<div class="ha-body"><b>${esc(m.author_name || "Alert")}</b><small>${esc(new Date(m.created_at).toLocaleString(undefined, {weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit"}))}</small>
+      <p>${esc(m.body).replace(/\n/g, "<br>")}</p><button type="button" class="link" data-ha-all style="margin:0">See all alerts</button></div>
+    <button type="button" class="icon-btn" data-ha-x aria-label="Close this alert">${svg("close")}</button>`;
+  const h = view.querySelector(".head"); if (h) h.after(d); else view.prepend(d);
+  const shutIt = () => { try { localStorage.setItem(key, m.id); } catch {} };
+  d.querySelector("[data-ha-x]").onclick = () => { shutIt(); d.remove(); };
+  swipeAway(d, shutIt);
+  d.querySelector("[data-ha-all]").onclick = () => S.go("community");
 }
 function paintChatNav() {  // the number on Community in the menu
   const n = S.chatNew || 0;
@@ -5399,7 +5402,7 @@ const GS_WORDS = {dashboard: "home overview numbers widgets", mine: "home my peo
   teamforms: "team form ushers sign in link approve", archive: "archive old not seen wipe", activity: "activity log history changes who did downloads",
   reports: "reports summary whatsapp email share numbers download", overview: "churches all churches bishop at a glance grid",
   admin: "admin sign-ins users logins messages backup notifications space", help: "help questions faq support contact",
-  account: "account settings password name colour theme dark light text size reminders notifications", community: "community chat messages team talk alerts notices group", converts: "new converts salvation saved born again decision altar call baptism baptised foundation class",
+  account: "account settings password name colour theme dark light text size reminders notifications", community: "alerts alert news notice announcement urgent emergency community", converts: "new converts salvation saved born again decision altar call baptism baptised foundation class",
   ask: "ask a question data numbers"};
 function searchApp(q) {
   const words = norm(q).split(/\s+/).filter(Boolean); if (!words.length) return [];
@@ -5513,8 +5516,8 @@ const WHATS_NEW = [
    text: "Record each new convert and tick off their next steps."},
   {id: "form-2611", on: "2026-11-07", page: "signups", title: "Your church's own welcome form",
    text: "Your church's own welcome form link and QR code, at the top of Sign-ups."},
-  {id: "community-2611", on: "2026-11-06", page: "community", title: "Community: talk with your team",
-   text: "Chat with your church team. Alerts are pinned and sent to phones."},
+  {id: "community-2611", on: "2026-11-06", page: "community", title: "Alerts from your church",
+   text: "Important news shows at the top of Home and on your phone."},
 ];
 const wnKey = () => "fcc-wn:" + (S.me?.email || "");
 const wnRead = () => { try { return JSON.parse(localStorage.getItem(wnKey()) || "{}"); } catch { return {}; } };  // {id: "seen" | "hidden"}
@@ -5541,7 +5544,7 @@ async function alerts(el) {
   const can = k => pages().some(g => g[1].some(x => x[0] === k));
   const items = [
     S.me.role === "admin" && S.msgNew ? ["mail", n(S.msgNew, "new message", "new messages"), "Sent from Help → Contact the admin", () => { S.adminTab = "messages"; S.go("admin"); }] : null,
-    S.chatNew ? ["community", n(S.chatNew, "new message in Community", "new messages in Community"), "Team chat and alerts", () => { const k = Object.keys(S.chatUnread || {}).sort((a, b) => (S.chatUnread[b].alerts - S.chatUnread[a].alerts))[0]; if (k) S.chan = k; S.go("community"); }] : null,
+    S.chatNew ? ["community", n(S.chatNew, "new alert", "new alerts"), "From your church's leaders", () => { const k = Object.keys(S.chatUnread || {}).sort((a, b) => (S.chatUnread[b].alerts - S.chatUnread[a].alerts))[0]; if (k) S.chan = k; S.go("community"); }] : null,
     S.pending ? ["signups", n(S.pending, "new sign-up", "new sign-ups"), "From the welcome form, waiting to be approved", () => S.go("signups")] : null,
     S.teamPending ? ["teamforms", n(S.teamPending, "team form", "team forms"), "People asking to sign in", () => S.go("teamforms")] : null,
     S.bacPending ? ["bacentas", n(S.bacPending, "name added at a Bacenta", "names added at a Bacenta"), "Waiting to join the Congregation list", () => S.go("bacentas")] : null,
@@ -5946,6 +5949,7 @@ async function pushNudge(view) {
         <button type="button" class="pill-btn sm" data-hn-help>Not sure? Contact the admin</button></div>`;
     put(d);
     d.querySelector("[data-hn-x]").onclick = () => { setOff("fcc-homenote-off:"); d.remove(); };
+    swipeAway(d, () => setOff("fcc-homenote-off:"));
     d.querySelector("[data-hn-help]").onclick = () => contactDialog(helpTopics()[0]?.[1]);
     d.querySelector("[data-hn-install]")?.addEventListener("click", async () => { const a = installAsk; installAsk = null; if (!a) return; a.prompt(); const r = await a.userChoice.catch(() => null); if (r?.outcome === "accepted") d.remove(); });
     d.querySelector("[data-hn-push]")?.addEventListener("click", async e => { e.target.disabled = true; try { if (await turnOnPush()) e.target.remove(); } catch (err) { toast("Couldn't turn them on: " + err.message); } e.target.disabled = false; });
@@ -5957,6 +5961,7 @@ async function pushNudge(view) {
     <div class="nudge-btns"><button type="button" class="pill-btn sm primary" data-nudge-on>Turn on</button><button type="button" class="pill-btn sm" data-nudge-off>Not now</button></div>`;
   put(d);
   d.querySelector("[data-nudge-off]").onclick = () => { setOff("fcc-nudge-off:"); d.remove(); };
+  swipeAway(d, () => setOff("fcc-nudge-off:"));  // a swipe is the same as Not now
   d.querySelector("[data-nudge-on]").onclick = async () => { try { await turnOnPush(); d.remove(); } catch (e) { toast("Couldn't turn them on: " + e.message); } };
 }
 async function remindersCard(el) {
