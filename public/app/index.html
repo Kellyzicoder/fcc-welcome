@@ -1508,6 +1508,28 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 @media (max-width: 900px) { .bd-tiles {grid-template-columns: repeat(2, minmax(0, 1fr));} .bd-grid.three {grid-template-columns: minmax(0, 1fr);} .bd-bars {gap: 4px; height: 180px;} .bd-bar small {font-size: 9.5px; transform: rotate(-35deg); transform-origin: top center;} }
 @media (max-width: 420px) { .bd-pie-row {flex-direction: column; align-items: stretch;} .bd-ring {align-self: center;} .bd-tile > b {font-size: 30px;} }
 @media print { .bd-top button, .bd-x {display: none;} .bd-card, .bd-tile {break-inside: avoid;} }
+/* ---- Check-in: one A to Z list of names with a big round tick each, and a letter strip down the side to jump */
+.ci-sum {display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; margin: 2px 4px 16px;}
+.ci-sum > b {font-size: 40px; line-height: 1; letter-spacing: -.02em;} .ci-sum-t {font-size: 17px; font-weight: 600;}
+.ci-sum-d {color: var(--ink-2); font-size: 15px;} .ci-sum-d b {color: var(--ink);}
+.ci-wrap {position: relative; display: flex; align-items: flex-start; gap: 6px;} .ci-wrap > #names {flex: 1; min-width: 0;}
+.ci-names {display: flex; flex-direction: column;}
+.ci-letter {margin: 14px 4px 2px; font-size: 13px; font-weight: 700; color: var(--ink-3); scroll-margin-top: 90px;} .ci-letter:first-child {margin-top: 2px;}
+.ci-row {position: relative; display: flex; align-items: center; gap: 12px; padding: 9px 6px; border-bottom: 1px solid var(--line); cursor: pointer; border-radius: 12px;}
+.ci-row:last-child {border-bottom: 0;} .ci-row:hover {background: var(--soft);}
+.ci-row .nava {width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center; font-size: 13px; font-weight: 700; flex: none;}
+.ci-who {flex: 1; min-width: 0; display: flex; flex-direction: column;} .ci-who b {font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.ci-who small {color: var(--ink-3); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;} .ci-who small:empty {display: none;}
+.ci-cb {position: absolute; right: 6px; top: 50%; width: 44px; height: 44px; margin: -22px 0 0; opacity: 0; cursor: pointer;}
+.ci-tick {width: 44px; height: 44px; border-radius: 50%; flex: none; display: grid; place-items: center; border: 2px solid var(--line); background: var(--card); transition: background .15s, border-color .15s;}
+.ci-tick svg {width: 22px; height: 22px; color: #fff; stroke-width: 2.8; opacity: 0;}
+.ci-row.on .ci-tick {background: var(--accent); border-color: var(--accent);} .ci-row.on .ci-tick svg {opacity: 1;}
+.ci-row:hover .ci-tick {border-color: var(--accent);} .ci-cb:focus-visible + .ci-tick {outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px;}
+.ci-cb:disabled + .ci-tick {opacity: .55;} .ci-row:has(.ci-cb:disabled) {cursor: default;}
+.ci-az {position: sticky; top: 76px; flex: none; display: flex; flex-direction: column; align-items: center; padding: 6px 2px; border-radius: 16px; background: var(--soft);}
+.ci-az button {width: 26px; height: 20px; border: 0; background: none; padding: 0; font: inherit; font-size: 11px; font-weight: 700; color: var(--ink-2); border-radius: 10px; cursor: pointer;}
+.ci-az button:disabled {color: var(--ink-3); opacity: .45; cursor: default;} .ci-az button.on, .ci-az button:not(:disabled):hover {background: var(--accent); color: var(--accent-ink);}
+@media (max-width: 720px) { .ci-sum > b {font-size: 34px;} .ci-az {top: 64px;} .ci-az button {height: 14px; font-size: 10px; width: 22px;} .ci-row {gap: 10px; padding: 8px 2px;} }
 </style>
 </head>
 <body>
