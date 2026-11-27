@@ -3973,19 +3973,26 @@ async function admin(el) {
           <button class="pill-btn sm" data-done="${m.id}" data-v="${!m.done}">${m.done ? "Mark as new" : "Mark done"}</button>
           <button class="x" data-mdel="${m.id}">Delete</button></div></div>`).join("")}</div>`;
   // Tabs: one area at a time. Opens on Messages when there are new ones, otherwise on Sign-ins; then remembers the choice.
-  const TABS = [["messages", "Messages", fresh.length], ["names", "Sign-ins", users.length], ["backup", "Backups", 0], ["push", "Notifications", 0], ["space", "Space", 0]]
+  const TABS = [["names", "Sign-ins", users.length], ["messages", "Messages", fresh.length], ["backup", "Backups", 0], ["push", "Notifications", 0], ["space", "Space", 0]]
     .filter(([k]) => !["backup", "push"].includes(k) || (S.me.title === "Tech admin" && !S.preview));  // Backups and Notifications: the tech admin only  // churches are managed on the Churches page
   if (!TABS.some(t => t[0] === S.adminTab)) S.adminTab = fresh.length ? "messages" : "names";
   if (S.adminTab === "messages") { markSeen("messages"); S.msgNew = 0; }
   const tab = k => `data-at="${k}" ${S.adminTab === k ? "" : "hidden"}`;
-  el.innerHTML = head("Admin", "Sign-ins, messages and space") + `<div class="atabs" role="tablist" aria-label="Admin">${TABS.map(([k, name, n]) =>
+  const isTech = S.me.title === "Tech admin" && !S.preview, bkOk = bkStatus && bkStatus !== "sql" && bkStatus.last_used && Date.now() - new Date(bkStatus.last_used) < 2 * 864e5;
+  const pushOn = "Notification" in window && Notification.permission === "granted";
+  // the small cards beside the sign-ins list (below it on a phone); each opens its own tab for the full settings
+  const side = `<aside class="ad-side">
+      ${isTech ? `<div class="card"><h2>Backup</h2><p class="ad-st ${bkOk ? "" : "warn"}">${bkStatus === "sql" ? "Needs the latest setup SQL" : bkStatus?.last_used ? "Last backup " + esc(ago(bkStatus.last_used)) : "Not set up yet"}</p>
+        <div class="ad-btns"><button type="button" class="pill-btn soft" data-go-at="backup">${bkStatus && bkStatus !== "sql" ? "Backup settings" : "Set it up"}</button></div></div>
+      <div class="card"><h2>Notifications</h2><div class="ad-line"><span>${pushOn ? "On for this device" : "Off on this device"}</span><button type="button" class="pill-btn sm" data-go-at="push">Change</button></div></div>` : ""}
+      <div class="card"><h2>Space used</h2>${space ? `<div class="meter ${pct >= 90 ? "bad" : pct >= 70 ? "warn" : ""}" role="meter" aria-valuemin="0" aria-valuemax="500" aria-valuenow="${(space.total / 1048576).toFixed(1)}" aria-label="Database space used" style="margin-top:14px"><i style="width:${Math.max(pct, 1).toFixed(1)}%"></i></div>
+        <div class="ad-line"><span>${mb(space.total)} of 500 MB</span><button type="button" class="link" style="margin:0" data-go-at="space">Details</button></div>` : `<p class="note" style="margin:8px 0 0">Run the latest setup SQL in Supabase once to see this.</p>`}</div>
+    </aside>`;
+  el.innerHTML = head("Admin", "Who can sign in, messages and space") + `<div class="atabs" role="tablist" aria-label="Admin">${TABS.map(([k, name, n]) =>
       `<button role="tab" data-atab="${k}" aria-selected="${S.adminTab === k}">${name}${k === "messages" && unread && S.adminTab !== "messages" ? ` <span class="anum new">${unread}</span>` : ""}</button>`).join("")}</div>
     <section ${tab("messages")}>${inboxCard}</section><section ${tab("backup")}>${backupCard}</section><section ${tab("space")}>${spaceCard}</section><section ${tab("push")}><div id="push-card"></div><div id="tech-card"></div></section>
-    <section ${tab("names")}>
-    <div class="tiles">${[["Total sign-ins", users.length, "Across all churches"], ["Church admins", users.filter(u => u.role === "lead").length, "Run a church"],
-        ["Team", users.filter(u => u.role === "team").length, "Ushers ticking people in"], ["Pastors", users.filter(u => u.role === "pastor" || u.pastor).length, "Including admins who pastor"]]
-        .map(([t, n, sub]) => `<div class="card tile"><div class="label">${t}</div><div class="num">${String(n).padStart(2, "0")}</div><div class="note" style="margin:4px 0 0">${sub}</div></div>`).join("")}</div>
-    <div class="card"><div class="card-head"><h2>People who can sign in</h2><span class="gap"></span><button type="button" class="pill-btn primary sm" id="u-add-tg">+ Add person</button></div>
+    <section ${tab("names")}><div class="ad-grid">
+    <div class="card ad-users"><div class="card-head"><h2>Leaders who can sign in <span class="muted ad-n">${users.length}</span></h2><span class="gap"></span><button type="button" class="pill-btn primary" id="u-add-tg">Invite a leader</button></div>
       <div class="u-bar"><div class="rpills" role="tablist" aria-label="Filter by role">${(() => {  // every role as it is shown, the first few, then + more
           const all = [["", "All"], ...UKINDS], shown = S.uMore || all.findIndex(x => x[0] === (S.uRole || "")) >= 5 ? all.length : 5;
           return all.map(([k, t], i) => `<button type="button" class="rpill ${k ? "r-" + k : ""}" role="tab" data-ur="${k}" aria-selected="${(S.uRole || "") === k}" ${i >= shown ? "hidden" : ""}>${k ? "<i></i>" : ""}${t} <span>${k ? users.filter(u => inKind(u, k)).length : users.length}</span></button>`).join("")
@@ -3994,7 +4001,7 @@ async function admin(el) {
         <div class="u-tools"><select class="in" id="u-ch" aria-label="Church"><option value="">All churches</option>${S.churches.map(c => `<option ${S.uCh === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
           <input class="in" id="u-q" type="search" placeholder="Search by name or email" value="${esc(S.uQ || "")}"></div></div>
       <div id="u-idle"></div><div id="u-list"></div>
-      </div></section>`;
+      </div>${side}</div></section>`;
   el.querySelector("#bk-make")?.addEventListener("click", async e => {
     e.target.disabled = true; let key;
     try { key = await api("rpc/app_backup_key", {method: "POST", body: {}}); } catch (err) { e.target.disabled = false; return toast("Not made: " + err.message); }
@@ -4017,6 +4024,7 @@ async function admin(el) {
       .catch(() => { d.querySelector(".bk-code").select(); toast("Couldn't copy: select the script and copy it."); });
   });
   pushSetup(el.querySelector("#push-card")); techCard(el.querySelector("#tech-card"));
+  el.querySelectorAll("[data-go-at]").forEach(b => b.onclick = () => { el.querySelector(`[data-atab="${b.dataset.goAt}"]`)?.click(); window.scrollTo({top: 0, behavior: "smooth"}); });
   el.querySelectorAll("[data-atab]").forEach(b => b.onclick = () => {
     S.adminTab = b.dataset.atab;
     if (S.adminTab === "messages") { markSeen("messages"); S.msgNew = 0; b.querySelector(".anum")?.remove(); setBadge(); }  // seen: the count clears
@@ -4039,6 +4047,7 @@ async function admin(el) {
     again(() => api("churches", {method: "POST", prefer: "return=minimal", body: {name}})); };
   // Sign-ins: role pills, church picker, search and 10 per page
   const PER = 10, roleCls = r => "r-" + r;
+  const lastIn = t => { const d = Math.floor((Date.now() - Date.parse(t)) / 864e5); return d <= 0 && new Date(t).toDateString() === new Date().toDateString() ? "today" : d <= 1 ? "yesterday" : d < 7 ? d + " days ago" : full(String(t).slice(0, 10)); };
   const drawUsers = () => {
     const nIdle = users.filter(u => idle(u)).length;  // sign-ins nobody has used for 6 months
     el.querySelector("#u-idle").innerHTML = nIdle || S.uIdle ? `<div class="msg" style="margin:0 0 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span>${S.uIdle
@@ -4052,19 +4061,24 @@ async function admin(el) {
     const shown = list.slice((S.uPage - 1) * PER, S.uPage * PER);
     const nums = [...new Set([1, S.uPage - 1, S.uPage, S.uPage + 1, pages])].filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
     el.querySelector("#u-list").innerHTML = !list.length ? `<p class="empty">Nobody matches. Try another role, church or name.</p>` : `
-      <div class="scroll"><table class="utable"><thead><tr><th>Name</th><th>Role</th><th>Church</th><th class="hide-sm">Pastor name</th><th class="hide-sm">Last used</th><th></th></tr></thead><tbody>
-      ${shown.map(u => `<tr><td><div class="who-cell"><span class="ava" ${avaStyle(u.name || u.email)}>${esc(initials(u.name || u.email))}</span><span><b>${esc(u.name || u.email.split("@")[0])}</b><small>${esc(u.email)}</small></span></div></td>
-        <td><span class="rbadge ${roleCls(ukind(u))}">${esc(roleName(u))}</span>${second(u) ? ` <span class="rbadge r-${second(u)}">+ ${second(u) === "reverend" ? "Reverend" : "Pastor"}</span>` : ""}</td>
-        <td class="muted">${esc(u.church || "All churches")}</td><td class="muted hide-sm">${esc(shortTitle(u.pastor) || (u.role === "pastor" ? "Not set yet" : ""))}</td>
-        <td class="muted hide-sm">${lastUse[u.email] ? (lastUse[u.email].ever ? esc(full(String(lastUse[u.email].last_used).slice(0, 10))) : "Never") : ""}</td>
-        <td style="white-space:nowrap;text-align:right">${u.email === S.me.email ? (u.role === "admin" && !S.preview  // your own row: only switch between Admin and Tech admin (same rights), never lose admin by mistake
-            ? `<span class="muted">You</span> <button class="pill-btn sm" data-me-title="${u.title === "Tech admin" ? "" : "Tech admin"}" title="Same rights either way: this only changes how you're named">${svg("edit")}Show me as ${u.title === "Tech admin" ? "Admin" : "Tech admin"}</button>`
-            : `<span class="muted">You</span>`) : `<button class="pill-btn sm" data-chg="${esc(u.email)}">${svg("edit")}Change</button> <button class="x" data-del="${esc(u.email)}">Remove</button>`}</td></tr>`).join("")}</tbody></table></div>
+      <div class="ad-list">${shown.map(u => { const nm = u.name || u.email.split("@")[0], lu = lastUse[u.email];
+        const seen = !lu ? "" : !lu.ever ? "Never signed in" : "Last in " + lastIn(lu.last_used);
+        return `<div class="ad-row"><span class="ava" ${avaStyle(u.name || u.email)}>${esc(initials(u.name || u.email))}</span>
+        <span class="ad-who"><b>${esc(nm)}${u.email === S.me.email ? ` <span class="muted">(you)</span>` : ""}</b><small>${esc([seen, u.church || "All churches"].filter(Boolean).join(" · "))}</small></span>
+        <span class="ad-badges"><span class="rbadge ${roleCls(ukind(u))}">${esc(roleName(u))}</span>${second(u) ? `<span class="rbadge r-${second(u)}">+ ${second(u) === "reverend" ? "Reverend" : "Pastor"}</span>` : ""}</span>
+        <button type="button" class="ad-more" data-umenu aria-expanded="false" aria-label="More for ${esc(nm)}">${svg("more")}</button>
+        <div class="ad-acts" hidden><small>${esc([u.email, shortTitle(u.pastor) ? "Pastor name: " + shortTitle(u.pastor) : u.role === "pastor" ? "Pastor name not set yet" : ""].filter(Boolean).join(" · "))}</small>
+          ${u.email === S.me.email ? (u.role === "admin" && !S.preview  // your own row: only switch between Admin and Tech admin (same rights), never lose admin by mistake
+            ? `<button class="pill-btn sm" data-me-title="${u.title === "Tech admin" ? "" : "Tech admin"}" title="Same rights either way: this only changes how you're named">${svg("edit")}Show me as ${u.title === "Tech admin" ? "Admin" : "Tech admin"}</button>`
+            : `<span class="muted">This is you</span>`) : `<button class="pill-btn sm" data-chg="${esc(u.email)}">${svg("edit")}Change</button> <button class="x" data-del="${esc(u.email)}">Remove</button>`}</div></div>`; }).join("")}</div>
       ${pages > 1 ? `<div class="pager"><span class="muted">Page ${S.uPage} of ${pages} · ${list.length} people</span><span class="gap"></span>
         <button class="pg" data-pg="${S.uPage - 1}" ${S.uPage === 1 ? "disabled" : ""} aria-label="Previous page">${svg("prev")}</button>
         ${nums.map((n, i) => (i && n - nums[i - 1] > 1 ? `<span class="muted">…</span>` : "") + `<button class="pg ${n === S.uPage ? "on" : ""}" data-pg="${n}">${n}</button>`).join("")}
         <button class="pg" data-pg="${S.uPage + 1}" ${S.uPage === pages ? "disabled" : ""} aria-label="Next page">${svg("next")}</button></div>` : ""}`;
     el.querySelectorAll("#u-list [data-pg]").forEach(b => b.onclick = () => { S.uPage = +b.dataset.pg; drawUsers(); });
+    el.querySelectorAll("#u-list [data-umenu]").forEach(b => b.onclick = () => { const box = b.nextElementSibling, open = box.hidden;
+      el.querySelectorAll("#u-list [data-umenu]").forEach(x => { x.setAttribute("aria-expanded", "false"); x.nextElementSibling.hidden = true; });
+      box.hidden = !open; b.setAttribute("aria-expanded", String(open)); });
     el.querySelectorAll("#u-list [data-chg]").forEach(b => b.onclick = () => change(b.dataset.chg));
     el.querySelectorAll("#u-list [data-me-title]").forEach(b => b.onclick = async () => {
       const t = b.dataset.meTitle || null; b.disabled = true;
