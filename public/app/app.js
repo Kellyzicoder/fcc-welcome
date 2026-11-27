@@ -2902,7 +2902,7 @@ function followup(el) {
   const MAIN = ["need", "red", "yellow", "all"], MORE = ["once", "blue", "came", "visited"];  // the main lists as buttons; the rest under More
   const pick = {need: x => x.level !== "ok", red: x => x.flag === "red", yellow: x => x.flag === "yellow", once: x => x.flag === "blue", blue: x => !p.here[x.id] && started(x), came: x => !!p.here[x.id], visited: x => !!x.visited, all: () => true};
   if (!tabs[S.filter]) S.filter = "need";
-  const list = had ? p.people.filter(pick[S.filter]) : [];
+  const list = had ? p.people.filter(pick[S.filter]) : [], mine = new Map((p.mine || []).map(m => [m.id, m]));
   const withPhone = list.filter(x => x.phone), fresh = withPhone.filter(x => !msgRecent(x.id));  // Message everyone leaves out anyone messaged this week
   el.innerHTML = head("Follow-up", esc(S.church),
     `<button class="pill-btn" id="dl">Download this list</button>`) + `
@@ -2911,14 +2911,20 @@ function followup(el) {
     <div class="chips fu-wide fu-chips">${MAIN.map(k => `<button class="chip ${S.filter === k ? "on" : ""}" data-f="${k}" ${k === "red" ? `title="Missed ${RED_AT} or more in a row"` : k === "yellow" ? `title="Missed ${YELLOW_AT}–${RED_AT - 1} in a row"` : ""}>${tabs[k]}${had ? ` <span class="chip-n">${p.people.filter(pick[k]).length}</span>` : ""}</button>`).join("")}
       <span class="fu-more-wrap"><button type="button" class="chip ${MORE.includes(S.filter) ? "on" : ""}" id="fu-more" aria-haspopup="menu" aria-expanded="false">${MORE.includes(S.filter) ? tabs[S.filter] : "More"}${MORE.includes(S.filter) && had ? ` <span class="chip-n">${p.people.filter(pick[S.filter]).length}</span>` : ""} ${svg("caret")}</button>
         <div class="w-pop fu-pop" role="menu" hidden>${MORE.map(k => `<button type="button" role="menuitem" class="${S.filter === k ? "on" : ""}" data-f="${k}">${tabs[k]}${had ? ` <span class="muted">${p.people.filter(pick[k]).length}</span>` : ""}</button>`).join("")}</div></span></div>
-    <div class="fu-narrow" style="max-width:340px;margin:0 0 14px"><label class="f" for="fu-f">Show</label><select class="in" id="fu-f">${Object.entries(tabs).map(([k, t]) =>  // one dropdown instead of a row of pills, each list with its count
-      `<option value="${k}" ${S.filter === k ? "selected" : ""}>${t} (${had ? p.people.filter(pick[k]).length : 0})</option>`).join("")}</select></div>  <!-- phones: the dropdown; wider screens: the pills -->
-    <div class="card"><div class="card-head"><h2>${tabs[S.filter]}</h2><span class="gap"></span>${withPhone.length > 1 && !S.preview ? `<button type="button" class="pill-btn sm" id="fu-all" title="${fresh.length < withPhone.length ? `Leaves out ${withPhone.length - fresh.length} messaged in the last 7 days` : ""}">${svg("chat")}Message everyone (${(fresh.length || withPhone.length)})</button>` : ""}<span style="color:var(--ink-3);font-size:13px">${list.length} people</span></div>
-      ${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th>Missed in a row</th><th class="hide-sm">Last seen</th><th class="hide-sm">Pastor</th><th>Phone</th></tr></thead>
-      <tbody>${rowsHtml(list, true)}</tbody></table></div>` : `<p class="empty">${had ? "Nobody in this list." : `No service was recorded on ${esc(nice(day || today(), true))}.`}</p>`}</div>`;
+    <div class="fu-narrow fu-swipe" role="group" aria-label="Show">${Object.entries(tabs).map(([k, t]) => `<button type="button" class="chip ${S.filter === k ? "on" : ""}" data-f="${k}">${t}${had ? ` <span class="chip-n">${p.people.filter(pick[k]).length}</span>` : ""}</button>`).join("")}</div>  <!-- phones: a row of tabs to swipe; wider screens: the pills and More -->
+    <div class="fu-hero"><div><b>${list.length}</b><span>${esc(tabs[S.filter])}</span>${had ? `<small>${withPhone.length} with a phone number</small>` : ""}</div>${withPhone.length > 1 && !S.preview ? `<button type="button" class="pill-btn sm" id="fu-all" title="${fresh.length < withPhone.length ? `Leaves out ${withPhone.length - fresh.length} messaged in the last 7 days` : ""}">${svg("chat")}Message everyone (${(fresh.length || withPhone.length)})</button>` : ""}</div>
+    ${list.length ? `<div class="fu-list">${list.map(x => { const m = mine.get(x.id), tone = x.visited ? "visited" : x.flag || "ok";
+        return `<div class="fu-row ${tone}"><button type="button" class="fu-ava" data-person="${esc(x.id)}" aria-label="${esc(`${x.full_name}: attendance history`)}">${esc(initials(x.full_name))}</button>
+          <div class="fu-who"><button type="button" class="fu-name" data-person="${esc(x.id)}">${esc(x.full_name)}</button>
+            <small>${x.missed ? `Missed ${x.missed} in a row` : "Not missed"}${x.seen ? ` · last here ${esc(nice(x.seen))}` : ""}${x.pastor ? ` · ${esc(shortTitle(x.pastor))}` : ""}</small>${msgTag(lastMsg(x.id))}</div>
+          <span class="fu-flag">${flagBadge(x)}</span>
+          <div class="fu-acts">${x.phone && !S.preview ? `<button type="button" class="pill-btn sm primary" data-msgto="${esc(x.id)}">${svg("chat")}Message</button><a class="pill-btn sm" href="tel:${esc(String(x.phone).replace(/[^\d+]/g, ""))}">Call</a>` : x.phone ? "" : `<span class="muted fu-nophone">No phone number</span>`}
+            ${canVisit() && m ? `<button type="button" class="pill-btn sm" data-fuvisit="${esc(x.id)}">${svg("visits")}Log visit</button>` : ""}</div></div>`; }).join("")}</div>`
+      : `<div class="card"><p class="empty">${had ? "Nobody in this list." : `No service was recorded on ${esc(nice(day || today(), true))}.`}</p></div>`}`;
   { const q = x => ({name: x.full_name, phone: x.phone, mid: x.id, day: x.first_visit || "", kind: msgKind(x, p)});
     el.querySelector("#fu-all")?.addEventListener("click", () => textPerson({queue: (fresh.length ? fresh : withPhone).map(q), full: withPhone.map(q)})); }
-  el.querySelector("#fu-f").onchange = e => { S.filter = e.target.value; render(); };
+  el.querySelectorAll("[data-fuvisit]").forEach(b => b.onclick = () => visitDialog(mine.get(b.dataset.fuvisit)));
+  el.querySelector(".fu-swipe .chip.on")?.scrollIntoView({block: "nearest", inline: "center"});
   el.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { S.filter = b.dataset.f; render(); });
   { const btn = el.querySelector("#fu-more"), pop = el.querySelector(".fu-pop");  // More: the other lists, in a small menu like the dashboard's
     const show = on => { pop.hidden = !on; btn.setAttribute("aria-expanded", on); if (on) setTimeout(() => document.addEventListener("click", away, {once: true}), 0); };
