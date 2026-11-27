@@ -1077,6 +1077,8 @@ async function start() {
     S.cfg = await fetch("/app-config").then(r => r.json()).catch(() => null);
     if (!S.cfg?.url || !S.cfg?.key) { root.innerHTML = `<div class="center"><p class="empty">The app isn't connected to the database yet.</p></div>`; return; }
   }
+  const boardTok = new URLSearchParams(location.search).get("board");  // a board meeting link: numbers only, no sign-in
+  if (boardTok) return boardPage(boardTok);
   const teamTok = new URLSearchParams(location.search).get("team");  // a Team form link: no sign-in needed
   if (teamTok) return teamForm(teamTok);
   const hash = new URLSearchParams(location.hash.slice(1));  // arriving from the emailed link
@@ -3683,16 +3685,17 @@ async function bishop(el, rows, text, newest) {
         <span class="cg-row"><span class="cg-red" title="${esc(FLAG_WHY.red)}">${r.red}<small>Missed ${RED_AT}+ in a row</small></span><span class="cg-yel" title="${esc(FLAG_WHY.yellow)}">${r.yellow}<small>Missed ${YELLOW_AT}–${RED_AT - 1} in a row</small></span><span>${all ? (bac ? sum(bac, "came") : "–") : bacCame(r.church)}<small>At Bacenta last week</small></span></span>
         ${all ? "" : `<span class="spark" aria-hidden="true">${sparkOf(r.trend)}</span>`}</button>`; };
     const on = rows.filter(served), tot = {present: sum(on, "present"), adults: sum(on, "adults"), kids: sum(on, "kids"), first_timers: sum(on, "first_timers"), red: sum(rows, "red"), yellow: sum(rows, "yellow")};
-    el.innerHTML = head(admin ? "Churches" : "All churches", day ? `Numbers only · ${esc(nice(day, true))}` : "Numbers only", `<button class="pill-btn" id="wa">Summary for WhatsApp</button>`) + layout + `<div id="b-sum" hidden style="margin:0 0 16px"></div>
+    el.innerHTML = head(admin ? "Churches" : "All churches", day ? `Numbers only · ${esc(nice(day, true))}` : "Numbers only", `<button class="pill-btn" id="bd-share">${svg("upload")}Board meeting link</button><button class="pill-btn" id="wa">Summary for WhatsApp</button>`) + layout + `<div id="b-sum" hidden style="margin:0 0 16px"></div>
       <div class="cg-grid">${box(tot, true)}${rows.map(r => box(r)).join("")}</div>
       ${day ? `<p class="note" style="margin:12px 2px 0">Showing ${esc(nice(day, true))}. <button class="link" id="b-latest" style="margin:0">Back to the latest</button></p>` : ""}`;
     wireLayout();
     el.querySelectorAll("[data-gb]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.gb; S.bGrid = false; render(); scrollTo(0, 0); });
     el.querySelector("#wa").onclick = () => openSum(day || newest); if (S.bSum) openSum(day || newest, true);
+    el.querySelector("#bd-share").onclick = boardShare;
     el.querySelector("#b-latest")?.addEventListener("click", () => { S.bDay = ""; render(); });
     return;
   }
-  el.innerHTML = head(admin ? "Churches" : "All churches", admin ? "Every church's numbers; open one to work in it, or manage the list at the bottom" : "Numbers only", `${admin ? `<button class="pill-btn" id="go-manage">${svg("edit")}Manage churches</button>` : ""}<button class="pill-btn" id="addcw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + layout + `<div id="b-sum" hidden style="margin:0 0 16px"></div>
+  el.innerHTML = head(admin ? "Churches" : "All churches", admin ? "Every church's numbers; open one to work in it, or manage the list at the bottom" : "Numbers only", `${admin ? `<button class="pill-btn" id="go-manage">${svg("edit")}Manage churches</button>` : ""}<button class="pill-btn" id="addcw">${svg("plus")}Add widget</button><button class="pill-btn" id="bd-share">${svg("upload")}Board meeting link</button><button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn" id="dl">Download</button>`) + layout + `<div id="b-sum" hidden style="margin:0 0 16px"></div>
     <div class="bish">
       <div class="card b-cal" id="b-cal"></div>
       <div class="b-swipe"><span><b>${rows.length} ${rows.length === 1 ? "church" : "churches"}</b> · swipe or tap the arrows</span><button type="button" class="icon-btn sm" data-bs="-1" aria-label="Previous churches">${svg("prev")}</button><button type="button" class="icon-btn sm" data-bs="1" aria-label="More churches">${svg("next")}</button></div>
@@ -3757,6 +3760,7 @@ async function bishop(el, rows, text, newest) {
   if (S.bJump) { S.bJump = false; el.querySelector(".b-list")?.scrollIntoView({behavior: "smooth", block: "start"}); }  // church row and dashboard in view
   el.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { S.church = b.dataset.open; S.view = "dashboard"; render(); });  // admin: work in that church
   el.querySelector("#wa").onclick = () => openSum(latest || newest); if (S.bSum) openSum(latest || newest, true);
+  el.querySelector("#bd-share").onclick = boardShare;
   el.querySelector("#dl").onclick = () => download(`all_churches_${day || today()}.csv`, [["Church", "Service", "Present", "Adults", "Kids", "First-timers", "On the register", "Needs a call (red)", "Check in (amber)", "Missed this service", "Visited, not missed since", "Visits in the last 30 days"],
     ...rows.map(r => served(r) ? [r.church, r.latest || "", r.present, r.adults, r.kids, r.first_timers, r.register, r.red, r.yellow, r.missed_this, r.visited ?? "", r.visits_month ?? ""]
       : [r.church, `No service on ${day}`, "", "", "", "", r.register, "", "", "", "", ""])]);
@@ -4927,6 +4931,160 @@ const TEAM_ROLES = [["team", "Team", "Ushers: tick people in at services"], ["pa
                     ["shepherd", "Shepherd", "Like a Pastor: sees and ticks only the people assigned to them"],
                     ["lead", "Church admin", "The whole church: people, follow-up, reports"]];
 const teamLink = tok => `${location.origin}/app/index.html?${window.FCC_DEMO ? "demo&" : ""}team=${encodeURIComponent(tok)}`;
+// ---------------------------------------------------------------- board meeting link
+// The admin or the Bishop shares one month's numbers as a view-only page: no sign-in, numbers only, and it stops
+// working after the days they pick. The page reads everything from app_board(token) and draws it here.
+const boardLink = tok => `${location.origin}/app/index.html?${window.FCC_DEMO ? "demo&" : ""}board=${encodeURIComponent(tok)}`;
+const BD_MON = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const bdMonth = (iso, short) => { const [y, m] = iso.split("-").map(Number); return short ? BD_MON[m - 1].slice(0, 3) : `${BD_MON[m - 1]} ${y}`; };
+// the share box: pick a month and how long the link works, then copy or send it; links still working can be stopped
+async function boardShare() {
+  const d = document.createElement("div"); d.className = "modal";
+  const now = today().slice(0, 7), months = [...Array(12)].map((_, k) => { const x = new Date(+now.slice(0, 4), +now.slice(5, 7) - 1 - k, 1); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-01`; });
+  d.innerHTML = `<form class="sheet" role="dialog" aria-modal="true" aria-label="Board meeting link" style="max-width:460px">
+    <div class="card-head"><h2>Board meeting link</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+    <div class="fields">
+      <p class="note" style="margin:0 2px">Leaders open the link and see the month's charts. No sign-in. Numbers only: no names or phone numbers.</p>
+      <label class="f" for="bd-m">Month</label><select class="in" id="bd-m">${months.map((m, i) => `<option value="${m}"${i === 0 ? " selected" : ""}>${bdMonth(m)}</option>`).join("")}</select>
+      <label class="f" for="bd-d">The link works for</label><select class="in" id="bd-d">${[[3, "3 days"], [7, "7 days"], [14, "14 days"], [30, "30 days"]].map(([v, t]) => `<option value="${v}"${v === 7 ? " selected" : ""}>${t}</option>`).join("")}</select>
+      <div id="bd-out"></div>
+      <div id="bd-list"></div>
+    </div>
+    <div class="msg bad" id="bd-err" hidden></div>
+    <div class="modal-foot"><button type="button" class="pill-btn" data-x>Close</button><button class="pill-btn primary" id="bd-go">Make the link</button></div></form>`;
+  document.body.append(d);
+  const $ = id => d.querySelector("#" + id), close = () => { d.remove(); document.removeEventListener("keydown", onKey); }, onKey = e => { if (e.key === "Escape") close(); };
+  d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) close(); };
+  document.addEventListener("keydown", onKey);
+  const fail = t => { $("bd-err").textContent = t; $("bd-err").hidden = !t; };
+  const until = t => new Date(t).toLocaleDateString("en-NZ", {weekday: "short", day: "numeric", month: "short"});
+  const list = async () => {
+    let rows = []; try { rows = await api("rpc/app_board_links", {method: "POST", body: {}}) || []; } catch { return; }
+    $("bd-list").innerHTML = rows.length ? `<p class="f" style="margin-top:14px">Links still working</p>${rows.map(r => `<div class="bd-link-row"><span><b>${esc(bdMonth(r.month))}</b><small>Until ${esc(until(r.expires_at))}${S.me?.role === "admin" && r.made_by_name ? ` · ${esc(r.made_by_name)}` : ""}</small></span>
+      <button type="button" class="pill-btn sm" data-bcopy="${esc(r.token)}">Copy</button><button type="button" class="pill-btn sm" data-bstop="${esc(r.token)}">Stop</button></div>`).join("")}` : "";
+    $("bd-list").querySelectorAll("[data-bcopy]").forEach(b => b.onclick = async () => { const u = boardLink(b.dataset.bcopy); try { await navigator.clipboard.writeText(u); toast("Link copied."); } catch { toast(u); } });
+    $("bd-list").querySelectorAll("[data-bstop]").forEach(b => b.onclick = async () => { b.disabled = true;
+      try { await api("rpc/app_board_stop", {method: "POST", body: {tok: b.dataset.bstop}}); toast("That link has stopped working."); list(); } catch (e) { b.disabled = false; fail(e.message); } });
+  };
+  list();
+  d.querySelector("form").onsubmit = async e => {
+    e.preventDefault(); fail(""); const go = $("bd-go"); go.disabled = true;
+    try {
+      const r = await api("rpc/app_board_link", {method: "POST", body: {m: $("bd-m").value, days: +$("bd-d").value}});
+      const u = boardLink(r.token);
+      $("bd-out").innerHTML = `<div class="bd-made"><p style="margin:0 0 6px"><b>${esc(bdMonth($("bd-m").value))}</b> · works until ${esc(until(r.until))}</p>
+        <input class="in" readonly value="${esc(u)}" aria-label="The link" onfocus="this.select()">
+        <div class="fl-btns" style="margin-top:8px"><button type="button" class="pill-btn sm primary" id="bd-copy">Copy link</button>${navigator.share ? `<button type="button" class="pill-btn sm" id="bd-send">Send…</button>` : ""}<a class="pill-btn sm" href="${esc(u)}" target="_blank" rel="noopener">Open it</a></div></div>`;
+      $("bd-copy").onclick = async () => { try { await navigator.clipboard.writeText(u); toast("Link copied. Paste it into the leaders' chat."); } catch { toast(u); } };
+      $("bd-send")?.addEventListener("click", () => navigator.share({title: "Board meeting", text: `${bdMonth($("bd-m").value)} numbers for the board meeting`, url: u}).catch(() => {}));
+      go.textContent = "Make another"; list();
+    } catch (ex) { fail(/app_board_link|schema cache/i.test(ex.message) ? "Run the latest setup SQL in Supabase once, then try again." : ex.message); }
+    go.disabled = false;
+  };
+}
+
+// The page leaders open from the link. Everything is counts; tap a bar or a slice to read its numbers.
+async function boardPage(tok) {
+  const brand = `<div class="brand" style="padding:0"><span class="brand-mark">✝</span>Favourite Child Church</div>`;
+  root.innerHTML = `<div class="bd"><div class="bd-top">${brand}</div><p class="empty">Loading…</p></div>`;
+  let B = null; try { B = await api("rpc/app_board", {method: "POST", body: {tok}}); } catch {}
+  if (!B) { root.innerHTML = `<div class="center"><div class="login">${brand}<h1>This link isn't working</h1><p>It may have run out or been stopped. Ask for a new one.</p></div></div>`; return; }
+  document.title = `${bdMonth(B.month)} board meeting · FCC`;
+  const CH = B.churches || [], mo = B.month.slice(0, 7), sundays = B.sundays || [], months = B.months || [];
+  const sum = (list, k) => list.reduce((n, r) => n + (r[k] || 0), 0), came = r => (r.adults || 0) + (r.kids || 0);
+  // a church keeps its colour everywhere; after seven, the rest share one grey as "Other churches"
+  const SLOT = 7, colOf = c => { const i = CH.indexOf(c); return i >= 0 && i < SLOT ? `var(--bd${i + 1})` : "var(--bd-other)"; };
+  const days = [...new Set(sundays.map(s => s.d))].sort(), inMonth = days.filter(d => d.startsWith(mo));
+  const prevMo = (() => { const [y, m] = mo.split("-").map(Number), x = new Date(y, m - 2, 1); return `${x.getFullYear()}-${pad(x.getMonth() + 1)}`; })();
+  const dayTotal = (d, ch) => sundays.filter(s => s.d === d && (!ch || s.church === ch));
+  const avgOf = (ds, ch) => { const n = ds.map(d => sum(dayTotal(d, ch), "adults") + sum(dayTotal(d, ch), "kids")).filter(Boolean); return n.length ? Math.round(n.reduce((a, b) => a + b, 0) / n.length) : 0; };
+  const inPrev = days.filter(d => d.startsWith(prevMo)), avgNow = avgOf(inMonth), avgPrev = avgOf(inPrev);
+  const monNow = months.filter(r => r.m.startsWith(mo));
+  const chg = (a, b) => !b ? "" : a === b ? `<span class="bd-chg">same</span>` : `<span class="bd-chg ${a > b ? "up" : "down"}">${a > b ? "↑" : "↓"} ${Math.abs(a - b)}</span>`;
+  const tile = (label, n, sub, hero) => `<div class="bd-tile${hero ? " hero" : ""}"><p>${label}</p><b>${n}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
+  const vis = sum(monNow, "visited"), notIn = sum(monNow, "not_seen");
+  // the big chart: all churches together, each Sunday in the 12 weeks; the shared month in the strong colour
+  const totals = days.map(d => { const r = dayTotal(d); return {d, n: sum(r, "adults") + sum(r, "kids"), a: sum(r, "adults"), k: sum(r, "kids")}; }), topN = Math.max(1, ...totals.map(t => t.n));
+  const bigBars = totals.length ? `<div class="bd-bars" role="list">${totals.map(t => `<button type="button" role="listitem" class="bd-bar${t.d.startsWith(mo) ? " on" : ""}" data-read="${esc(`${nice(t.d, true)}: ${t.n} came · ${t.a} adults, ${t.k} children`)}" aria-label="${esc(`${nice(t.d)}: ${t.n} came`)}">
+      <span style="height:${Math.max(3, t.n / topN * 100)}%"></span><small>${esc(nice(t.d))}</small></button>`).join("")}</div><p class="bd-read" aria-live="polite">Tap a bar to see that Sunday</p>` : `<p class="empty">No Sunday services in these 12 weeks.</p>`;
+  // each church on its own: the month's average, against the month before, and its Sundays as a small chart
+  const tops = Math.max(1, ...days.flatMap(d => CH.map(c => sum(dayTotal(d, c), "adults") + sum(dayTotal(d, c), "kids"))));
+  const cards = CH.map(c => { const a = avgOf(inMonth, c), p = avgOf(inPrev, c), last = days.slice(-8);
+    return `<div class="bd-card"><p><i style="background:${colOf(c)}"></i>${esc(c)}</p><b>${a || "–"}</b>${a ? chg(a, p) : `<small>No Sundays this month</small>`}
+      <span class="bd-spark" aria-hidden="true">${last.map(d => { const n = sum(dayTotal(d, c), "adults") + sum(dayTotal(d, c), "kids"); return `<i class="${d.startsWith(mo) ? "on" : ""}" style="height:${Math.max(n ? 3 : 1, n / tops * 100)}%" title="${esc(`${nice(d)}: ${n}`)}"></i>`; }).join("")}</span></div>`; }).join("");
+  // month by month for the whole church: first-timers, new converts, visits made
+  const mList = [...new Set(months.map(r => r.m))].sort();
+  const trend = (title, k) => { const v = mList.map(m => sum(months.filter(r => r.m === m), k)), top = Math.max(1, ...v);
+    return `<div class="bd-card bd-trend"><p>${title}</p><b>${v.at(-1) ?? 0}<small> in ${bdMonth(mo + "-01", true)}</small></b>
+      <div class="bd-mbars">${mList.map((m, i) => `<span class="${i === mList.length - 1 ? "on" : ""}"><em>${v[i]}</em><i style="height:${Math.max(v[i] ? 4 : 1, v[i] / top * 100)}%"></i><small>${bdMonth(m, true)}</small></span>`).join("")}</div></div>`; };
+  // the pies. Tapping a slice (or its row) opens what it's made of, church by church
+  const latest = inMonth.at(-1);
+  const who = latest ? dayTotal(latest) : [];
+  const pies = [
+    {key: "church", title: `Average Sunday by church`, unit: "a Sunday", parts: (() => { const p = CH.map(c => [c, avgOf(inMonth, c), colOf(c)]).filter(x => x[1]);
+        const main = p.filter(x => CH.indexOf(x[0]) < SLOT), rest = p.filter(x => CH.indexOf(x[0]) >= SLOT);
+        return rest.length ? [...main, ["Other churches", sum(rest.map(x => ({n: x[1]})), "n"), "var(--bd-other)", rest.map(x => x[0])]] : main; })()},
+    {key: "who", title: latest ? `Who came, ${nice(latest)}` : "Who came", unit: "people", parts: [
+      ["Adult members", sum(who, "adults") - sum(who, "first_timers") - sum(who, "visitors") + (sum(who, "kids") - sum(who, "member_kids")), "var(--bd1)", "adults"],
+      ["Child members", sum(who, "member_kids"), "var(--bd2)", "member_kids"], ["Visitors", sum(who, "visitors"), "var(--bd3)", "visitors"], ["First-timers", sum(who, "first_timers"), "var(--bd4)", "first_timers"]]},
+    {key: "visits", title: "Visits this month", unit: "visits", parts: [["Visited", vis, "var(--bd1)", "visited"], ["Went, nobody in", notIn, "var(--bd2)", "not_seen"]]}];
+  const R = 52, L = 2 * Math.PI * R;
+  const pie = (p, pi) => { const tot = p.parts.reduce((n, x) => n + x[1], 0); let acc = 0;
+    if (!tot) return `<div class="bd-card bd-pie"><p>${esc(p.title)}</p><p class="empty" style="margin:8px 0 0">Nothing recorded yet.</p></div>`;
+    const segs = p.parts.map((x, i) => { const len = x[1] / tot * L, s = x[1] ? `<circle cx="66" cy="66" r="${R}" stroke="${x[2]}" stroke-dasharray="${Math.max(len - 2, 0.01)} ${L}" stroke-dashoffset="${-acc}" data-slice="${pi}:${i}" tabindex="0" role="button" aria-label="${esc(`${x[0]}: ${x[1]}`)}"><title>${esc(`${x[0]}: ${x[1]}`)}</title></circle>` : ""; acc += len; return s; }).join("");
+    return `<div class="bd-card bd-pie" data-pie="${pi}"><p>${esc(p.title)}</p><div class="bd-pie-row">
+      <span class="bd-ring"><svg viewBox="0 0 132 132" role="img" aria-label="${esc(p.title)}">${segs}</svg><span><b>${tot}</b><small>${esc(p.unit)}</small></span></span>
+      <div class="bd-legend">${p.parts.map((x, i) => `<button type="button" data-slice="${pi}:${i}"${x[1] ? "" : " disabled"}><i style="background:${x[2]}"></i><span>${esc(x[0])}</span><b>${x[1]}</b><small>${Math.round(x[1] / tot * 100)}%</small></button>`).join("")}</div></div>
+      <div class="bd-detail" hidden></div></div>`; };
+  // what a slice is made of: for a church, its own numbers; for anything else, how many at each church
+  const detail = (pi, i) => { const p = pies[pi], x = p.parts[i];
+    if (p.key === "church") { const list = x[3] || [x[0]];
+      if (x[3]) return `<b>${esc(x[0])}</b>${rows(list.map(c => [c, avgOf(inMonth, c)]), "a Sunday")}`;
+      const c = x[0], m = monNow.filter(r => r.church === c);
+      return `<b>${esc(c)}</b><div class="bd-facts">${[["Average Sunday", avgOf(inMonth, c)], ["Sundays", inMonth.filter(d => dayTotal(d, c).length).length], ["First-timers", sum(m, "first_timers")], ["New converts", sum(m, "converts")], ["Visits made", sum(m, "visited")]].map(([k, v]) => `<span><small>${k}</small><b>${v}</b></span>`).join("")}</div>`; }
+    const src = p.key === "who" ? CH.map(c => { const r = dayTotal(latest, c); return [c, x[3] === "adults" ? sum(r, "adults") - sum(r, "first_timers") - sum(r, "visitors") + (sum(r, "kids") - sum(r, "member_kids")) : sum(r, x[3])]; })
+      : CH.map(c => [c, sum(monNow.filter(r => r.church === c), x[3])]);
+    return `<b>${esc(x[0])} · ${x[1]} by church</b>${rows(src.filter(r => r[1]))}`; };
+  const rows = (list, unit) => { const top = Math.max(1, ...list.map(r => r[1]));
+    return list.length ? `<div class="bd-rows">${list.sort((a, b) => b[1] - a[1]).map(([c, n]) => `<div><span><i style="background:${colOf(c)}"></i>${esc(c)}</span><em><i style="width:${n / top * 100}%;background:${colOf(c)}"></i></em><b>${n}</b></div>`).join("")}</div>${unit ? `<small class="muted">${unit}</small>` : ""}` : `<p class="empty" style="margin:6px 0 0">None.</p>`; };
+  // one Sunday at one church (or all of them), against the Sunday before
+  const svcPick = () => { const ch = S.bdCh || "", d = S.bdDay && inMonth.includes(S.bdDay) ? S.bdDay : latest;
+    if (!d) return `<p class="empty">No Sunday services this month.</p>`;
+    const at = days.indexOf(d), before = days.slice(0, at).reverse().find(x => dayTotal(x, ch).length);
+    const r = dayTotal(d, ch), q = before ? dayTotal(before, ch) : null, f = (k, list) => k === "came" ? sum(list, "adults") + sum(list, "kids") : sum(list, k);
+    return `<div class="bd-facts big">${[["Came", "came"], ["Adults", "adults"], ["Children", "kids"], ["First-timers", "first_timers"], ["Visitors", "visitors"]].map(([t, k]) => `<span><small>${t}</small><b>${f(k, r)}</b>${q ? chg(f(k, r), f(k, q)) : ""}</span>`).join("")}</div>
+      <p class="note" style="margin:10px 2px 0">${before ? `Compared with ${esc(nice(before, true))}` : "No Sunday before it to compare with"}</p>`; };
+  const title = `${bdMonth(B.month)} board meeting`;
+  root.innerHTML = `<div class="bd">
+    <header class="bd-top">${brand}<small>View only · ${B.by ? `shared by ${esc(B.by)} · ` : ""}works until ${esc(new Date(B.until).toLocaleDateString("en-NZ", {day: "numeric", month: "short"}))}</small>
+      ${document.fullscreenEnabled ? `<button type="button" class="pill-btn sm" id="bd-full">${svg("expand")}Full screen</button>` : ""}</header>
+    <main class="bd-main">
+      <div><h1>${esc(title)}</h1><p class="muted">${CH.length} ${CH.length === 1 ? "church" : "churches"} · ${inMonth.length} ${inMonth.length === 1 ? "Sunday" : "Sundays"}</p></div>
+      <div class="bd-tiles">${tile("Average Sunday", avgNow || "–", avgPrev ? `${chg(avgNow, avgPrev)} on ${bdMonth(prevMo + "-01", true)}` : "all churches", true)}${tile("First-timers", sum(monNow, "first_timers"))}${tile("New converts", sum(monNow, "converts"))}${tile("Visits made", vis, notIn ? `and ${notIn} where nobody was in` : "")}</div>
+      <section class="bd-card"><h2>Sunday attendance, all churches</h2><p class="muted">The last 12 weeks · ${esc(bdMonth(mo + "-01"))} in blue</p>${bigBars}</section>
+      <section><h2>Each church</h2><div class="bd-grid">${cards}</div></section>
+      <section><h2>Month by month</h2><div class="bd-grid three">${trend("First-timers", "first_timers")}${trend("New converts", "converts")}${trend("Visits made", "visited")}</div></section>
+      <section><h2>How it splits <small class="muted">· tap a slice to see each church</small></h2><div class="bd-grid three">${pies.map(pie).join("")}</div></section>
+      <section class="bd-card"><div class="bd-svc-head"><h2>Look at one Sunday</h2><span class="gap" style="flex:1"></span>
+        <select class="in" id="bd-ch" aria-label="Church"><option value="">All churches</option>${CH.map(c => `<option${S.bdCh === c ? " selected" : ""}>${esc(c)}</option>`).join("")}</select>
+        <select class="in" id="bd-day" aria-label="Sunday">${inMonth.slice().reverse().map(d => `<option value="${d}"${S.bdDay === d ? " selected" : ""}>${esc(nice(d, true))}</option>`).join("")}</select></div>
+        <div id="bd-svc">${svcPick()}</div></section>
+      <p class="note" style="text-align:center">Numbers only. No names or phone numbers are on this page.</p>
+    </main></div>`;
+  const read = root.querySelector(".bd-read");
+  root.querySelectorAll(".bd-bar").forEach(b => b.onclick = () => { root.querySelectorAll(".bd-bar.sel").forEach(x => x.classList.remove("sel")); b.classList.add("sel"); read.textContent = b.dataset.read; });
+  const open = (pi, i) => { const card = root.querySelector(`[data-pie="${pi}"]`), box = card.querySelector(".bd-detail"), was = card.dataset.sel === String(i);
+    card.dataset.sel = was ? "" : String(i); card.querySelectorAll("[data-slice]").forEach(s => s.classList.toggle("dim", !was && s.dataset.slice !== `${pi}:${i}`));
+    card.querySelectorAll("[data-slice]").forEach(s => s.classList.toggle("sel", !was && s.dataset.slice === `${pi}:${i}`));
+    box.hidden = was; box.innerHTML = was ? "" : `<button type="button" class="icon-btn sm bd-x" aria-label="Close">${svg("close")}</button>` + detail(pi, i);
+    box.querySelector(".bd-x")?.addEventListener("click", () => open(pi, i)); };
+  root.querySelectorAll("[data-slice]").forEach(s => { const [pi, i] = s.dataset.slice.split(":").map(Number);
+    s.addEventListener("click", () => open(pi, i)); s.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(pi, i); } }); });
+  const ch = root.querySelector("#bd-ch"), day = root.querySelector("#bd-day");
+  ch.onchange = () => { S.bdCh = ch.value; root.querySelector("#bd-svc").innerHTML = svcPick(); };
+  day.onchange = () => { S.bdDay = day.value; root.querySelector("#bd-svc").innerHTML = svcPick(); };
+  root.querySelector("#bd-full")?.addEventListener("click", () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {}));
+}
 // The form a branch leader fills in. With a church name instead of a link (preview), it opens in a popup for the admin
 // to see exactly what the leader will see; it can be filled in to try it, but nothing is sent.
 async function teamForm(tok, preview) {

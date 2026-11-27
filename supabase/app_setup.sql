@@ -2601,4 +2601,96 @@ end $$;
 revoke all on function app_alert_targets(uuid) from public, anon, authenticated;
 grant execute on function app_alert_targets(uuid) to service_role;
 
+
+-- ---------------------------------------------------------------- board meeting links
+-- The admin or the Bishop makes a view-only link to one month's numbers for a board meeting. Whoever has the link sees
+-- counts only (no names, phones or emails), with no sign-in, until it runs out (1 to 30 days). Every read goes through
+-- app_board(); nobody can read or change the table directly.
+create table if not exists board_links (
+  token text primary key,
+  month date not null,
+  made_by text not null, made_by_name text,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null);
+alter table board_links enable row level security;
+revoke all on board_links from anon, authenticated;
+
+create or replace function app_board_link(m date, days int default 7) returns json
+language plpgsql security definer set search_path = public as $$
+declare tok text := replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', '');
+        me text := lower(auth.jwt() ->> 'email'); mo date := date_trunc('month', coalesce(m, current_date))::date; til timestamptz;
+begin
+  if coalesce(app_role(), '') not in ('admin', 'bishop') then raise exception 'not allowed'; end if;
+  if days is null or days < 1 or days > 30 then raise exception 'Pick between 1 and 30 days.'; end if;
+  if mo > date_trunc('month', current_date)::date or mo < (date_trunc('month', current_date) - interval '24 months')::date then
+    raise exception 'Pick a month in the last two years.';
+  end if;
+  if (select count(*) from board_links where made_by = me and created_at > now() - interval '1 day') >= 20 then
+    raise exception 'You have made 20 links today. Please use one of those.';
+  end if;
+  til := now() + make_interval(days => days);
+  insert into board_links (token, month, made_by, made_by_name, expires_at)
+  values (tok, mo, me, (select coalesce(nullif(trim(name), ''), email) from app_users where email = me), til);
+  return json_build_object('token', tok, 'until', til);
+end $$;
+
+-- The links still working: your own (the admin sees everyone's), newest first. Stop one with app_board_stop.
+create or replace function app_board_links() returns table (token text, month date, made_by_name text, expires_at timestamptz)
+language sql stable security definer set search_path = public as $$
+  select l.token, l.month, l.made_by_name, l.expires_at from board_links l
+  where l.expires_at > now() and (app_role() = 'admin' or (app_role() = 'bishop' and l.made_by = lower(auth.jwt() ->> 'email')))
+  order by l.created_at desc limit 20 $$;
+create or replace function app_board_stop(tok text) returns boolean
+language plpgsql security definer set search_path = public as $$
+begin
+  update board_links set expires_at = now() where token = tok and expires_at > now()
+    and (app_role() = 'admin' or (app_role() = 'bishop' and made_by = lower(auth.jwt() ->> 'email')));
+  return found;
+end $$;
+
+-- What the link shows: the month, who shared it, every church, and counts only. Null for a wrong or old link.
+--   sundays: each church's Sundays in the 12 weeks to the month's end (adults, kids, first-timers, visitors, member kids)
+--   months:  each church's last 5 months (first-timers, new converts, visits made, visits where nobody was in)
+create or replace function app_board(tok text) returns json
+language sql stable security definer set search_path = public as $$
+  with l as (select * from board_links where token = tok and expires_at > now()),
+  b as (select l.month as mo, (l.month + interval '1 month' - interval '1 day')::date as last_day from l),
+  people as (
+    select m.id, coalesce(nullif(trim(m.church), ''), app_home_church()) as ch, coalesce(m.type, 'member') as type,
+           lower(coalesce(m.age_group, '')) in ('child', 'kid', 'kids', 'children') as kid, m.first_visit
+    from members m where exists (select 1 from l)
+      and app_status_rule(coalesce(nullif(trim(m.church), ''), app_home_church()), m.status) = 'in'),
+  sun as (
+    select p.ch, a.service_date as d, count(*) filter (where not p.kid)::int as adults, count(*) filter (where p.kid)::int as kids,
+           count(*) filter (where p.type = 'first_timer')::int as first_timers, count(*) filter (where p.type = 'visitor')::int as visitors,
+           count(*) filter (where p.kid and p.type not in ('first_timer', 'visitor'))::int as member_kids
+    from attendance a join people p on p.id = a.member_id cross join b
+    where a.service_date between b.last_day - 83 and b.last_day and extract(dow from a.service_date) = 0
+    group by 1, 2),
+  firsts as (
+    select p.ch, date_trunc('month', coalesce(p.first_visit, case when p.type in ('first_timer', 'visitor') then t.d end))::date as mm
+    from people p left join (select member_id, min(service_date) as d from attendance group by 1) t on t.member_id = p.id),
+  mons as (select (b.mo - make_interval(months => k))::date as mm from b, generate_series(0, 4) k),
+  chs as (select name as ch from churches union select ch from people),
+  mon as (
+    select c.ch, x.mm,
+      (select count(*) from firsts f where f.ch = c.ch and f.mm = x.mm)::int as first_timers,
+      (select count(*) from converts v where coalesce(nullif(trim(v.church), ''), app_home_church()) = c.ch
+         and date_trunc('month', v.decided_on)::date = x.mm)::int as converts,
+      (select count(*) from visits v join members m on m.id = v.member_id where coalesce(nullif(trim(m.church), ''), app_home_church()) = c.ch
+         and v.outcome = 'visited' and date_trunc('month', v.visit_date)::date = x.mm)::int as visited,
+      (select count(*) from visits v join members m on m.id = v.member_id where coalesce(nullif(trim(m.church), ''), app_home_church()) = c.ch
+         and v.outcome = 'not_seen' and date_trunc('month', v.visit_date)::date = x.mm)::int as not_seen
+    from chs c cross join mons x)
+  select json_build_object('month', l.month, 'until', l.expires_at, 'by', l.made_by_name, 'home', app_home_church(),
+    'churches', (select json_agg(ch order by ch <> app_home_church(), ch) from chs),
+    'sundays', coalesce((select json_agg(json_build_object('church', s.ch, 'd', s.d, 'adults', s.adults, 'kids', s.kids, 'first_timers', s.first_timers,
+                                                           'visitors', s.visitors, 'member_kids', s.member_kids) order by s.d, s.ch) from sun s), '[]'),
+    'months', (select json_agg(json_build_object('church', x.ch, 'm', x.mm, 'first_timers', x.first_timers, 'converts', x.converts,
+                                                 'visited', x.visited, 'not_seen', x.not_seen) order by x.mm, x.ch) from mon x))
+  from l $$;
+revoke all on function app_board_link(date, int), app_board_links(), app_board_stop(text), app_board(text) from public, anon, authenticated;
+grant execute on function app_board_link(date, int), app_board_links(), app_board_stop(text) to authenticated;
+grant execute on function app_board(text) to anon, authenticated;
+
 notify pgrst, 'reload schema';

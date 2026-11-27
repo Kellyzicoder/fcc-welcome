@@ -181,6 +181,19 @@
         return {church: c, bacentas: bs.length, came: ppl(wk(0)), weeks: [7, 6, 5, 4, 3, 2, 1, 0].map(k => ppl(wk(k))),
           behind: bs.filter(b => !all.some(t => t.bacenta === b.id && t.meeting_date >= a && t.meeting_date <= z) && !T.bacenta_skips.some(s => s.bacenta === b.id && s.meeting_date >= a && s.meeting_date <= z)).length}; });
     }
+    // board meeting links: the token holds the month; the page gets the same counts-only shape as app_board()
+    if (name === "app_board_link") return {token: "demo-board-" + (body?.m || iso(now)).slice(0, 7), until: new Date(Date.now() + (body?.days || 7) * 864e5).toISOString()};
+    if (name === "app_board_links" || name === "app_board_stop") return name === "app_board_stop" ? true : [];
+    if (name === "app_board") { const mm = /^demo-board-(\d{4}-\d{2})$/.exec(body?.tok || ""); if (!mm) return null;
+      const mo = mm[1] + "-01", end = new Date(+mm[1].slice(0, 4), +mm[1].slice(5, 7), 0), last = iso(end), from = new Date(end); from.setDate(from.getDate() - 83);
+      const sun = {}; for (const a of T.attendance) { const m = byId[a.member_id]; if (!m || a.service_date > last || a.service_date < iso(from) || new Date(a.service_date + "T12:00:00").getDay() !== 0) continue;
+        const k = homeOf(m) + "|" + a.service_date, x = sun[k] ??= {church: homeOf(m), d: a.service_date, adults: 0, kids: 0, first_timers: 0, visitors: 0, member_kids: 0};
+        x[kid(m) ? "kids" : "adults"]++; if (m.type === "first_timer") x.first_timers++; else if (m.type === "visitor") x.visitors++; else if (kid(m)) x.member_kids++; }
+      const mons = [4, 3, 2, 1, 0].map(k => { const x = new Date(+mm[1].slice(0, 4), +mm[1].slice(5, 7) - 1 - k, 1); return iso(x).slice(0, 7) + "-01"; });
+      const months = mons.flatMap(m => CH.map((c, i) => ({church: c, m, first_timers: people.filter(p => homeOf(p) === c && (p.first_visit || "").slice(0, 7) === m.slice(0, 7)).length,
+        converts: (T.converts || []).filter(v => (v.church || HOME) === c && (v.decided_on || "").startsWith(m.slice(0, 7))).length + (m === mo ? 2 - i % 2 : (i + m.charCodeAt(6)) % 3),
+        visited: 3 + (i * 2 + m.charCodeAt(6)) % 5, not_seen: (i + m.charCodeAt(6)) % 3})));
+      return {month: mo, until: new Date(Date.now() + 7 * 864e5).toISOString(), by: "Demo Admin", home: HOME, churches: CH, sundays: Object.values(sun).sort((a, b) => a.d.localeCompare(b.d)), months}; }
     if (name === "app_db_size") return {total: 31457280, tables: [{name: "attendance", bytes: 9437184}, {name: "members", bytes: 2097152}]};
     if (name === "app_set_my_name") return body?.new_name || "";
     if (name === "app_rename_church") return body?.new_name || body?.n || "";
