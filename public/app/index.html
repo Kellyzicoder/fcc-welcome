@@ -1457,6 +1457,57 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 .fu-chips {align-items: center;} .chip-n {display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 6px; border-radius: 999px; background: var(--soft); font-size: 12px; font-weight: 700; color: var(--ink-2);}
 .chip.on .chip-n {background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent);}
 .fu-more-wrap {position: relative; display: inline-flex;} #fu-more svg {width: 14px; height: 14px; margin-left: 2px; opacity: .7;} .fu-pop {left: 0; right: auto; top: calc(100% + 6px); min-width: 230px;} .fu-pop button {display: flex; justify-content: space-between; gap: 14px; white-space: nowrap;} .fu-pop .muted {color: var(--ink-3);}
+/* ---- board meeting link: a view-only page of one month's numbers (no sign-in). Chart colours: a fixed order, one per church */
+:root {--bd1: #257de0; --bd2: #f47230; --bd3: #00b894; --bd4: #f2a600; --bd5: #ee7fac; --bd6: #008a17; --bd7: #6a4ce2; --bd-other: #9aa3ae; --bd-faint: #c9dbf8;}
+[data-theme="dark"] {--bd1: #338ced; --bd2: #e76624; --bd3: #00a888; --bd4: #d28e05; --bd5: #e24d8b; --bd6: #0aac23; --bd7: #9887ef; --bd-other: #6b7584; --bd-faint: #24405f;}
+.bd {min-height: 100dvh; background: var(--page);}
+.bd-top {display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 14px max(16px, calc((100vw - 1160px) / 2)); background: var(--card); border-bottom: 1px solid var(--line);}
+.bd-top > small {flex: 1; color: var(--ink-2); font-size: 13px; min-width: 180px;}
+.bd-main {max-width: 1160px; margin: 0 auto; padding: 28px 16px 48px; display: grid; gap: 22px;}
+.bd-main h1 {margin: 0; font-size: clamp(24px, 4vw, 34px); letter-spacing: -.02em;} .bd-main h2 {margin: 0 0 12px; font-size: 18px;} .bd-main h2 small {font-size: 13px; font-weight: 500;}
+.bd-main .muted {color: var(--ink-2); margin: 4px 0 0;}
+.bd-tiles {display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px;}
+.bd-tile, .bd-card {background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 18px 20px; min-width: 0;}
+.bd-tile p, .bd-card > p {margin: 0; font-size: 14px; color: var(--ink-2); font-weight: 600; display: flex; align-items: center; gap: 7px;}
+.bd-tile > b {display: block; font-size: 38px; margin-top: 4px; letter-spacing: -.02em;} .bd-tile small {display: block; font-size: 13px; color: var(--ink-2);}
+.bd-tile.hero {background: var(--accent); border-color: transparent; color: var(--accent-ink);} .bd-tile.hero p, .bd-tile.hero small {color: color-mix(in srgb, var(--accent-ink) 82%, transparent);}
+.bd-tile.hero .bd-chg {color: inherit;}
+.bd-chg {font-size: 13px; font-weight: 600; color: var(--ink-2);} .bd-chg.up {color: var(--ok);} .bd-chg.down {color: var(--red);}
+.bd-bars {display: flex; align-items: flex-end; gap: 8px; height: 220px; padding-top: 10px; border-bottom: 1px solid var(--line);}
+.bd-bar {flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; border: 0; background: none; padding: 0; cursor: pointer; font: inherit; min-width: 0;}
+.bd-bar span {width: 100%; max-width: 46px; border-radius: 4px 4px 0 0; background: var(--bd-faint);} .bd-bar.on span {background: var(--accent);}
+.bd-bar small {font-size: 11px; color: var(--ink-2); margin-bottom: -22px; height: 16px; white-space: nowrap;} .bd-bar.sel span {outline: 2px solid var(--ink); outline-offset: 2px;}
+.bd-card > .bd-read {margin: 30px 0 0; font-size: 14px; color: var(--ink-2); min-height: 20px;}
+.bd-grid {display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, calc(50% - 7px)), 1fr)); gap: 14px;} .bd-grid.three {grid-template-columns: repeat(3, minmax(0, 1fr));}
+.bd-card > p i {width: 10px; height: 10px; border-radius: 3px; flex: none;}
+.bd-card > b {display: block; font-size: 28px; margin-top: 2px;} .bd-card > b small {font-size: 13px; font-weight: 500; color: var(--ink-2);} .bd-card > small {font-size: 13px; color: var(--ink-2);}
+.bd-spark {display: flex; align-items: flex-end; gap: 4px; height: 46px; margin-top: 12px;} .bd-spark i {flex: 1; border-radius: 3px 3px 0 0; background: var(--bd-faint);} .bd-spark i.on {background: var(--accent);}
+.bd-mbars {display: flex; align-items: flex-end; gap: 10px; height: 130px; margin-top: 12px; border-bottom: 1px solid var(--line);}
+.bd-mbars span {flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; position: relative;}
+.bd-mbars em {font-style: normal; font-size: 12px; font-weight: 600;} .bd-mbars i {width: 100%; max-width: 40px; border-radius: 4px 4px 0 0; background: var(--bd-faint);} .bd-mbars .on i {background: var(--accent);}
+.bd-mbars small {position: absolute; bottom: -20px; font-size: 11.5px; color: var(--ink-2);} .bd-trend {padding-bottom: 30px;}
+.bd-pie-row {display: flex; align-items: center; gap: 16px; margin-top: 12px;}
+.bd-ring {position: relative; width: 132px; height: 132px; flex: none;} .bd-ring svg {width: 100%; height: 100%; transform: rotate(-90deg); overflow: visible;}
+.bd-ring circle {fill: none; stroke-width: 22; cursor: pointer; transition: opacity .15s, stroke-width .15s;} .bd-ring circle.dim {opacity: .3;} .bd-ring circle.sel {stroke-width: 28;}
+.bd-ring circle:focus-visible {outline: none; stroke-width: 28;}
+.bd-ring > span {position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none;} .bd-ring b {font-size: 22px;} .bd-ring small {font-size: 11.5px; color: var(--ink-2);}
+.bd-legend {flex: 1; min-width: 0; display: grid; gap: 4px;}
+.bd-legend button {display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 5px 6px; border-radius: 10px; font: inherit; font-size: 13px; color: var(--ink); cursor: pointer; text-align: left;}
+.bd-legend button:hover, .bd-legend button.sel {background: var(--soft);} .bd-legend button.dim {opacity: .5;} .bd-legend button:disabled {opacity: .45; cursor: default;}
+.bd-legend i {width: 10px; height: 10px; border-radius: 3px; flex: none;} .bd-legend span {flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;} .bd-legend small {width: 34px; text-align: right; color: var(--ink-2);}
+.bd-detail {position: relative; margin-top: 14px; background: var(--soft); border-radius: 16px; padding: 14px 16px;} .bd-detail > b {display: block; font-size: 14px; margin: 0 30px 8px 0;}
+.bd-x {position: absolute; top: 8px; right: 8px;}
+.bd-rows {display: grid; gap: 6px;} .bd-rows div {display: flex; align-items: center; gap: 10px; font-size: 13px;}
+.bd-rows span {width: 40%; display: flex; align-items: center; gap: 7px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;} .bd-rows span i {width: 10px; height: 10px; border-radius: 3px; flex: none;}
+.bd-rows em {flex: 1; height: 10px; border-radius: 5px; background: var(--line); overflow: hidden;} .bd-rows em i {display: block; height: 100%; border-radius: 5px;} .bd-rows b {width: 30px; text-align: right;}
+.bd-facts {display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px;} .bd-facts > span {background: var(--card); border-radius: 12px; padding: 10px 12px;}
+.bd-facts small {display: block; font-size: 12px; color: var(--ink-2);} .bd-facts b {font-size: 20px;} .bd-facts.big > span {background: var(--soft);} .bd-facts.big b {font-size: 26px; margin-right: 6px;}
+.bd-svc-head {display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px;} .bd-svc-head h2 {margin: 0;} .bd-svc-head .in {width: auto; min-width: 150px;}
+.bd-link-row {display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line);} .bd-link-row > span {flex: 1; min-width: 0;} .bd-link-row small {display: block; color: var(--ink-2); font-size: 12.5px;}
+.bd-made {margin-top: 12px; padding: 14px; border-radius: 14px; background: var(--soft);}
+@media (max-width: 900px) { .bd-tiles {grid-template-columns: repeat(2, minmax(0, 1fr));} .bd-grid.three {grid-template-columns: minmax(0, 1fr);} .bd-bars {gap: 4px; height: 180px;} .bd-bar small {font-size: 9.5px; transform: rotate(-35deg); transform-origin: top center;} }
+@media (max-width: 420px) { .bd-pie-row {flex-direction: column; align-items: stretch;} .bd-ring {align-self: center;} .bd-tile > b {font-size: 30px;} }
+@media print { .bd-top button, .bd-x {display: none;} .bd-card, .bd-tile {break-inside: avoid;} }
 </style>
 </head>
 <body>
