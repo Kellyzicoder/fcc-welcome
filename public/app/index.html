@@ -1661,6 +1661,88 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
   .fu-name {font-size: 15px;} .fu-acts {gap: 8px;} .fu-acts .fu-call {display: none;} .fu-acts .pill-btn {min-height: 36px; padding: 0 16px;}
 }
 @media (max-width: 700px) { .fu-hero b {font-size: 24px;} .fu-bar .gap {display: none;} .fu-bar {margin-bottom: 10px;} }
+/* ---- Home on a computer too: the blue card (with the last services as small bars), quick actions, who needs a call; widgets below */
+.ph-bars {display: none;}
+@media (min-width: 701px) {
+  .ph-home {display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); grid-template-areas: "hero quick" "need need"; gap: 16px; margin: 0 0 18px;}
+  #view:has(.ph-home) > .head .pill-btn.primary {display: none;}
+  .ph-hero {grid-area: hero; background: var(--accent); color: var(--accent-ink); border-radius: 24px; padding: 22px 24px; display: grid; grid-template-columns: 1fr auto; gap: 8px 18px; align-items: end; box-shadow: 0 10px 26px color-mix(in srgb, var(--accent) 24%, transparent);}
+  .ph-hero-top {grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; font-size: 14px; opacity: .9;}
+  .ph-hero-top small {font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 12px; background: rgba(255, 255, 255, .18);}
+  .ph-num {margin: 0; display: flex; align-items: baseline; gap: 8px;} .ph-num b {font-size: 52px; line-height: 1; letter-spacing: -.03em;} .ph-num span {font-size: 15px; opacity: .85;}
+  .ph-was {margin: 0; font-size: 13px; opacity: .85; grid-column: 1;}
+  .ph-bars {display: flex; align-items: flex-end; gap: 5px; height: 64px; grid-column: 2; grid-row: 2 / span 2;} .ph-bars i {width: 12px; border-radius: 4px 4px 0 0; background: rgba(255, 255, 255, .35);} .ph-bars i.on {background: #fff;}
+  .ph-go {grid-column: 1 / -1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; justify-self: start; height: 46px; padding: 0 22px; border: 0; border-radius: 23px; background: #fff; color: var(--accent); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 6px;}
+  .ph-go svg {width: 16px; height: 16px;}
+  .ph-quick {grid-area: quick; background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 18px 20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-content: start;}
+  .ph-qh {grid-column: 1 / -1; margin: 0 0 2px; font-size: 16px;}
+  .ph-quick button {display: flex; align-items: center; gap: 10px; padding: 10px; border: 0; border-radius: 16px; background: var(--soft); font: inherit; font-size: 14px; font-weight: 600; color: var(--ink); cursor: pointer; text-align: left;}
+  .ph-quick button > span {width: 40px; height: 40px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent);} .ph-quick svg {width: 19px; height: 19px;}
+  .ph-quick button:hover {background: var(--accent-soft);}
+  .ph-need {grid-area: need; background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 16px 20px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 18px;}
+  .ph-need-h {grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;} .ph-need-h h2 {margin: 0; font-size: 16px;} .ph-need-h .link {margin: 0; font-weight: 600;}
+  .ph-person {display: flex; align-items: center; gap: 12px; padding: 8px 6px; border: 0; border-radius: 14px; background: none; font: inherit; color: var(--ink); text-align: left; cursor: pointer;} .ph-person:hover {background: var(--soft);}
+  .ph-ava {width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center; font-size: 13px; font-weight: 700; flex: none; background: var(--yellow-bg); color: #92400e;}
+  .ph-person.red .ph-ava {background: var(--red-bg); color: var(--red);}
+  .ph-who {flex: 1; min-width: 0; display: flex; flex-direction: column;} .ph-who b {font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;} .ph-who small {color: var(--ink-3); font-size: 12.5px;}
+  .ph-person em {font-style: normal; font-size: 12.5px; font-weight: 600; color: #92400e;} .ph-person.red em {color: var(--red);}
+  [data-theme="dark"] .ph-ava, [data-theme="dark"] .ph-person em {color: var(--yellow);} [data-theme="dark"] .ph-person.red .ph-ava, [data-theme="dark"] .ph-person.red em {color: var(--red);}
+  .ph-need > .empty {grid-column: 1 / -1;}
+}
+@media (max-width: 700px) { .ph-qh {display: none;} }
+/* ---- Visits: tabs, three numbers, then the same calm list as Follow-up */
+.vs-tiles {display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 0 0 16px;}
+.vs-tile {background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 16px 18px; display: flex; flex-direction: column; gap: 2px;}
+.vs-tile small {font-size: 13px; font-weight: 600; color: var(--ink-2);} .vs-tile b {font-size: 32px; line-height: 1.1; letter-spacing: -.02em;} .vs-tile span {font-size: 12.5px; color: var(--ink-3);}
+.vs-tile.hero {background: var(--accent); border-color: transparent; color: var(--accent-ink); box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 22%, transparent);} .vs-tile.hero small, .vs-tile.hero span {color: inherit; opacity: .85;}
+.vs-list {background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 4px 20px;}
+.vs-row {display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--line);} .vs-row:last-child {border-bottom: 0;}
+.vs-row > * {grid-area: auto;} .vs-row .fu-ava {background: var(--ok-bg); color: var(--ok);} .vs-row .fu-ava.out {background: var(--yellow-bg); color: #92400e;}
+.vs-row .fu-who small {color: var(--ink-3); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+.vs-when {font-size: 13px; color: var(--ink-2); white-space: nowrap;} .vs-out {font-size: 12.5px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: var(--ok-bg); color: var(--ok); white-space: nowrap;} .vs-out.out {background: var(--yellow-bg); color: #92400e;}
+[data-theme="dark"] .vs-out.out, [data-theme="dark"] .vs-row .fu-ava.out {color: var(--yellow);}
+@media (max-width: 700px) { .vs-tiles {gap: 8px;} .vs-tile {padding: 12px; border-radius: 18px;} .vs-tile b {font-size: 24px;} .vs-tile span {display: none;}
+  .vs-list {padding: 4px 12px;} .vs-row {grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px;} .vs-when {grid-column: 2; font-size: 12px; margin-top: -6px;} .vs-out {grid-column: 3; grid-row: 1;} .vs-row > span:last-child {grid-column: 3; grid-row: 2;} }
+/* ---- Alerts: send on the left, what was sent on the right (one column on phones) */
+.al-grid {display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; align-items: start;} .al-grid.one {grid-template-columns: minmax(0, 1fr);}
+.al-grid > .card {margin: 0; border-radius: 22px; padding: 20px 22px;}
+.al-send textarea {border-radius: 16px; background: var(--soft); border-color: transparent;} .al-send select {border-radius: 999px;}
+.al-recent .al-item {display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); border-radius: 0; background: none; align-items: start;} .al-recent .al-item:first-child {border-top: 0;}
+.al-recent .al-item:hover {background: none;}
+.al-recent .al-item > svg {width: 42px; height: 42px; padding: 11px; box-sizing: border-box; border-radius: 14px; background: var(--red-bg); color: var(--red); margin: 0;}
+.al-recent .al-item.test > svg {background: var(--yellow-bg); color: #92400e;} [data-theme="dark"] .al-recent .al-item.test > svg {color: var(--yellow);}
+.al-recent .al-top {display: flex; justify-content: space-between; gap: 10px; align-items: baseline;}
+@media (max-width: 900px) { .al-grid {grid-template-columns: minmax(0, 1fr);} }
+/* ---- Admin: the tabs as a grey track with the chosen one filled blue; rounder cards */
+.atabs {border: 0; background: color-mix(in srgb, var(--ink) 7%, transparent); border-radius: 999px; padding: 4px;}
+.atabs button {border-radius: 999px; padding: 9px 18px; font-weight: 500;} .atabs button[aria-selected="true"] {font-weight: 600; box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 25%, transparent);}
+@media (max-width: 900px) { .atabs {border-radius: 22px;} .atabs button {border-radius: 18px;} }
+#view:has(.atabs) .card {border-radius: 22px;}
+#view:has(.atabs) .tiles > .tile {border-color: var(--line); border-radius: 22px;} #view:has(.atabs) .tiles > .tile .label::before {display: none;}
+#view:has(.atabs) .tiles > .tile:first-child {background: var(--accent); border-color: transparent; color: var(--accent-ink); box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 22%, transparent);}
+#view:has(.atabs) .tiles > .tile:first-child * {color: inherit !important;}
+/* ---- Popups: a soft blurred backdrop, rounder boxes, a round close button; on phones they rise from the bottom with a handle */
+.modal {background: rgba(10, 16, 28, .45); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);}
+.sheet {border-radius: 28px; box-shadow: 0 24px 60px rgba(8, 15, 30, .22);}
+.modal > .sheet > .card-head:first-child {border-radius: 28px 28px 0 0;}
+.sheet .card-head .icon-btn[data-x] {width: 38px; height: 38px; border-radius: 50%; background: var(--soft); border-color: transparent;}
+.sheet .in {border-radius: 14px;} .sheet select.in {border-radius: 999px;} .modal-foot .pill-btn {min-height: 46px; font-weight: 600;}
+@media (max-width: 720px) {
+  .modal {padding: 0 !important; place-items: end stretch;}
+  .modal > .sheet {width: 100% !important; max-width: 100% !important; margin: 0; border-radius: 28px 28px 0 0; border-bottom: 0; padding-bottom: calc(20px + env(safe-area-inset-bottom)); max-height: calc(100dvh - 40px);}
+  .modal > .sheet::before {content: ""; display: block; width: 40px; height: 5px; border-radius: 3px; background: var(--line); margin: -8px auto 10px;}
+  .modal > .sheet > .card-head:first-child {border-radius: 28px 28px 0 0;}
+}
+/* ---- Smooth movement for tabs and buttons (off with Reduce motion) */
+@keyframes fcc-tab {from {transform: scale(.92); opacity: .6;} to {transform: none; opacity: 1;}}
+@media (prefers-reduced-motion: no-preference) {
+  .seg button, .seg.ci-seg button, .atabs button, .fu-tabs #fu-more, .ci-teams .rpill, .ci-date, .cal-btn, .vs-tile, .ph-quick button, .ph-person, .fu-row, .pm-row, .ci-row, .ci-tick, .ci-az button {transition: background-color .22s ease, color .22s ease, border-color .22s ease, box-shadow .22s ease, transform .15s ease, opacity .2s ease;}
+  .seg button[aria-pressed="true"], .atabs button[aria-selected="true"], .fu-tabs #fu-more[aria-pressed="true"], .ci-teams .rpill[aria-pressed="true"], .fu-swipe .chip.on {animation: fcc-tab .26s cubic-bezier(.2, .8, .2, 1);}
+  .pill-btn:hover:not(:disabled), .ph-go:hover, .pm-go:hover, .cal-btn:hover, .ci-date:hover {transform: translateY(-1px);}
+  .pill-btn:active:not(:disabled), .seg button:active, .ph-go:active, .pm-go:active, .ph-quick button:active, .ci-tick:active, .ci-date:active {transform: scale(.96);}
+  .fu-hero, .ph-hero, .pm-hero, .vs-tile.hero {animation: fcc-rise .32s cubic-bezier(.2, .7, .2, 1) both;}
+  .ci-pop {animation: fcc-drop .18s ease both; transform-origin: top left;}
+}
 </style>
 </head>
 <body>

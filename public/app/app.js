@@ -2352,11 +2352,13 @@ function phoneHome(p) {
   const quick = [["followup", "chat", "Message"], ["visits", "visits", "Log visit"], ["converts", "converts", "New convert"], ["reports", "reports", "Reports"], ["people", "people", "People"]]
     .filter(([v]) => can(v)).slice(0, 4);
   const need = p.people.filter(x => x.flag === "red" || x.flag === "yellow").slice(0, 3), needN = p.people.filter(x => x.flag === "red" || x.flag === "yellow").length;
+  const recent = p.dates.slice(-8).map(d => [d, countsOn(p, d).present]), top = Math.max(1, ...recent.map(r => r[1]));
   return `<div class="ph-home">
     <section class="ph-hero"><div class="ph-hero-top"><span>${p.last ? `${esc(svcName(p.last))} · ${esc(S.church)}` : esc(S.church)}</span>${p.last ? `<small>${esc(nice(p.last))}</small>` : ""}</div>
       ${c ? `<p class="ph-num"><b>${c.present}</b><span>of ${reg} here</span></p>${was !== null ? `<p class="ph-was">${c.present === was ? "Same as" : `${c.present > was ? "↑" : "↓"} ${Math.abs(c.present - was)} ${c.present > was ? "more than" : "fewer than"}`} ${esc(nice(before))}</p>` : ""}` : `<p class="ph-was">No services recorded yet</p>`}
+      ${recent.length > 1 ? `<span class="ph-bars" aria-hidden="true">${recent.map(([d, n], i) => `<i class="${i === recent.length - 1 ? "on" : ""}" style="height:${Math.max(6, n / top * 100)}%" title="${esc(`${nice(d)}: ${n}`)}"></i>`).join("")}</span>` : ""}
       ${can("checkin") ? `<button type="button" class="ph-go" data-go="checkin">Check people in${svg("next")}</button>` : ""}</section>
-    ${quick.length ? `<nav class="ph-quick" aria-label="Quick actions">${quick.map(([v, ic, t]) => `<button type="button" data-go="${v}"><span>${svg(ic)}</span>${t}</button>`).join("")}</nav>` : ""}
+    ${quick.length ? `<nav class="ph-quick" aria-label="Quick actions"><h2 class="ph-qh">Quick actions</h2>${quick.map(([v, ic, t]) => `<button type="button" data-go="${v}"><span>${svg(ic)}</span>${t}</button>`).join("")}</nav>` : ""}
     ${can("followup") ? `<section class="ph-need"><div class="ph-need-h"><h2>Needs a call${needN ? ` <span class="chip-n">${needN}</span>` : ""}</h2>${needN ? `<button type="button" class="link" data-go="followup">See all</button>` : ""}</div>
       ${need.length ? need.map(x => `<button type="button" class="ph-person ${x.flag}" data-person="${esc(x.id)}"><span class="ph-ava">${esc(initials(x.full_name))}</span>
         <span class="ph-who"><b>${esc(x.full_name)}</b><small>${x.seen ? `Last here ${esc(nice(x.seen))}` : "Not seen yet"}</small></span><em>${x.missed} missed</em></button>`).join("")
@@ -2523,6 +2525,11 @@ function checkin(el) {
     s.textContent = dt.toLocaleDateString("en-NZ", {weekday: "short", day: "numeric", month: "short"}).replace(",", "");
     const h = el.querySelector("#ci-head-sub"); if (h) h.textContent = `${S.me.role === "pastor" ? "Your people · " : ""}${name} · ${dt.toLocaleDateString("en-NZ", {day: "numeric", month: "long"})}`; };
   el.querySelector(".ci-top")?.addEventListener("toggle", e => { S.ciTopOpen = e.target.open; });
+  { const top = el.querySelector(".ci-top");  // the date box closes when you tap anywhere else (the calendar it opens counts as inside)
+    if (top) { const off = e => { if (!top.isConnected) { document.removeEventListener("pointerdown", off, true); document.removeEventListener("keydown", esc_); return; }
+        if (top.open && !top.contains(e.target) && !e.target.closest?.(".cal-pop")) top.open = false; };
+      const esc_ = e => { if (e.key === "Escape" && top.isConnected && top.open && !document.querySelector(".cal-pop")) top.open = false; };
+      document.addEventListener("pointerdown", off, true); document.addEventListener("keydown", esc_); } }
   el.querySelector("#svc")?.addEventListener("input", topSum);
   const lastPart = () => { const ps = partsOf(S.date); return ps.length > 1 ? Math.max(...ps.map(x => x.part)) : 0; };  // the one Remove takes away (never the first)
   const drawParts = () => {
@@ -2933,7 +2940,7 @@ function checkin(el) {
 // ---------------------------------------------------------------- follow-up and people
 // One person on Follow-up and a pastor's Home: initials coloured by how they're doing, how many Sundays they've missed,
 // and Message, Call and Log visit. Phones show a card each; computers, one line each in a list.
-function personCard(x, m) {
+function personCard(x, m, kind = "") {
   const tone = x.visited ? "visited" : x.flag || "ok", msg = msgRecent(x.id) ? lastMsg(x.id) : null;
   const vis = x.visited ? (S.visits || []).find(v => v.member_id === x.id && v.outcome !== "not_seen") : null;
   const status = msg ? [`Messaged by ${String(msg.sent_by_name || "someone").split(" ")[0]}, ${msgDay(msg.sent_at)}`, "done"]
@@ -2943,7 +2950,7 @@ function personCard(x, m) {
     <div class="fu-who"><button type="button" class="fu-name" data-person="${esc(x.id)}">${esc(x.full_name)}</button><small class="fu-st ${status[1]}">${esc(status[0])}</small></div>
     <span class="fu-pastor">${pastor ? `Pastor: ${esc(pastor)}` : ""}</span>
     <span class="fu-miss">${x.missed ? `${x.missed} missed` : x.visited ? "Visited" : "Came"}</span>
-    <div class="fu-acts">${x.phone && !S.preview ? `<button type="button" class="pill-btn sm fu-msg" data-msgto="${esc(x.id)}">Message</button><a class="pill-btn sm fu-call" href="tel:${esc(String(x.phone).replace(/[^\d+]/g, ""))}">Call</a>` : x.phone ? "" : `<span class="muted fu-nophone">No phone</span>`}
+    <div class="fu-acts">${x.phone && !S.preview ? `<button type="button" class="pill-btn sm fu-msg" data-msgto="${esc(x.id)}"${kind ? ` data-msgkind="${kind}"` : ""}>Message</button><a class="pill-btn sm fu-call" href="tel:${esc(String(x.phone).replace(/[^\d+]/g, ""))}">Call</a>` : x.phone ? "" : `<span class="muted fu-nophone">No phone</span>`}
       ${canVisit() && m ? `<button type="button" class="pill-btn sm" data-fuvisit="${esc(x.id)}">Log visit</button>` : ""}</div></div>`;
 }
 function followup(el) {
@@ -4905,19 +4912,22 @@ function visits(el) {
   const done = (S.visits || []).filter(v => byId[v.member_id] && ours(byId[v.member_id]));
   const tab = S.visTab === "done" ? "done" : "need", mineEm = (S.me.email || "").toLowerCase();
   const tel = x => x.phone ? `<span class="tp-cell">${esc(x.phone)}${S.preview ? "" : msgBtn(x, "visit")}</span>` : "";
+  const ago = done.filter(v => v.visit_date >= dayShift(today(), -30)), seen = ago.filter(v => v.outcome !== "not_seen").length;
   el.innerHTML = head("Visits", esc(S.church)) + (S.visits ? "" : `<div class="msg" style="margin:0 0 14px">Run the latest setup SQL in Supabase once to record visits.</div>`) + `
-    <div class="chips"><button class="chip ${tab === "need" ? "on" : ""}" data-vt="need">To visit (${need.length})</button><button class="chip ${tab === "done" ? "on" : ""}" data-vt="done">Visits (${done.length})</button></div>
-    <div class="card">${tab === "need"
-      ? need.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Status</th><th class="hide-sm">Missed in a row</th><th class="hide-sm">Last seen</th><th>Phone</th><th></th></tr></thead><tbody>
-        ${need.map(x => `<tr><td>${whoBtn(x)}${msgTag(lastMsg(x.id))}</td><td>${flagBadge(x)}</td><td class="hide-sm">${x.missed}</td><td class="muted hide-sm">${esc(nice(x.seen))}</td><td class="muted">${tel(x)}</td>
-          <td>${canVisit() ? `<button class="pill-btn sm primary" data-visit="${esc(x.id)}">Log visit</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`
-        : `<p class="empty">Nobody needs a visit right now.</p>`
-      : done.length ? `<div class="scroll"><table><thead><tr><th>Date</th><th>Name</th><th>Visited by</th><th class="hide-sm">Note</th><th></th></tr></thead><tbody>
-        ${done.map(v => `<tr><td>${esc(full(v.visit_date))}${v.outcome === "not_seen" ? ` <span class="badge yellow">Not in</span>` : ""}</td><td>${whoBtn(byId[v.member_id])}</td><td>${esc(v.visited_by)}</td><td class="muted hide-sm">${esc(v.note || "")}</td>
-          <td>${!S.preview && (v.added_by === mineEm || ["admin", "lead"].includes(S.me.role)) ? `<button class="x" data-vdel="${esc(v.id)}">Remove</button>` : ""}</td></tr>`).join("")}</tbody></table></div>`
-        : `<p class="empty">No visits recorded yet.</p>`}</div>`;
+    <div class="fu-bar"><div class="seg ci-seg" role="group" aria-label="Show"><button type="button" data-vt="need" aria-pressed="${tab === "need"}">To visit · ${need.length}</button><button type="button" data-vt="done" aria-pressed="${tab === "done"}">Visits · ${done.length}</button></div></div>
+    <div class="vs-tiles"><div class="vs-tile hero"><small>To visit</small><b>${need.length}</b><span>missed ${YELLOW_AT} Sundays or more</span></div>
+      <div class="vs-tile"><small>Visited this month</small><b>${seen}</b><span>in the last 30 days</span></div>
+      <div class="vs-tile"><small>Went, nobody in</small><b>${ago.length - seen}</b><span>try again another day</span></div></div>
+    ${tab === "need"
+      ? need.length ? `<div class="fu-list">${need.map(x => personCard(x, byId[x.id], "visit")).join("")}</div>` : `<div class="card"><p class="empty">Nobody needs a visit right now.</p></div>`
+      : done.length ? `<div class="vs-list">${done.map(v => { const x = byId[v.member_id], out = v.outcome === "not_seen";
+          return `<div class="vs-row"><button type="button" class="fu-ava ${out ? "out" : ""}" data-person="${esc(x.id)}" aria-label="${esc(`${x.full_name}: attendance history`)}">${esc(initials(x.full_name))}</button>
+            <div class="fu-who"><button type="button" class="fu-name" data-person="${esc(x.id)}">${esc(x.full_name)}</button><small>${esc(v.visited_by)}${v.note ? ` · ${esc(v.note)}` : ""}</small></div>
+            <span class="vs-when">${esc(full(v.visit_date))}</span><span class="vs-out ${out ? "out" : ""}">${out ? "Nobody in" : "Visited"}</span>
+            <span>${!S.preview && (v.added_by === mineEm || ["admin", "lead"].includes(S.me.role)) ? `<button type="button" class="pill-btn sm" data-vdel="${esc(v.id)}">Remove</button>` : ""}</span></div>`; }).join("")}</div>`
+        : `<div class="card"><p class="empty">No visits recorded yet.</p></div>`}`;
   el.querySelectorAll("[data-vt]").forEach(b => b.onclick = () => { S.visTab = b.dataset.vt; render(); });
-  el.querySelectorAll("[data-visit]").forEach(b => b.onclick = () => visitDialog(byId[b.dataset.visit]));
+  el.querySelectorAll("[data-visit], [data-fuvisit]").forEach(b => b.onclick = () => visitDialog(byId[b.dataset.visit || b.dataset.fuvisit]));
   el.querySelectorAll("[data-vdel]").forEach(b => { let armed = false; b.onclick = async () => {  // a second tap removes it
     if (!armed) { armed = true; b.textContent = "Tap again"; setTimeout(() => { armed = false; b.textContent = "Remove"; }, 4000); return; }
     b.disabled = true;
@@ -5498,13 +5508,13 @@ async function community(el) {  // Alerts: important news from the church's admi
   const chans = chatChannels(), me = (S.me.email || "").toLowerCase(), boss = ["admin", "lead"].includes(S.me.role) && !S.preview;
   const senders = chans.filter(([k]) => chatCanAlert(k)), canAll = S.me.role === "admin" && (S.churches || []).length > 1;
   const label = k => (chans.find(c => c[0] === k) || [k, "Everyone"])[1];
-  el.innerHTML = head("Alerts", esc(S.church)) + (senders.length ? `<form class="card al-send" id="al-form" style="margin-bottom:14px"><h2>Send an alert</h2>
+  el.innerHTML = head("Alerts", esc(S.church)) + `<div class="al-grid${senders.length ? "" : " one"}">` + (senders.length ? `<form class="card al-send" id="al-form"><h2>Send an alert</h2>
       <textarea class="in" id="al-text" rows="3" maxlength="1000" placeholder="What does everyone need to know?" aria-label="Alert"></textarea>
       <div class="al-row"><label class="f" for="al-to">To</label><select class="in" id="al-to">${senders.map(([k, t]) => `<option value="${esc(k)}">${esc(t)}</option>`).join("")}</select>
         ${canAll ? `<label class="check"><input type="checkbox" id="al-all"> Every church</label>` : ""}</div>
       <p class="note" style="margin:8px 2px 0">It shows at the top of their Home page and goes to phones with notifications on.</p>
       <div class="al-btns"><button type="button" class="link" id="al-test" style="margin:0">Send a test alert</button><button class="pill-btn primary" id="al-go">${svg("community")}Send alert</button></div></form>` : "")
-    + `<div class="card"><div class="card-head"><h2>Recent alerts</h2></div><div id="al-list" aria-live="polite"><p class="empty">Loading…</p></div></div>`;
+    + `<div class="card al-recent"><div class="card-head"><h2>Recent alerts</h2></div><div id="al-list" aria-live="polite"><p class="empty">Loading…</p></div></div></div>`;
   const when = t => new Date(t).toLocaleString(undefined, {weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit"});
   const link = s => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>').replace(/\n/g, "<br>");
   const q = `chat_messages?select=id,channel,body,alert,author_email,author_name,created_at&church=eq.${encodeURIComponent(S.church)}&alert=is.true&channel=in.(${chans.map(c => `"${c[0].replace(/"/g, "")}"`).join(",")})&order=created_at.desc&limit=50`;
