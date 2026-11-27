@@ -1619,6 +1619,48 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 .side .nav.out, .side .nav.out svg {color: var(--red) !important;}
 .side h6.nsec {font-size: 12px; font-weight: 600; color: var(--ink-3); margin: 20px 14px 6px;}
 .shell.mini .side .nav, .shell.mini .side .ngrp-b .nav {padding: 0 !important; justify-content: center; width: 44px; min-height: 44px; margin-inline: auto;}
+/* ---- Pill switches (Service / Bacenta and the like): a grey track with the chosen one filled blue */
+.seg.ci-seg {border: 0; background: color-mix(in srgb, var(--ink) 7%, transparent); border-radius: 999px; padding: 4px; gap: 4px;}
+.seg.ci-seg button {border-radius: 999px; padding: 9px 18px; font-size: 14px; font-weight: 500; color: var(--ink-2);} .seg.ci-seg button svg {display: none;}
+.seg.ci-seg button[aria-pressed="true"] {background: var(--accent); color: var(--accent-ink); font-weight: 600; box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 25%, transparent);}
+/* ---- Check-in, laid out like the design: switch, date and today's numbers on one line, a big search, team chips, then the names */
+.ci-bar {display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin: 0 0 16px;} .ci-bar .gap {flex: 1;}
+.ci-bar .ci-mode {margin: 0 !important;}
+.ci-bar .ci-top {position: relative; margin: 0; padding: 0; background: none; border: 0; box-shadow: none;}
+.ci-bar .ci-top > summary.ci-date {display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 16px; margin: 0; border-radius: 999px; background: var(--card); border: 1px solid var(--line); font-size: 14px; font-weight: 600; color: var(--ink); cursor: pointer;}
+.ci-bar .ci-top > summary.ci-date svg {width: 16px; height: 16px; margin: 0; color: var(--ink-3); transform: none !important;} .ci-bar .ci-top[open] > summary {margin: 0; border-color: var(--accent);}
+.ci-pop {position: absolute; left: 0; top: calc(100% + 8px); z-index: 12; width: min(520px, calc(100vw - 48px)); padding: 16px; box-shadow: 0 16px 40px rgba(8, 15, 30, .16);}
+.ci-bar .ci-sum {margin: 0; display: block; font-size: 14px; color: var(--ink-2);} .ci-bar .ci-sum b {color: var(--ink); font-size: 14px; letter-spacing: 0;} .ci-bar .ci-sum > b:first-child {font-size: 20px;}
+.find-bar.ci-find {border-radius: 999px; padding: 0 18px; margin: 0 0 14px; box-shadow: 0 1px 3px rgba(17, 24, 39, .05);} .find-bar.ci-find input {padding: 13px 0; font-size: 15px;}
+.ci-teams {margin: 0 0 14px;} .ci-teams .rpill {border-radius: 999px; padding: 7px 14px; font-size: 13px;} .ci-teams .rpill i {display: none;}
+.ci-teams .rpill span::before {content: "· ";} .ci-teams .rpill[aria-pressed="true"] {background: var(--ink); color: var(--page); border-color: var(--ink);} .ci-teams .rpill[aria-pressed="true"] span {color: inherit; opacity: .8;}
+.ci-sr {position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;}
+.ci-wrap {gap: 10px;} .ci-card {background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 8px 16px;}
+.ci-card:has(.empty) {padding: 18px;}
+@media (max-width: 700px) { .ci-bar .ci-sum {flex-basis: 100%; order: 3;} .ci-bar .gap {display: none;} .ci-card {padding: 4px 10px;} }
+/* ---- Follow-up, laid out like the design: pill tabs, a blue card with the headline, then a calm list */
+.fu-bar {display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 16px;} .fu-bar .gap {flex: 1;}
+.fu-tabs {flex-wrap: wrap;} .fu-tabs .fu-more-wrap {display: inline-flex;}
+.fu-tabs #fu-more {display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; font: inherit; font-size: 14px; font-weight: 500; color: var(--ink-2); padding: 9px 16px; border-radius: 999px; cursor: pointer;}
+.fu-tabs #fu-more svg {width: 14px; height: 14px; opacity: .7;} .fu-tabs #fu-more[aria-pressed="true"] {background: var(--accent); color: var(--accent-ink); font-weight: 600;}
+.fu-bar .cal-btn {height: 42px; border-radius: 999px; padding: 0 16px; background: var(--card); border: 1px solid var(--line); font-weight: 600; font-size: 14px;}
+.fu-hero {padding: 20px 24px; border-radius: 22px; margin: 0 0 16px; box-shadow: 0 10px 26px color-mix(in srgb, var(--accent) 24%, transparent);}
+.fu-hero > div {display: flex; flex-direction: column; align-items: flex-start; gap: 4px;}
+.fu-hero .fu-hero-top {flex-basis: auto; font-size: 13px; opacity: .85;} .fu-hero b {font-size: 28px; line-height: 1.15; letter-spacing: -.01em;} .fu-hero > div > small:last-child {font-size: 13px; opacity: .85;}
+.fu-hero .pill-btn {padding: 10px 20px; font-size: 14px;}
+.fu-row {grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "ava who miss" "acts acts acts";}
+.fu-ava {grid-area: ava;} .fu-who {grid-area: who;} .fu-pastor {display: none;} .fu-miss {grid-area: miss; font-size: 13px; font-weight: 600; color: var(--ink-3); white-space: nowrap;}
+.fu-row.red .fu-miss {color: var(--red);} .fu-row.yellow .fu-miss {color: #b45309;} .fu-row.blue .fu-miss {color: var(--info);} .fu-row.visited .fu-miss {color: var(--ok);}
+[data-theme="dark"] .fu-row.yellow .fu-miss {color: var(--yellow);}
+.fu-st {color: var(--ink-3); font-size: 12.5px;} .fu-st.done {color: var(--ok); font-weight: 500;}
+.fu-acts .pill-btn {font-weight: 600;} .fu-acts .fu-msg {background: var(--accent-soft); color: var(--accent); border-color: transparent;}
+@media (min-width: 701px) {
+  .fu-list {padding: 6px 20px; border-radius: 22px;}
+  .fu-row {grid-template-columns: auto minmax(0, 1fr) 140px 90px auto; grid-template-areas: "ava who pastor miss acts"; gap: 14px; padding: 14px 0;}
+  .fu-pastor {display: block; grid-area: pastor; font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+  .fu-name {font-size: 15px;} .fu-acts {gap: 8px;} .fu-acts .fu-call {display: none;} .fu-acts .pill-btn {min-height: 36px; padding: 0 16px;}
+}
+@media (max-width: 700px) { .fu-hero b {font-size: 24px;} .fu-bar .gap {display: none;} .fu-bar {margin-bottom: 10px;} }
 </style>
 </head>
 <body>

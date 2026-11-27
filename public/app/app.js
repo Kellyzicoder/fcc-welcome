@@ -36,7 +36,7 @@ const FLAG = {red: "Needs a call", yellow: "Check in", blue: "Missed this one", 
 const root = document.getElementById("root");
 window.__fccStarted = true;  // for the "not loading" page in index.html: the app's code has started
 const S = {cfg: null, session: null, me: null, churches: [], church: "", members: [], ticks: [], names: {}, view: "dashboard",
-           back: "", cal: today().slice(0, 7), filter: "need", date: today(), q: "", poll: null, numbers: null, users: null,
+           back: "", cal: today().slice(0, 7), filter: "red", date: today(), q: "", poll: null, numbers: null, users: null,
            seen: null, pastorList: {}, pending: 0, person: "", pq: "", roleF: "", pastor: "", actDay: today(), actShow: "all", emoji: true};
 
 // ---------------------------------------------------------------- small helpers
@@ -2484,22 +2484,26 @@ function checkin(el) {
   let here = {};
   const pastor = S.me.role === "pastor";  // a pastor ticks their own people only (locks work as for ushers): no adding or renaming
   // Laid out like Admin → Sign-ins: numbers on top, then pills to filter, team and search on the right, a table of names, 25 a page
-  el.innerHTML = head("Check-in", pastor ? "Your people" : esc(S.church)) + ciSwitch() + `
-    <details class="card ci-top" style="margin-bottom:14px" ${S.ciTopOpen ? "open" : ""}>
-      <summary><span class="ci-top-t"><b>Service</b><small id="ci-top-sum"></small></span>${svg("caret")}</summary><div class="row">
-      <div style="flex:0 0 170px"><label class="f" for="d">Service date</label><input class="in" id="d" type="date" value="${S.date}"></div>
-      <div><label class="f" for="svc">Service</label><input class="in" id="svc" list="svc-list" maxlength="60" autocomplete="off" value="${esc(svcName(S.date))}" ${pastor ? "readonly" : ""}>
-        <datalist id="svc-list">${[...new Set(["Sunday Service", "Midweek Service", "Prayer Meeting", "Special Service", ...Object.values(S.names)])].map(n => `<option value="${esc(n)}">`).join("")}</datalist></div></div>
-      <div id="ci-parts"></div></details>
-    <div class="ci-sum" aria-live="polite"><b id="n-in">0</b><span class="ci-sum-t">here</span><span class="ci-sum-d">Adults <span id="n-ad">0</span> · Kids <span id="n-kid">0</span> · Not yet <b id="n-not">0</b></span></div>
-    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span>${pastor ? "" : `<button type="button" class="pill-btn sm primary" id="ci-new">${svg("plus")}Add someone new</button>`}<button type="button" class="pill-btn sm" id="ci-list">${svg("checkin")}Tick from a list</button><button type="button" class="pill-btn sm" id="ci-lock">${svg("lock")}Save &amp; lock</button></div>
-      <label class="find-bar">${svg("search")}<input id="q" type="search" placeholder="Search by name, phone or team" value="${esc(S.q)}" aria-label="Search by name, phone or team" autocomplete="off"></label>
-      <div id="ci-only"></div>
-      <div class="rpills ci-teams" id="ci-teams" aria-label="Teams" hidden></div>
-      <div class="bulk" id="ci-bulk" hidden style="position:static;box-shadow:none"><b id="ci-count"></b><span class="gap"></span><button type="button" class="pill-btn sm primary" id="ci-all">Tick all</button><button type="button" class="pill-btn sm" id="ci-none">Untick all</button></div>
-      <div class="msg locked" id="ci-locked" hidden></div>
-      <div class="ci-wrap"><div id="names"></div><nav class="ci-az" id="ci-az" aria-label="Jump to a letter" hidden></nav></div><div id="ci-pager"></div>
-      <div style="margin-top:12px;text-align:right" id="ci-clear-wrap" hidden><button type="button" class="pill-btn sm" id="ci-clear">Untick everyone</button></div></div>
+  el.innerHTML = head("Check-in", `<span id="ci-head-sub">${pastor ? "Your people" : esc(S.church)}</span>`,
+    `<button type="button" class="pill-btn" id="ci-list">Tick from a list</button><button type="button" class="pill-btn" id="ci-lock">Save and lock</button>${pastor ? "" : `<button type="button" class="pill-btn primary" id="ci-new">${svg("plus")}Add someone new</button>`}`) + `
+    <div class="ci-bar">${ciSwitch()}
+      <details class="ci-top" ${S.ciTopOpen ? "open" : ""}>
+        <summary class="ci-date">${svg("calpick")}<span id="ci-top-sum"></span></summary>
+        <div class="ci-pop card"><div class="row">
+          <div style="flex:0 0 170px"><label class="f" for="d">Service date</label><input class="in" id="d" type="date" value="${S.date}"></div>
+          <div><label class="f" for="svc">Service</label><input class="in" id="svc" list="svc-list" maxlength="60" autocomplete="off" value="${esc(svcName(S.date))}" ${pastor ? "readonly" : ""}>
+            <datalist id="svc-list">${[...new Set(["Sunday Service", "Midweek Service", "Prayer Meeting", "Special Service", ...Object.values(S.names)])].map(n => `<option value="${esc(n)}">`).join("")}</datalist></div></div>
+          <div id="ci-parts"></div></div></details>
+      <span class="gap"></span>
+      <div class="ci-sum" aria-live="polite"><b id="n-in">0</b> here · <span id="n-ad">0</span> adults · <span id="n-kid">0</span> kids · <b id="n-not">0</b> not yet</div></div>
+    <label class="find-bar ci-find">${svg("search")}<input id="q" type="search" placeholder="Find a name, phone or team" value="${esc(S.q)}" aria-label="Find a name, phone or team" autocomplete="off"></label>
+    <div id="ci-only"></div>
+    <div class="rpills ci-teams" id="ci-teams" aria-label="Teams" hidden></div>
+    <div class="bulk" id="ci-bulk" hidden style="position:static;box-shadow:none"><b id="ci-count"></b><span class="gap"></span><button type="button" class="pill-btn sm primary" id="ci-all">Tick all</button><button type="button" class="pill-btn sm" id="ci-none">Untick all</button></div>
+    <div class="msg locked" id="ci-locked" hidden></div>
+    <h2 id="ci-title" class="ci-sr">Names A to Z</h2>
+    <div class="ci-wrap"><div id="names" class="ci-card"></div><nav class="ci-az" id="ci-az" aria-label="Jump to a letter" hidden></nav></div><div id="ci-pager"></div>
+    <div style="margin:12px 0 14px;text-align:right" id="ci-clear-wrap" hidden><button type="button" class="pill-btn sm" id="ci-clear">Untick everyone</button></div>
     ${pastor ? "" : `<form class="card" id="add"><div class="card-head"><h2>Add someone new</h2></div><div class="row">
       <div><label class="f" for="a-name">Full name</label><input class="in" id="a-name" required></div>
       <div><label class="f" for="a-phone">Phone <span class="muted">(optional)</span></label><input class="in" id="a-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="off"></div>
@@ -2515,7 +2519,9 @@ function checkin(el) {
   let armedPart = false;
   // The top card folds away: its title line still shows the day and the service being ticked
   const topSum = () => { const s = el.querySelector("#ci-top-sum"); if (!s) return; const ps = partsOf(S.date);
-    s.textContent = `${nice(S.date, true)} · ${ps.length ? partName(S.date, curPart()) : el.querySelector("#svc")?.value || svcName(S.date)}`; };
+    const name = ps.length ? partName(S.date, curPart()) : el.querySelector("#svc")?.value || svcName(S.date), [y, m, d] = S.date.split("-").map(Number), dt = new Date(y, m - 1, d);
+    s.textContent = dt.toLocaleDateString("en-NZ", {weekday: "short", day: "numeric", month: "short"}).replace(",", "");
+    const h = el.querySelector("#ci-head-sub"); if (h) h.textContent = `${S.me.role === "pastor" ? "Your people · " : ""}${name} · ${dt.toLocaleDateString("en-NZ", {day: "numeric", month: "long"})}`; };
   el.querySelector(".ci-top")?.addEventListener("toggle", e => { S.ciTopOpen = e.target.open; });
   el.querySelector("#svc")?.addEventListener("input", topSum);
   const lastPart = () => { const ps = partsOf(S.date); return ps.length > 1 ? Math.max(...ps.map(x => x.part)) : 0; };  // the one Remove takes away (never the first)
@@ -2688,7 +2694,7 @@ function checkin(el) {
   let lock = null; const lockKey = () => `lock:${S.date}:${S.church}`;
   const showLock = () => {
     const b = el.querySelector("#ci-lock"), note = el.querySelector("#ci-locked");
-    b.innerHTML = lock ? `${svg("unlock")}Unlock` : `${svg("lock")}Save &amp; lock`; b.classList.toggle("primary", !lock);
+    b.innerHTML = lock ? `${svg("unlock")}Unlock` : "Save and lock";
     note.hidden = !lock; if (lock) note.textContent = `Saved and locked${lock.by ? " by " + lock.by : ""}. Unlock to make changes.`;
     for (const id of ["ci-all", "ci-none", "ci-clear"]) { const x = el.querySelector("#" + id); if (x && lock) x.disabled = true; }
     const go = el.querySelector("#add button.primary"); if (go) go.disabled = !!lock;
@@ -2928,34 +2934,44 @@ function checkin(el) {
 // One person on Follow-up and a pastor's Home: initials coloured by how they're doing, how many Sundays they've missed,
 // and Message, Call and Log visit. Phones show a card each; computers, one line each in a list.
 function personCard(x, m) {
-  const tone = x.visited ? "visited" : x.flag || "ok";
+  const tone = x.visited ? "visited" : x.flag || "ok", msg = msgRecent(x.id) ? lastMsg(x.id) : null;
+  const vis = x.visited ? (S.visits || []).find(v => v.member_id === x.id && v.outcome !== "not_seen") : null;
+  const status = msg ? [`Messaged by ${String(msg.sent_by_name || "someone").split(" ")[0]}, ${msgDay(msg.sent_at)}`, "done"]
+    : vis ? [`Visited by ${vis.visited_by}, ${nice(vis.visit_date)}`, "done"] : [x.seen ? `Last here ${nice(x.seen)}` : "Not seen yet", ""];
+  const pastor = S.me.role !== "pastor" && x.pastor ? shortTitle(String(x.pastor).split(",")[0]).replace(/^(Pst\.|Rev\.|LP|Bishop|Shepherd)\s+/i, "").split(" ")[0] : "";
   return `<div class="fu-row ${tone}"><button type="button" class="fu-ava" data-person="${esc(x.id)}" aria-label="${esc(`${x.full_name}: attendance history`)}">${esc(initials(x.full_name))}</button>
-    <div class="fu-who"><button type="button" class="fu-name" data-person="${esc(x.id)}">${esc(x.full_name)}</button>
-      <small>${x.missed ? `Missed ${x.missed} in a row` : "Not missed"}${x.seen ? ` · last here ${esc(nice(x.seen))}` : ""}${x.pastor && S.me.role !== "pastor" ? ` · ${esc(shortTitle(x.pastor))}` : ""}</small>${msgTag(lastMsg(x.id))}</div>
-    <span class="fu-flag">${flagBadge(x)}</span>
-    <div class="fu-acts">${x.phone && !S.preview ? `<button type="button" class="pill-btn sm primary" data-msgto="${esc(x.id)}">${svg("chat")}Message</button><a class="pill-btn sm" href="tel:${esc(String(x.phone).replace(/[^\d+]/g, ""))}">Call</a>` : x.phone ? "" : `<span class="muted fu-nophone">No phone number</span>`}
-      ${canVisit() && m ? `<button type="button" class="pill-btn sm" data-fuvisit="${esc(x.id)}">${svg("visits")}Log visit</button>` : ""}</div></div>`;
+    <div class="fu-who"><button type="button" class="fu-name" data-person="${esc(x.id)}">${esc(x.full_name)}</button><small class="fu-st ${status[1]}">${esc(status[0])}</small></div>
+    <span class="fu-pastor">${pastor ? `Pastor: ${esc(pastor)}` : ""}</span>
+    <span class="fu-miss">${x.missed ? `${x.missed} missed` : x.visited ? "Visited" : "Came"}</span>
+    <div class="fu-acts">${x.phone && !S.preview ? `<button type="button" class="pill-btn sm fu-msg" data-msgto="${esc(x.id)}">Message</button><a class="pill-btn sm fu-call" href="tel:${esc(String(x.phone).replace(/[^\d+]/g, ""))}">Call</a>` : x.phone ? "" : `<span class="muted fu-nophone">No phone</span>`}
+      ${canVisit() && m ? `<button type="button" class="pill-btn sm" data-fuvisit="${esc(x.id)}">Log visit</button>` : ""}</div></div>`;
 }
 function followup(el) {
   // any service date can be looked at: the lists show how things stood after that service
   const p0 = picture(), day = S.fuDay && S.fuDay !== p0.last ? S.fuDay : p0.last, had = !!day && p0.dates.includes(day);
   const p = had && day !== p0.last ? picture(day) : p0;
   const started = x => ([x.date_joined, x.first_visit].filter(Boolean).sort()[0] || (x.created_at || "").slice(0, 10) || "0000") <= day;
-  const tabs = {need: "Needs follow-up", red: "Needs a call", yellow: "Check in", once: "Missed only this one", blue: "Everyone who missed this", came: "Came", visited: "Visited", all: "Everyone"};
-  const MAIN = ["need", "red", "yellow", "all"], MORE = ["once", "blue", "came", "visited"];  // the main lists as buttons; the rest under More
+  const tabs = {red: "Needs a call", yellow: "Check in", once: "Missed this one", all: "Everyone", need: "Needs follow-up", blue: "Everyone who missed this", came: "Came", visited: "Visited"};
+  const MAIN = ["red", "yellow", "once", "all"], MORE = ["need", "blue", "came", "visited"];  // the main lists as tabs; the rest under More
   const pick = {need: x => x.level !== "ok", red: x => x.flag === "red", yellow: x => x.flag === "yellow", once: x => x.flag === "blue", blue: x => !p.here[x.id] && started(x), came: x => !!p.here[x.id], visited: x => !!x.visited, all: () => true};
-  if (!tabs[S.filter]) S.filter = "need";
+  if (!tabs[S.filter]) S.filter = "red";
   const list = had ? p.people.filter(pick[S.filter]) : [], mine = new Map((p.mine || []).map(m => [m.id, m]));
   const withPhone = list.filter(x => x.phone), fresh = withPhone.filter(x => !msgRecent(x.id));  // Message everyone leaves out anyone messaged this week
-  el.innerHTML = head("Follow-up", esc(S.church),
-    `<button class="pill-btn" id="dl">Download this list</button>`) + `
-    <div class="row sortbar"><div style="flex:0 0 200px"><label class="f" for="fu-day">Service date</label><input class="in" id="fu-day" type="date" value="${day || today()}" max="${today()}"></div>
-      ${had ? `<p class="note" style="margin:0 0 4px;flex:1">${esc(S.names[day] || "Service")}<span class="fu-wide"> · ${esc(nice(day, true))}</span>${day !== p0.last ? ` · <button class="link" id="fu-latest" style="margin:0">Back to the latest service</button>` : ""}</p>` : ""}</div>
-    <div class="chips fu-wide fu-chips">${MAIN.map(k => `<button class="chip ${S.filter === k ? "on" : ""}" data-f="${k}" ${k === "red" ? `title="Missed ${RED_AT} or more in a row"` : k === "yellow" ? `title="Missed ${YELLOW_AT}–${RED_AT - 1} in a row"` : ""}>${tabs[k]}${had ? ` <span class="chip-n">${p.people.filter(pick[k]).length}</span>` : ""}</button>`).join("")}
-      <span class="fu-more-wrap"><button type="button" class="chip ${MORE.includes(S.filter) ? "on" : ""}" id="fu-more" aria-haspopup="menu" aria-expanded="false">${MORE.includes(S.filter) ? tabs[S.filter] : "More"}${MORE.includes(S.filter) && had ? ` <span class="chip-n">${p.people.filter(pick[S.filter]).length}</span>` : ""} ${svg("caret")}</button>
-        <div class="w-pop fu-pop" role="menu" hidden>${MORE.map(k => `<button type="button" role="menuitem" class="${S.filter === k ? "on" : ""}" data-f="${k}">${tabs[k]}${had ? ` <span class="muted">${p.people.filter(pick[k]).length}</span>` : ""}</button>`).join("")}</div></span></div>
-    <div class="fu-narrow fu-swipe" role="group" aria-label="Show">${Object.entries(tabs).map(([k, t]) => `<button type="button" class="chip ${S.filter === k ? "on" : ""}" data-f="${k}">${t}${had ? ` <span class="chip-n">${p.people.filter(pick[k]).length}</span>` : ""}</button>`).join("")}</div>  <!-- phones: a row of tabs to swipe; wider screens: the pills and More -->
-    <div class="fu-hero"><div><b>${list.length}</b><span>${esc(tabs[S.filter])}</span>${had ? `<small>${withPhone.length} with a phone number</small>` : ""}</div>${withPhone.length > 1 && !S.preview ? `<button type="button" class="pill-btn sm" id="fu-all" title="${fresh.length < withPhone.length ? `Leaves out ${withPhone.length - fresh.length} messaged in the last 7 days` : ""}">${svg("chat")}Message everyone (${(fresh.length || withPhone.length)})</button>` : ""}</div>
+  const n = list.length, ppl = n === 1 ? "person" : "people", cnt = k => p.people.filter(pick[k]).length;
+  const heroTop = {red: `Missed ${RED_AT} Sundays or more in a row`, yellow: `Missed ${YELLOW_AT} or ${RED_AT - 1} Sundays in a row`, once: "Missed only the last Sunday", need: `Missed ${YELLOW_AT} Sundays or more in a row`,
+    blue: "Not at this service", came: "At this service", visited: "Visited, and not missed a Sunday since", all: "Everyone on the list"}[S.filter];
+  const heroBig = {red: `${n} ${ppl} ${n === 1 ? "needs" : "need"} a call`, yellow: `${n} to check in on`, once: `${n} missed this one`, need: `${n} ${ppl} to follow up`, came: `${n} came`, visited: `${n} visited`}[S.filter] || `${n} ${ppl}`;
+  const when = day ? new Date(day + "T12:00:00").toLocaleDateString("en-NZ", {day: "numeric", month: "long"}) : "";
+  el.innerHTML = head("Follow-up", had ? `After ${esc(S.names[day] || svcName(day))} · ${esc(when)}` : esc(S.church),
+    `<button class="pill-btn" id="dl">Download list</button>`) + `
+    <div class="fu-bar">
+      <div class="seg ci-seg fu-tabs fu-wide" role="group" aria-label="Show">${MAIN.map(k => `<button type="button" data-f="${k}" aria-pressed="${S.filter === k}" ${k === "red" ? `title="Missed ${RED_AT} or more in a row"` : k === "yellow" ? `title="Missed ${YELLOW_AT}–${RED_AT - 1} in a row"` : ""}>${tabs[k]}${had && k !== "all" ? ` · ${cnt(k)}` : ""}</button>`).join("")}
+        <span class="fu-more-wrap"><button type="button" id="fu-more" aria-pressed="${MORE.includes(S.filter)}" aria-haspopup="menu" aria-expanded="false">${MORE.includes(S.filter) ? `${tabs[S.filter]}${had ? ` · ${cnt(S.filter)}` : ""}` : "More"} ${svg("caret")}</button>
+          <div class="w-pop fu-pop" role="menu" hidden>${MORE.map(k => `<button type="button" role="menuitem" class="${S.filter === k ? "on" : ""}" data-f="${k}">${tabs[k]}${had ? ` <span class="muted">${cnt(k)}</span>` : ""}</button>`).join("")}</div></span></div>
+      <span class="gap"></span>${had && day !== p0.last ? `<button class="link" id="fu-latest" style="margin:0">Back to the latest service</button>` : ""}
+      <input class="in" id="fu-day" type="date" value="${day || today()}" max="${today()}" aria-label="Service date"></div>
+    <div class="fu-narrow fu-swipe" role="group" aria-label="Show">${[...MAIN, ...MORE].map(k => `<button type="button" class="chip ${S.filter === k ? "on" : ""}" data-f="${k}">${tabs[k]}${had ? ` <span class="chip-n">${cnt(k)}</span>` : ""}</button>`).join("")}</div>
+    <div class="fu-hero"><div><small class="fu-hero-top">${esc(heroTop)}</small><b>${esc(heroBig)}</b>${had ? `<small>${list.filter(x => msgRecent(x.id)).length} messaged this week · ${list.filter(x => x.visited).length} visited</small>` : ""}</div>${withPhone.length > 1 && !S.preview ? `<button type="button" class="pill-btn sm" id="fu-all" title="${fresh.length < withPhone.length ? `Leaves out ${withPhone.length - fresh.length} messaged in the last 7 days` : ""}">Message everyone</button>` : ""}</div>
     ${list.length ? `<div class="fu-list">${list.map(x => personCard(x, mine.get(x.id))).join("")}</div>`
       : `<div class="card"><p class="empty">${had ? "Nobody in this list." : `No service was recorded on ${esc(nice(day || today(), true))}.`}</p></div>`}`;
   { const q = x => ({name: x.full_name, phone: x.phone, mid: x.id, day: x.first_visit || "", kind: msgKind(x, p)});
