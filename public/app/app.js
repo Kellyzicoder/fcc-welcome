@@ -2470,17 +2470,14 @@ function checkin(el) {
       <div><label class="f" for="svc">Service</label><input class="in" id="svc" list="svc-list" maxlength="60" autocomplete="off" value="${esc(svcName(S.date))}" ${pastor ? "readonly" : ""}>
         <datalist id="svc-list">${[...new Set(["Sunday Service", "Midweek Service", "Prayer Meeting", "Special Service", ...Object.values(S.names)])].map(n => `<option value="${esc(n)}">`).join("")}</datalist></div></div>
       <div id="ci-parts"></div></details>
-    <div class="tiles"><div class="card tile"><div class="label">Checked in</div><div class="num" id="n-in">0</div></div>
-      <div class="card tile"><div class="label">Adults</div><div class="num" id="n-ad">0</div></div>
-      <div class="card tile"><div class="label">Kids</div><div class="num" id="n-kid">0</div></div>
-      <div class="card tile"><div class="label">Not yet</div><div class="num" id="n-not">0</div></div></div>
+    <div class="ci-sum" aria-live="polite"><b id="n-in">0</b><span class="ci-sum-t">here</span><span class="ci-sum-d">Adults <span id="n-ad">0</span> · Kids <span id="n-kid">0</span> · Not yet <b id="n-not">0</b></span></div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2 id="ci-title">Names A to Z</h2><span class="gap"></span>${pastor ? "" : `<button type="button" class="pill-btn sm primary" id="ci-new">${svg("plus")}Add someone new</button>`}<button type="button" class="pill-btn sm" id="ci-list">${svg("checkin")}Tick from a list</button><button type="button" class="pill-btn sm" id="ci-lock">${svg("lock")}Save &amp; lock</button></div>
       <label class="find-bar">${svg("search")}<input id="q" type="search" placeholder="Search by name, phone or team" value="${esc(S.q)}" aria-label="Search by name, phone or team" autocomplete="off"></label>
       <div id="ci-only"></div>
       <div class="rpills ci-teams" id="ci-teams" aria-label="Teams" hidden></div>
       <div class="bulk" id="ci-bulk" hidden style="position:static;box-shadow:none"><b id="ci-count"></b><span class="gap"></span><button type="button" class="pill-btn sm primary" id="ci-all">Tick all</button><button type="button" class="pill-btn sm" id="ci-none">Untick all</button></div>
       <div class="msg locked" id="ci-locked" hidden></div>
-      <div id="names"></div><div id="ci-pager"></div>
+      <div class="ci-wrap"><div id="names"></div><nav class="ci-az" id="ci-az" aria-label="Jump to a letter" hidden></nav></div><div id="ci-pager"></div>
       <div style="margin-top:12px;text-align:right" id="ci-clear-wrap" hidden><button type="button" class="pill-btn sm" id="ci-clear">Untick everyone</button></div></div>
     ${pastor ? "" : `<form class="card" id="add"><div class="card-head"><h2>Add someone new</h2></div><div class="row">
       <div><label class="f" for="a-name">Full name</label><input class="in" id="a-name" required></div>
@@ -2589,7 +2586,7 @@ function checkin(el) {
   teamBox.onclick = e => { if (e.target.closest("[data-more]")) { S.ciMore = !S.ciMore; drawTeams(); return; }
     const b = e.target.closest("[data-team]"); if (!b) return; S.ciRole = S.ciRole === b.dataset.team ? "" : b.dataset.team; S.ciPage = 1; armed = false; drawTeams(); draw(); };
   drawTeams();
-  const PER = 60;  // three columns of 20
+  const PER = 100000;  // one list, A to Z: the letter strip jumps through it
   let armed = false, armedAll = false, busy = false;
   const ONLY = {here: ["Everyone ticked in", m => !!here[m.id]], adult: ["Adults ticked in", m => !!here[m.id] && !isKid(m)], kid: ["Kids ticked in", m => !!here[m.id] && isKid(m)],
                 first: ["First-timers at this service", m => !!here[m.id] && m.type === "first_timer"]};
@@ -2602,14 +2599,24 @@ function checkin(el) {
     const pages = Math.max(1, Math.ceil(shown.length / PER)); S.ciPage = Math.min(Math.max(1, S.ciPage || 1), pages);
     const page = shown.slice((S.ciPage - 1) * PER, S.ciPage * PER);
     const nums = [...new Set([1, S.ciPage - 1, S.ciPage, S.ciPage + 1, pages])].filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
-    box.innerHTML = shown.length ? `<div class="names">${page.map(m => `<label class="name ${here[m.id] ? "on" : ""}"><input type="checkbox" data-id="${esc(m.id)}" ${here[m.id] ? "checked" : ""} ${lock ? "disabled" : ""}>
-        <span class="nava" ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span><span class="nn">${esc(m.full_name)}</span><small>${[m.type === "first_timer" ? "first-timer" : m.type === "visitor" ? "visitor" : "", isKid(m) ? "child" : "", m.status ? String(m.status).toLowerCase() : ""].filter(Boolean).map(esc).join(" · ")}</small></label>`).join("")}</div>`
+    const letterOf = m => { const c = (m.full_name || "").trim().charAt(0).toUpperCase(); return /[A-Z]/.test(c) ? c : "#"; };
+    const lettered = !norm(S.q) && !S.ciOnly && page.length > 12;  // headings only on the full A to Z list
+    let prevL = "";
+    box.innerHTML = shown.length ? `<div class="ci-names">${page.map(m => { const L = letterOf(m), head = lettered && L !== prevL ? `<h3 class="ci-letter" id="ci-L-${L}">${L}</h3>` : ""; prevL = L;
+      return head + `<label class="ci-row ${here[m.id] ? "on" : ""}">
+        <span class="nava" ${avaStyle(m.full_name)}>${esc(initials(m.full_name))}</span><span class="ci-who"><b>${esc(m.full_name)}</b><small>${[m.type === "first_timer" ? "First-timer" : m.type === "visitor" ? "Visitor" : "", isKid(m) ? "Child" : "", m.status ? String(m.status) : "", here[m.id] && typeof here[m.id] === "string" && /T\d\d:\d\d/.test(here[m.id]) ? "Here " + here[m.id].slice(11, 16) : ""].filter(Boolean).map(esc).join(" · ")}</small></span>
+        <input type="checkbox" class="ci-cb" data-id="${esc(m.id)}" ${here[m.id] ? "checked" : ""} ${lock ? "disabled" : ""} aria-label="${esc(here[m.id] ? `${m.full_name} is here. Tap to undo` : `Check in ${m.full_name}`)}"><span class="ci-tick" aria-hidden="true">${svg("tick")}</span></label>`; }).join("")}</div>`
       : `<p class="empty">${norm(S.q) ? "Nobody matches that search." : "Nobody here. Try another filter or team."}</p>`;
     el.querySelector("#ci-pager").innerHTML = pages > 1 ? `<div class="pager"><span class="muted">Page ${S.ciPage} of ${pages} · ${shown.length} people</span><span class="gap"></span>
         <button class="pg" data-cpg="${S.ciPage - 1}" ${S.ciPage === 1 ? "disabled" : ""} aria-label="Previous page">${svg("prev")}</button>
         ${nums.map((n, i) => (i && n - nums[i - 1] > 1 ? `<span class="muted">…</span>` : "") + `<button class="pg ${n === S.ciPage ? "on" : ""}" data-cpg="${n}">${n}</button>`).join("")}
         <button class="pg" data-cpg="${S.ciPage + 1}" ${S.ciPage === pages ? "disabled" : ""} aria-label="Next page">${svg("next")}</button></div>` : shown.length ? `<p class="note" style="margin:10px 2px 0">Showing ${shown.length} of ${mine.length}</p>` : "";
     el.querySelectorAll("[data-cpg]").forEach(b => b.onclick = () => { S.ciPage = +b.dataset.cpg; draw(); });
+    const az = el.querySelector("#ci-az"), have = new Set([...box.querySelectorAll(".ci-letter")].map(h => h.textContent));
+    az.hidden = have.size < 3;
+    az.innerHTML = az.hidden ? "" : [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"].map(c => `<button type="button" data-az="${c}" ${have.has(c) ? "" : "disabled"} aria-label="Jump to ${c}">${c}</button>`).join("");
+    az.onclick = e => { const b = e.target.closest("[data-az]"); if (!b) return; const h = box.querySelector(`#ci-L-${b.dataset.az}`);
+      if (h) { h.scrollIntoView({behavior: stillMotion() ? "auto" : "smooth", block: "start"}); az.querySelectorAll(".on").forEach(x => x.classList.remove("on")); b.classList.add("on"); } };
     el.querySelector("#ci-title").textContent = S.ciOnly ? ONLY[S.ciOnly][0] : S.ciRole ? teams[S.ciRole].label : "Names A to Z";
     const only = el.querySelector("#ci-only");
     only.innerHTML = S.ciOnly ? `<div class="msg" style="margin:10px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span>Showing only <b>${esc(ONLY[S.ciOnly][0].toLowerCase())}</b> (${shown.length}).</span><button type="button" class="pill-btn sm" id="ci-only-x">Show everyone</button></div>` : "";
