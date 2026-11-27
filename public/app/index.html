@@ -1582,6 +1582,32 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
   .dock button > span.dock-l {display: block !important; font-size: 10.5px; font-weight: 600; line-height: 1; margin-top: 3px;}
   .dock button {flex-direction: column; gap: 0 !important;} .dock button svg {width: 22px; height: 22px;}
 }
+/* ---- Follow-up and a pastor's Home on a computer: one calm list, a line per person, instead of boxes */
+@media (min-width: 701px) {
+  .fu-list {grid-template-columns: minmax(0, 1fr); gap: 0; background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 4px 18px;}
+  .fu-row {grid-template-columns: auto minmax(0, 1fr) auto auto; grid-template-areas: "ava who flag acts"; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 12px 0; background: none;}
+  .fu-row:last-child {border-bottom: 0;} .fu-acts {flex-wrap: nowrap; justify-content: flex-end;} .fu-ava {width: 42px; height: 42px; border-radius: 14px;}
+}
+/* ---- Pastor Home: a blue card with how many of their people came, who needs a call, then everyone they look after */
+.pm-hero {background: var(--accent); color: var(--accent-ink); border-radius: 24px; padding: 20px; display: grid; gap: 8px; margin: 0 0 20px; box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 24%, transparent);}
+.pm-hero-top {display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 14px; opacity: .9;}
+.pm-hero-top small {font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 12px; background: rgba(255, 255, 255, .18); flex: none;}
+.pm-num {margin: 0; display: flex; align-items: baseline; gap: 8px;} .pm-num b {font-size: 46px; line-height: 1; letter-spacing: -.03em;} .pm-num span {font-size: 15px; opacity: .85;}
+.pm-sub {margin: -2px 0 4px; font-size: 14px; color: var(--accent-ink); opacity: .9;} .pm-num, .pm-hero-top {color: var(--accent-ink);}
+.pm-btns {display: flex; flex-wrap: wrap; gap: 10px;}
+.pm-go, .pm-wa {display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 46px; padding: 0 20px; border: 0; border-radius: 23px; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;}
+.pm-go {background: #fff; color: var(--accent);} .pm-wa {background: rgba(255, 255, 255, .18); color: var(--accent-ink);} .pm-go svg, .pm-wa svg {width: 16px; height: 16px;}
+.pm-h {display: flex; align-items: center; gap: 6px; margin: 4px 2px 10px; font-size: 17px;} .fu-list + .pm-h {margin-top: 22px;}
+.pm-list {background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 4px 16px;}
+.pm-row {display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line);} .pm-row:last-child {border-bottom: 0;}
+.pm-row .fu-ava {width: 40px; height: 40px; border-radius: 13px;} .pm-row > * {grid-area: auto;}
+.pm-row.red .fu-ava {background: var(--red-bg); color: var(--red);} .pm-row.yellow .fu-ava {background: var(--yellow-bg); color: #92400e;}
+.pm-row.blue .fu-ava {background: var(--info-bg); color: var(--info);} .pm-row.visited .fu-ava {background: var(--ok-bg); color: var(--ok);} [data-theme="dark"] .pm-row.yellow .fu-ava {color: var(--yellow);}
+.pm-came {font-weight: 600; color: var(--ink-3);} .pm-came.yes {color: var(--ok);}
+.pm-acts {display: flex; align-items: center; gap: 6px;} .pm-acts .pill-btn {text-decoration: none;}
+.pm-row small .badge {font-size: 11.5px; padding: 1px 8px; vertical-align: 1px;}
+#view:has(.pm-hero) > .head .pill-btn {display: none;}  /* the blue card has these buttons */
+@media (max-width: 700px) { .pm-btns > * {flex: 1 1 100%;} .pm-num b {font-size: 42px;} }
 </style>
 </head>
 <body>
