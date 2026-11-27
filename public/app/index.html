@@ -1526,10 +1526,14 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
 .ci-row.on .ci-tick {background: var(--accent); border-color: var(--accent);} .ci-row.on .ci-tick svg {opacity: 1;}
 .ci-row:hover .ci-tick {border-color: var(--accent);} .ci-cb:focus-visible + .ci-tick {outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px;}
 .ci-cb:disabled + .ci-tick {opacity: .55;} .ci-row:has(.ci-cb:disabled) {cursor: default;}
-.ci-az {position: sticky; top: 76px; flex: none; display: flex; flex-direction: column; align-items: center; padding: 6px 2px; border-radius: 16px; background: var(--soft);}
-.ci-az button {width: 26px; height: 20px; border: 0; background: none; padding: 0; font: inherit; font-size: 11px; font-weight: 700; color: var(--ink-2); border-radius: 10px; cursor: pointer;}
+.ci-az {position: sticky; top: 76px; flex: none; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 8px 2px; border-radius: 16px; background: var(--soft);
+  height: min(calc(100dvh - 110px), 760px); box-sizing: border-box; touch-action: none; user-select: none; -webkit-user-select: none; cursor: ns-resize;}  /* the full height of the screen, letters spread out */
+.ci-az button {flex: 1 1 0; min-height: 0; width: 28px; border: 0; background: none; padding: 0; font: inherit; font-size: 12px; font-weight: 700; color: var(--ink-2); border-radius: 10px; cursor: pointer; touch-action: none;}
 .ci-az button:disabled {color: var(--ink-3); opacity: .45; cursor: default;} .ci-az button.on, .ci-az button:not(:disabled):hover {background: var(--accent); color: var(--accent-ink);}
-@media (max-width: 720px) { .ci-sum > b {font-size: 34px;} .ci-az {top: 64px;} .ci-az button {height: 14px; font-size: 10px; width: 22px;} .ci-row {gap: 10px; padding: 8px 2px;} }
+.ci-az.sliding {background: var(--accent-soft);}
+.ci-az-pop {position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 30; width: 84px; height: 84px; border-radius: 24px; display: grid; place-items: center;
+  font-size: 44px; font-weight: 700; color: var(--accent-ink); background: var(--accent); box-shadow: 0 12px 30px rgba(8, 15, 30, .25); pointer-events: none;} .ci-az-pop[hidden] {display: none;}
+@media (max-width: 720px) { .ci-sum > b {font-size: 34px;} .ci-az {top: 64px; height: calc(100dvh - 200px);} .ci-az button {font-size: 11px; width: 24px;} .ci-row {gap: 10px; padding: 8px 2px;} }
 /* ---- Follow-up: a card per person with Message, Call and Log visit; on phones the lists are tabs you swipe */
 .fu-swipe {gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px 14px; padding: 2px 16px; white-space: nowrap;} .fu-swipe::-webkit-scrollbar {display: none;}
 @media (max-width: 700px) { .fu-swipe.fu-narrow {display: flex;} .fu-swipe .chip {flex: none;} }

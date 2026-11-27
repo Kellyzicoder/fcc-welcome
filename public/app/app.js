@@ -2636,8 +2636,19 @@ function checkin(el) {
     const az = el.querySelector("#ci-az"), have = new Set([...box.querySelectorAll(".ci-letter")].map(h => h.textContent));
     az.hidden = have.size < 3;
     az.innerHTML = az.hidden ? "" : [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"].map(c => `<button type="button" data-az="${c}" ${have.has(c) ? "" : "disabled"} aria-label="Jump to ${c}">${c}</button>`).join("");
-    az.onclick = e => { const b = e.target.closest("[data-az]"); if (!b) return; const h = box.querySelector(`#ci-L-${b.dataset.az}`);
-      if (h) { h.scrollIntoView({behavior: stillMotion() ? "auto" : "smooth", block: "start"}); az.querySelectorAll(".on").forEach(x => x.classList.remove("on")); b.classList.add("on"); } };
+    // tap a letter, or slide a finger up and down the strip: the list follows, and a big letter shows where you are
+    const jump = (c, smooth) => { const h = box.querySelector(`#ci-L-${c}`); if (!h) return;
+      h.scrollIntoView({behavior: smooth && !stillMotion() ? "smooth" : "auto", block: "start"});
+      az.querySelectorAll(".on").forEach(x => x.classList.remove("on")); az.querySelector(`[data-az="${c}"]`)?.classList.add("on"); };
+    let sliding = false, last = "";
+    const pop = el.querySelector("#ci-az-pop") || Object.assign(document.createElement("span"), {id: "ci-az-pop", className: "ci-az-pop"});
+    if (!pop.isConnected) { pop.setAttribute("aria-hidden", "true"); el.append(pop); } pop.hidden = true;
+    const at = e => { const b = document.elementFromPoint(e.clientX, e.clientY)?.closest?.("#ci-az [data-az]"); if (!b || b.disabled || b.dataset.az === last) return;
+      last = b.dataset.az; jump(last, false); pop.textContent = last; pop.hidden = false; try { navigator.vibrate?.(4); } catch {} };
+    az.onpointerdown = e => { if (e.button > 0) return; sliding = true; last = ""; e.preventDefault(); try { az.setPointerCapture(e.pointerId); } catch {} az.classList.add("sliding"); at(e); };
+    az.onpointermove = e => { if (sliding) at(e); };
+    az.onpointerup = az.onpointercancel = az.onlostpointercapture = () => { if (!sliding) return; sliding = false; az.classList.remove("sliding"); setTimeout(() => { if (!sliding) pop.hidden = true; }, 350); };
+    az.onclick = e => { if (e.detail) return; const b = e.target.closest("[data-az]"); if (b) jump(b.dataset.az, true); };  // the keyboard: Enter on a letter
     el.querySelector("#ci-title").textContent = S.ciOnly ? ONLY[S.ciOnly][0] : S.ciRole ? teams[S.ciRole].label : "Names A to Z";
     const only = el.querySelector("#ci-only");
     only.innerHTML = S.ciOnly ? `<div class="msg" style="margin:10px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span>Showing only <b>${esc(ONLY[S.ciOnly][0].toLowerCase())}</b> (${shown.length}).</span><button type="button" class="pill-btn sm" id="ci-only-x">Show everyone</button></div>` : "";
