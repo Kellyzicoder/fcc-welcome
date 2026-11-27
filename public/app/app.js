@@ -2925,6 +2925,17 @@ function checkin(el) {
 }
 
 // ---------------------------------------------------------------- follow-up and people
+// One person on Follow-up and a pastor's Home: initials coloured by how they're doing, how many Sundays they've missed,
+// and Message, Call and Log visit. Phones show a card each; computers, one line each in a list.
+function personCard(x, m) {
+  const tone = x.visited ? "visited" : x.flag || "ok";
+  return `<div class="fu-row ${tone}"><button type="button" class="fu-ava" data-person="${esc(x.id)}" aria-label="${esc(`${x.full_name}: attendance history`)}">${esc(initials(x.full_name))}</button>
+    <div class="fu-who"><button type="button" class="fu-name" data-person="${esc(x.id)}">${esc(x.full_name)}</button>
+      <small>${x.missed ? `Missed ${x.missed} in a row` : "Not missed"}${x.seen ? ` · last here ${esc(nice(x.seen))}` : ""}${x.pastor && S.me.role !== "pastor" ? ` · ${esc(shortTitle(x.pastor))}` : ""}</small>${msgTag(lastMsg(x.id))}</div>
+    <span class="fu-flag">${flagBadge(x)}</span>
+    <div class="fu-acts">${x.phone && !S.preview ? `<button type="button" class="pill-btn sm primary" data-msgto="${esc(x.id)}">${svg("chat")}Message</button><a class="pill-btn sm" href="tel:${esc(String(x.phone).replace(/[^\d+]/g, ""))}">Call</a>` : x.phone ? "" : `<span class="muted fu-nophone">No phone number</span>`}
+      ${canVisit() && m ? `<button type="button" class="pill-btn sm" data-fuvisit="${esc(x.id)}">${svg("visits")}Log visit</button>` : ""}</div></div>`;
+}
 function followup(el) {
   // any service date can be looked at: the lists show how things stood after that service
   const p0 = picture(), day = S.fuDay && S.fuDay !== p0.last ? S.fuDay : p0.last, had = !!day && p0.dates.includes(day);
@@ -2945,13 +2956,7 @@ function followup(el) {
         <div class="w-pop fu-pop" role="menu" hidden>${MORE.map(k => `<button type="button" role="menuitem" class="${S.filter === k ? "on" : ""}" data-f="${k}">${tabs[k]}${had ? ` <span class="muted">${p.people.filter(pick[k]).length}</span>` : ""}</button>`).join("")}</div></span></div>
     <div class="fu-narrow fu-swipe" role="group" aria-label="Show">${Object.entries(tabs).map(([k, t]) => `<button type="button" class="chip ${S.filter === k ? "on" : ""}" data-f="${k}">${t}${had ? ` <span class="chip-n">${p.people.filter(pick[k]).length}</span>` : ""}</button>`).join("")}</div>  <!-- phones: a row of tabs to swipe; wider screens: the pills and More -->
     <div class="fu-hero"><div><b>${list.length}</b><span>${esc(tabs[S.filter])}</span>${had ? `<small>${withPhone.length} with a phone number</small>` : ""}</div>${withPhone.length > 1 && !S.preview ? `<button type="button" class="pill-btn sm" id="fu-all" title="${fresh.length < withPhone.length ? `Leaves out ${withPhone.length - fresh.length} messaged in the last 7 days` : ""}">${svg("chat")}Message everyone (${(fresh.length || withPhone.length)})</button>` : ""}</div>
-    ${list.length ? `<div class="fu-list">${list.map(x => { const m = mine.get(x.id), tone = x.visited ? "visited" : x.flag || "ok";
-        return `<div class="fu-row ${tone}"><button type="button" class="fu-ava" data-person="${esc(x.id)}" aria-label="${esc(`${x.full_name}: attendance history`)}">${esc(initials(x.full_name))}</button>
-          <div class="fu-who"><button type="button" class="fu-name" data-person="${esc(x.id)}">${esc(x.full_name)}</button>
-            <small>${x.missed ? `Missed ${x.missed} in a row` : "Not missed"}${x.seen ? ` · last here ${esc(nice(x.seen))}` : ""}${x.pastor ? ` · ${esc(shortTitle(x.pastor))}` : ""}</small>${msgTag(lastMsg(x.id))}</div>
-          <span class="fu-flag">${flagBadge(x)}</span>
-          <div class="fu-acts">${x.phone && !S.preview ? `<button type="button" class="pill-btn sm primary" data-msgto="${esc(x.id)}">${svg("chat")}Message</button><a class="pill-btn sm" href="tel:${esc(String(x.phone).replace(/[^\d+]/g, ""))}">Call</a>` : x.phone ? "" : `<span class="muted fu-nophone">No phone number</span>`}
-            ${canVisit() && m ? `<button type="button" class="pill-btn sm" data-fuvisit="${esc(x.id)}">${svg("visits")}Log visit</button>` : ""}</div></div>`; }).join("")}</div>`
+    ${list.length ? `<div class="fu-list">${list.map(x => personCard(x, mine.get(x.id))).join("")}</div>`
       : `<div class="card"><p class="empty">${had ? "Nobody in this list." : `No service was recorded on ${esc(nice(day || today(), true))}.`}</p></div>`}`;
   { const q = x => ({name: x.full_name, phone: x.phone, mid: x.id, day: x.first_visit || "", kind: msgKind(x, p)});
     el.querySelector("#fu-all")?.addEventListener("click", () => textPerson({queue: (fresh.length ? fresh : withPhone).map(q), full: withPhone.map(q)})); }
@@ -4162,20 +4167,25 @@ function mine(el) {
     if (n.length) out.push("", ["📞", "Please call:"], ...n.map(x => `- ${x.full_name} (${x.missed} missed${x.phone ? ", " + x.phone : ""})`));
     return wa(out);
   };
+  const byId = new Map(p.mine.map(m => [m.id, m])), order = list.slice().sort((a, b) => (b.level !== "ok") - (a.level !== "ok") || b.missed - a.missed || byName(a, b));
   el.innerHTML = head("", p.last ? `${esc(svcName(p.last))} · ${esc(nice(p.last, true))}` : "No services recorded yet",
     `<button class="pill-btn" id="wa">Message for WhatsApp</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `
-    <div class="tiles"><div class="card tile"><div class="label">Your people</div><div class="num">${list.length}</div></div>
-      <div class="card tile"><div class="label">Came</div><div class="num">${came.length}</div></div>
-      <div class="card tile"><div class="label">Not there</div><div class="num">${list.length - came.length}</div></div>
-      <div class="card tile"><div class="label">Need a call</div><div class="num">${need.length}</div></div></div>
-    <div class="card"><div class="card-head"><h2>Your people</h2></div>
-      ${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th><th>Came</th><th>Sunday</th><th>Missed in a row</th>${hasBac ? "<th>Bacenta</th>" : ""}<th>Phone</th></tr></thead><tbody>
-      ${list.slice().sort((a, b) => (b.level !== "ok") - (a.level !== "ok") || b.missed - a.missed || byName(a, b)).map(x => `<tr><td>${whoBtn(x)}</td><td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${flagBadge(x)}</td><td>${x.missed}</td>${hasBac ? `<td data-bacst="${esc(x.id)}"><span class="muted">…</span></td>` : ""}
-        <td>${x.phone ? `<a href="tel:${esc(x.phone.replace(/[^0-9+]/g, ""))}">${esc(x.phone)}</a>` : ""}</td></tr>`).join("")}</tbody></table></div>`
-      : `<p class="empty">${me ? `Nobody is assigned to ${esc(me)} yet. Ask your church admin.` : "Your sign-in isn't linked to a pastor name yet. Ask your church admin."}</p>`}</div>
+    <section class="pm-hero"><div class="pm-hero-top"><span>Your people${p.last ? ` · ${esc(svcName(p.last))}` : ""}</span>${p.last ? `<small>${esc(nice(p.last))}</small>` : ""}</div>
+      <p class="pm-num"><b>${came.length}</b><span>of ${list.length} came</span></p>
+      <p class="pm-sub">${list.length - came.length} not there${need.length ? ` · ${need.length} ${need.length === 1 ? "needs" : "need"} a call` : ""}</p>
+      <div class="pm-btns"><button type="button" class="pm-go" data-go="checkin">Check people in${svg("next")}</button><button type="button" class="pm-wa" id="wa2">${svg("chat")}Message for WhatsApp</button></div></section>
+    ${need.length ? `<h2 class="pm-h">Needs a call <span class="chip-n">${need.length}</span></h2><div class="fu-list">${need.slice().sort((a, b) => b.missed - a.missed || byName(a, b)).map(x => personCard(x, byId.get(x.id))).join("")}</div>` : ""}
+    <h2 class="pm-h">Everyone you look after <span class="chip-n">${list.length}</span></h2>
+    ${list.length ? `<div class="pm-list">${order.map(x => `<div class="pm-row ${x.visited ? "visited" : x.flag || "ok"}">
+        <button type="button" class="fu-ava" data-person="${esc(x.id)}" aria-label="${esc(`${x.full_name}: attendance history`)}">${esc(initials(x.full_name))}</button>
+        <div class="fu-who"><button type="button" class="fu-name" data-person="${esc(x.id)}">${esc(x.full_name)}</button>
+          <small><span class="pm-came ${p.here[x.id] ? "yes" : ""}">${p.here[x.id] ? "Came" : "Not there"}</span>${x.missed ? ` · missed ${x.missed} in a row` : ""}${hasBac ? ` · Bacenta <span data-bacst="${esc(x.id)}"></span>` : ""}</small></div>
+        <div class="pm-acts">${x.phone && !S.preview ? `${msgBtn(x)}<a class="pill-btn sm" href="tel:${esc(String(x.phone).replace(/[^\d+]/g, ""))}">Call</a>` : ""}</div></div>`).join("")}</div>`
+      : `<div class="card"><p class="empty">${me ? `Nobody is assigned to ${esc(me)} yet. Ask your church admin.` : "Your sign-in isn't linked to a pastor name yet. Ask your church admin."}</p></div>`}
     <div id="bac-home" style="margin-top:14px"></div>`;
   el.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { S.view = b.dataset.go; render(); });
-  el.querySelector("#wa").onclick = () => waDialog("Message for WhatsApp", message, {day: p.last || today()});
+  el.querySelectorAll("#wa, #wa2").forEach(b => b.onclick = () => waDialog("Message for WhatsApp", message, {day: p.last || today()}));
+  el.querySelectorAll("[data-fuvisit]").forEach(b => b.onclick = () => visitDialog(byId.get(b.dataset.fuvisit)));
   bacHome(el.querySelector("#bac-home"), el);  // their Bacenta after their people, and their people's Bacenta follow-up
 }
 // Home for a shepherd or pastor: a card for each Bacenta they're on, below their people. When it meets, how the last
