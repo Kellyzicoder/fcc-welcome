@@ -1468,11 +1468,12 @@ function render() {
   const groups = pages(), who = S.me.name || S.me.email, allowed = [...groups.flatMap(g => g[1].map(x => x[0])), "account", ...(S.me.role === "bishop" ? [] : ["person", "alerts"])];
   if (S.view === "summary") { S.view = "reports"; S.repTab = "summary"; }  // the WhatsApp summary is a tab on Reports now
   if (!allowed.includes(S.view)) S.view = allowed[0];
+  S.allowed = allowed;
   const short = {dashboard: "Home", mine: "Home", overview: "Churches", people: "People", followup: "Follow-up", checkin: "Check-in", account: "You", search: "Search"};  // the bottom bar on phones: the four most-used pages, then More
   // pages someone turned off in Settings → Pages you see: left out of their menu and bottom bar (the first page always stays)
   const hid = new Set(look().hide || []), menuGroups = groups.map(([h, items]) => [h, items.filter(([k]) => !hid.has(k) || k === allowed[0])]).filter(g => g[1].length);
-  const dock = [...menuGroups.flatMap(g => g[1]).filter(x => ["mine", "dashboard", "overview", "checkin", "followup", "visits", "people", "help"].includes(x[0])).slice(0, 3), ["search", "Search"], ["account", "You"]]
-    .map(([k, t]) => [k, short[k] || t]);
+  const dock = [...menuGroups.flatMap(g => g[1]).filter(x => ["mine", "dashboard", "overview", "checkin", "followup", "visits", "people", "help"].includes(x[0])).slice(0, 3),
+    allowed.includes("community") ? ["community", "Alerts"] : ["search", "Search"], ["more", "More"]].map(([k, t]) => [k, short[k] || t]);
   const go = to => {  // a page opens straight away from what's already loaded; the latest is fetched behind it, and only if
     // something changed is the page redrawn, in place (same scroll, and not while a box is open or someone is typing)
     const me = S.goTok = (S.goTok || 0) + 1; S.view = to; render();
@@ -1505,7 +1506,7 @@ function render() {
         <button class="acct" data-view="account" title="Your account and settings" aria-label="Your account and settings"><span class="acct-pic">${esc(initials(who))}</span><span><b>${esc(who)}</b><small>${S.preview ? `Admin · viewing as ${esc(PREVIEW[S.preview.role] || "")}` : `${roleName(S.me)} · ${esc(where)}`}</small></span></button>
         <button class="out-btn" data-out title="Log out">${svg("out")}<span>Log out</span></button></div>
       <div class="body" id="view"></div></main>
-    <nav class="dock" aria-label="Main"><span class="dock-pill" aria-hidden="true"></span>${dock.map(([k, t]) => `<button class="${S.view === k ? "on" : ""}" data-view="${k}" aria-label="${t}" ${S.view === k ? 'aria-current="page"' : ""}>${k === "account" ? `<span class="dock-me">${esc(initials(who))}</span>` : svg(k)}<span>${t}</span></button>`).join("")}
+    <nav class="dock" aria-label="Main"><span class="dock-pill" aria-hidden="true"></span>${dock.map(([k, t]) => k === "more" ? `<button type="button" data-dockmore aria-label="More: every page" aria-controls="menu">${svg("menu")}<span class="dock-l">More</span></button>` : `<button class="${S.view === k ? "on" : ""}" data-view="${k}" aria-label="${t}" ${S.view === k ? 'aria-current="page"' : ""}>${k === "account" ? `<span class="dock-me">${esc(initials(who))}</span>` : svg(k)}<span class="dock-l">${t}</span></button>`).join("")}
 </nav></div>`;  // everything else: the ☰ menu at the top left
   const shell = root.querySelector(".shell"), menuBtn = root.querySelector("[data-menu]");
   sideSearch(root);
@@ -1513,6 +1514,7 @@ function render() {
   S.menu = menu;  // the phone swipe below opens and closes it too
   S.go = go;  // for Search and Notifications
   menuBtn.onclick = () => menu(!shell.classList.contains("open"));
+  root.querySelector("[data-dockmore]")?.addEventListener("click", e => { e.stopPropagation(); menu(!shell.classList.contains("open")); });
   root.querySelector("[data-mini]").onclick = e => {  // laptop menu: icons only, or icons with names; remembered on this device
     S.mini = !S.mini; try { localStorage.setItem("fcc-mini", S.mini ? "1" : "0"); } catch {}
     shell.classList.toggle("mini", S.mini); const b = e.currentTarget, t = S.mini ? "Show menu names" : "Icons only";
@@ -2334,13 +2336,32 @@ function summaryPage(el) {
 async function dashboard(el) {
   const p = picture();
   el.innerHTML = head("Dashboard", p.last ? `${esc(svcName(p.last))} · ${esc(nice(p.last, true))}` : "No services recorded yet",
-    `<button class="pill-btn" id="addw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + `<div class="wgrid" id="wgrid"></div>`;
+    `<button class="pill-btn" id="addw">${svg("plus")}Add widget</button><button class="pill-btn" id="wa">Summary</button><button class="pill-btn primary" data-go="checkin">${svg("checkin")}Check people in</button>`) + phoneHome(p) + `<div class="wgrid" id="wgrid"></div>`;
   el.querySelector("#wa").onclick = () => { S.view = "reports"; S.repTab = "summary"; render(); };  // the WhatsApp summary: a tab on Reports
   el.querySelector("#addw").onclick = () => addWidget("home");
-  el.querySelector("[data-go]").onclick = () => { S.view = "checkin"; render(); };
+  el.querySelectorAll("[data-go]").forEach(b => b.onclick = () => { S.view = b.dataset.go; render(); });
   await loadPrefs();
   if (S.view !== "dashboard") return;
   drawBoard(el.querySelector("#wgrid"), "home", p);
+}
+// Phones: Home opens with today's number and the button to check people in, four quick buttons, and who needs a call.
+// The widgets follow below it. On a computer this part is hidden: the widgets are the Home page there.
+function phoneHome(p) {
+  const can = v => (S.allowed || []).includes(v), c = p.last ? countsOn(p, p.last) : null, reg = p.mine.filter(m => !AWAY.has(norm(m.status))).length;
+  const before = p.last ? sameDayBefore(p, p.last) : null, was = before ? countsOn(p, before).present : null;
+  const quick = [["followup", "chat", "Message"], ["visits", "visits", "Log visit"], ["converts", "converts", "New convert"], ["reports", "reports", "Reports"], ["people", "people", "People"]]
+    .filter(([v]) => can(v)).slice(0, 4);
+  const need = p.people.filter(x => x.flag === "red" || x.flag === "yellow").slice(0, 3), needN = p.people.filter(x => x.flag === "red" || x.flag === "yellow").length;
+  return `<div class="ph-home">
+    <section class="ph-hero"><div class="ph-hero-top"><span>${p.last ? `${esc(svcName(p.last))} · ${esc(S.church)}` : esc(S.church)}</span>${p.last ? `<small>${esc(nice(p.last))}</small>` : ""}</div>
+      ${c ? `<p class="ph-num"><b>${c.present}</b><span>of ${reg} here</span></p>${was !== null ? `<p class="ph-was">${c.present === was ? "Same as" : `${c.present > was ? "↑" : "↓"} ${Math.abs(c.present - was)} ${c.present > was ? "more than" : "fewer than"}`} ${esc(nice(before))}</p>` : ""}` : `<p class="ph-was">No services recorded yet</p>`}
+      ${can("checkin") ? `<button type="button" class="ph-go" data-go="checkin">Check people in${svg("next")}</button>` : ""}</section>
+    ${quick.length ? `<nav class="ph-quick" aria-label="Quick actions">${quick.map(([v, ic, t]) => `<button type="button" data-go="${v}"><span>${svg(ic)}</span>${t}</button>`).join("")}</nav>` : ""}
+    ${can("followup") ? `<section class="ph-need"><div class="ph-need-h"><h2>Needs a call${needN ? ` <span class="chip-n">${needN}</span>` : ""}</h2>${needN ? `<button type="button" class="link" data-go="followup">See all</button>` : ""}</div>
+      ${need.length ? need.map(x => `<button type="button" class="ph-person ${x.flag}" data-person="${esc(x.id)}"><span class="ph-ava">${esc(initials(x.full_name))}</span>
+        <span class="ph-who"><b>${esc(x.full_name)}</b><small>${x.seen ? `Last here ${esc(nice(x.seen))}` : "Not seen yet"}</small></span><em>${x.missed} missed</em></button>`).join("")
+        : `<p class="empty" style="margin:4px 0 0">Nobody needs a call. Well done.</p>`}</section>` : ""}
+  </div>`;
 }
 // Draws one board's widgets into grid: each a card with a drag handle, coloured icon, title, tools and a ⋯ menu.
 function drawBoard(grid, b, ctx) {
