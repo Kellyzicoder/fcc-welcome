@@ -3783,9 +3783,35 @@ async function bishop(el, rows, text, newest) {
         <span class="cg-row"><span class="cg-red" title="${esc(FLAG_WHY.red)}">${r.red}<small>Missed ${RED_AT}+ in a row</small></span><span class="cg-yel" title="${esc(FLAG_WHY.yellow)}">${r.yellow}<small>Missed ${YELLOW_AT}–${RED_AT - 1} in a row</small></span><span>${all ? (bac ? sum(bac, "came") : "–") : bacCame(r.church)}<small>At Bacenta last week</small></span></span>
         ${all ? "" : `<span class="spark" aria-hidden="true">${sparkOf(r.trend)}</span>`}</button>`; };
     const on = rows.filter(served), tot = {present: sum(on, "present"), adults: sum(on, "adults"), kids: sum(on, "kids"), first_timers: sum(on, "first_timers"), red: sum(rows, "red"), yellow: sum(rows, "yellow")};
-    el.innerHTML = head(admin ? "Churches" : "All churches", day ? `Numbers only · ${esc(nice(day, true))}` : "Numbers only", `<button class="pill-btn" id="bd-share">${svg("upload")}Board meeting link</button><button class="pill-btn" id="wa">Summary for WhatsApp</button>`) + layout + `<div id="b-sum" hidden style="margin:0 0 16px"></div>
-      <div class="cg-grid">${box(tot, true)}${rows.map(r => box(r)).join("")}</div>
+    // At a glance, as in the design: four numbers on top (the first in blue), then one row per church
+    // the change is against the last service on the same weekday (a Wednesday against the Wednesday before, not against Sunday)
+    const chg = ch => { const s = seriesOf(ch); if (s.length < 2) return null; const last = s[s.length - 1], dw = new Date(last[0] + "T12:00:00").getDay();
+      if (ch && rows.find(r => r.church === ch)?.latest !== last[0]) return null;
+      const prev = s.slice(0, -1).reverse().find(x => new Date(x[0] + "T12:00:00").getDay() === dw); return prev ? (last[1] + last[2]) - (prev[1] + prev[2]) : null; };
+    const wkd = d => new Date(d + "T12:00:00").toLocaleDateString("en-NZ", {weekday: "short"});
+    const up = n => n === null ? "" : n === 0 ? `<span class="og-chg">same</span>` : `<span class="og-chg ${n > 0 ? "up" : "down"}">${n > 0 ? "↑" : "↓"} ${Math.abs(n)}</span>`;
+    const allChg = day ? null : chg("");
+    const barsOf = tr => { const v = (tr || []).slice(-8), m = Math.max(1, ...v); return v.map((n, i) => `<i class="${i === v.length - 1 ? "now" : ""}" style="height:${Math.max(3, Math.round(30 * n / m))}px" title="${n}"></i>`).join(""); };
+    const bacTot = bac ? sum(bac, "came") : null;
+    const tiles = `<div class="og-tiles">
+        <div class="og-tile hero"><p>Present · ${esc(nice(day || newest))}</p><b>${tot.present}</b><small>${allChg === null ? `${on.length} of ${rows.length} churches` : allChg === 0 ? "Same as last time" : `${allChg > 0 ? "↑" : "↓"} ${Math.abs(allChg)} on the ${wkd(newest)} before`}</small></div>
+        <div class="og-tile"><p>First-timers</p><b>${tot.first_timers}</b><small>${tot.adults} adults · ${tot.kids} kids</small></div>
+        <div class="og-tile"><p>At Bacenta last week</p><b>${bacTot === null ? "–" : bacTot}</b><small>${bac ? `${bac.length} ${bac.length === 1 ? "Bacenta" : "Bacentas"}` : "Not set up yet"}</small></div>
+        <div class="og-tile"><p>Need a call</p><b class="og-red">${tot.red}</b><small>Missed ${RED_AT}+ in a row · ${tot.yellow} more missed ${YELLOW_AT}–${RED_AT - 1}</small></div></div>`;
+    const rowOf = r => { const ok = served(r);
+      return `<tr data-gb="${esc(r.church)}" tabindex="0">
+        <td class="og-ch"><b>${esc(r.church)}</b><small>${esc(ok ? (r.latest ? nice(r.latest) : "No services yet") : "No service this day")}</small></td>
+        <td class="og-n"><b>${ok ? r.present : "–"}</b>${ok && !day ? up(chg(r.church)) : ""}<small class="og-sm">present</small></td>
+        <td class="og-bars"><span aria-hidden="true">${barsOf(r.trend)}</span></td>
+        <td class="og-ft"><b>${ok ? r.first_timers : "–"}</b><small class="og-sm">first-timers</small></td>
+        <td class="og-call"><b class="${r.red ? "og-red" : ""}">${r.red}</b>${r.yellow ? `<small class="og-yel">+${r.yellow}</small>` : ""}<small class="og-sm">need a call</small></td>
+        <td class="og-go"><button type="button" class="pill-btn sm soft" tabindex="-1">Open</button></td></tr>`; };
+    el.innerHTML = head(admin ? "Churches" : "All churches", `${rows.length} ${rows.length === 1 ? "church" : "churches"} · ${day ? esc(nice(day, true)) : "numbers only"}`, `<button class="pill-btn" id="wa">Summary for WhatsApp</button><button class="pill-btn primary" id="bd-share">${svg("upload")}Board meeting link</button>`) + layout + `<div id="b-sum" hidden style="margin:0 0 16px"></div>
+      ${tiles}
+      <section class="card og-card"><table class="og-table"><thead><tr><th>Church</th><th>Present</th><th>Last 8 services</th><th>First-timers</th><th title="${esc(FLAG_WHY.red)}">Need a call</th><th><span class="ci-sr">Open</span></th></tr></thead>
+        <tbody>${rows.map(rowOf).join("")}</tbody></table></section>
       ${day ? `<p class="note" style="margin:12px 2px 0">Showing ${esc(nice(day, true))}. <button class="link" id="b-latest" style="margin:0">Back to the latest</button></p>` : ""}`;
+    el.querySelectorAll("tr[data-gb]").forEach(tr => tr.onkeydown = e => { if (e.key === "Enter") tr.click(); });
     wireLayout();
     el.querySelectorAll("[data-gb]").forEach(b => b.onclick = () => { S.bChurch = b.dataset.gb; S.bGrid = false; render(); scrollTo(0, 0); });
     el.querySelector("#wa").onclick = () => openSum(day || newest); if (S.bSum) openSum(day || newest, true);

@@ -1803,6 +1803,43 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
   .pp-table .pp-pastor {order: 5; font-size: 13px;} .pp-table .pp-pastor.muted {display: none;}
   .pp-table .pp-x, .pp-table .pp-last {display: none;}
 }
+/* All churches → At a glance: numbers on top, one row per church (like the design) */
+.og-tiles {display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 0 0 16px;}
+.og-tile {background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 18px 20px; min-width: 0;}
+.og-tile p {margin: 0; font-size: 13px; color: var(--ink-2);} .og-tile b {display: block; margin: 6px 0 2px; font-size: 34px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums;}
+.og-tile small {display: block; font-size: 12.5px; color: var(--ink-3);}
+.og-tile.hero {background: var(--accent); border-color: transparent; color: var(--accent-ink); box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 22%, transparent);}
+.og-tile.hero p, .og-tile.hero small {color: color-mix(in srgb, var(--accent-ink) 82%, transparent);}
+.og-red {color: var(--red);} .og-tile.hero .og-red {color: inherit;}
+.og-card {border-radius: 24px; padding: 6px 22px;}
+.og-table {width: 100%; border-collapse: collapse; font-size: 14px;}
+.og-table th {text-align: left; font-size: 12.5px; color: var(--ink-3); font-weight: 600; padding: 12px 8px 12px 0; background: none; border-bottom: 1px solid var(--line);}
+.og-table td {padding: 14px 8px 14px 0; border-top: 1px solid var(--line); vertical-align: middle;} .og-table tbody tr:first-child td {border-top: 0;}
+.og-table tbody tr {cursor: pointer; transition: background-color .2s ease;} .og-table tbody tr:hover, .og-table tbody tr:focus-visible {background: var(--soft); outline: none;}
+.og-ch b {display: block; font-weight: 600;} .og-ch small {display: block; font-size: 12.5px; color: var(--ink-3);}
+.og-n b, .og-ft b, .og-call b {font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums;}
+.og-chg {margin-left: 6px; font-size: 12.5px; font-weight: 600; color: var(--ink-3);} .og-chg.up {color: var(--ok);} .og-chg.down {color: var(--red);}
+.og-yel {margin-left: 6px; font-size: 12.5px; font-weight: 600; color: var(--yellow);}
+.og-sm {display: none;}
+.og-bars span {display: inline-flex; align-items: flex-end; gap: 3px; height: 30px;} .og-bars i {width: 7px; border-radius: 3px 3px 0 0; background: color-mix(in srgb, var(--accent) 30%, transparent);} .og-bars i.now {background: var(--accent);}
+.og-go {text-align: right;} .og-go .pill-btn.soft {background: var(--accent-soft); color: var(--accent); border-color: transparent;}
+@media (max-width: 900px) { .og-tiles {grid-template-columns: repeat(2, minmax(0, 1fr));} .og-tile b {font-size: 28px;} }
+@media (max-width: 640px) {
+  .og-tiles {gap: 10px;} .og-tile {padding: 14px 16px; border-radius: 20px;}
+  .og-tiles {grid-template-columns: repeat(3, minmax(0, 1fr));} .og-tile.hero {grid-column: 1 / -1;}
+  .og-tile:not(.hero) {padding: 12px 12px;} .og-tile:not(.hero) b {font-size: 24px;} .og-tile:not(.hero) small {display: none;} .og-tile p {font-size: 12px;}
+  .og-card {padding: 4px 14px;}
+  .og-table thead {display: none;} .og-table, .og-table tbody {display: block;}
+  .og-table tr {display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "ch bars" "n n"; gap: 8px 12px; padding: 14px 4px; border-top: 1px solid var(--line);}
+  .og-table tbody tr:first-child {border-top: 0;}
+  .og-table td {display: block; padding: 0; border: 0;}
+  .og-ch {grid-area: ch;} .og-bars {grid-area: bars; align-self: center;}
+  .og-n, .og-ft, .og-call {display: inline-flex !important; align-items: baseline; gap: 4px;}
+  .og-table tr {grid-template-areas: "ch bars" "n n" "ft call";}
+  .og-n {grid-area: n;} .og-ft {grid-area: ft;} .og-call {grid-area: call;}
+  .og-sm {display: inline; font-size: 12.5px; color: var(--ink-3); margin-left: 2px;}
+  .og-go {display: none !important;}
+}
 </style>
 </head>
 <body>
