@@ -4559,6 +4559,9 @@ async function bacentas(el, mode = "manage") {
   // which Bacenta is open: on Check-in, one they can take (today's first); on the Bacentas page, any shown
   const pickFrom = take ? mine : shown;
   if (!pickFrom.some(x => x.id === S.bacenta)) S.bacenta = (pickFrom.find(x => x.meet_day === new Date().getDay()) || (lim && shown.find(bacMine)) || pickFrom[0])?.id || "";
+  // on a computer the Bacentas page shows the list beside the open one (as in the design), so one is always open there
+  const wide = !take && matchMedia("(min-width: 1000px)").matches;
+  if (wide && shown.length && !shown.some(x => x.id === S.bcOpen)) S.bcOpen = (shown.find(x => x.id === S.bacenta) || shown[0]).id;
   const b = list.find(x => x.id === (take || (lim && shown.length === 1) ? S.bacenta : S.bcOpen)), canTick = take && !!b && b.active && !S.preview && (!lim || bacMine(b));
   if (b && S.bcDateFor !== b.id) { S.bcDate = bacLastDay(b) || today(); S.bcDateFor = b.id; }  // opens on its latest usual day
   S.bcDate ||= today();
@@ -4607,24 +4610,28 @@ async function bacentas(el, mode = "manage") {
   } else {  // ---- the Bacentas page: the list, then the chosen one's follow-up, people and past meetings
     el.innerHTML = head("Bacentas", esc(S.church), canEdit ? `<button class="pill-btn primary" id="bc-add">${svg("plus")}Add a Bacenta</button>` : "") + `
     ${canEdit ? `<div id="bc-approve"></div>` : ""}
-    <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>${esc(S.church)} Bacentas</h2><span class="gap"></span>
+    <div class="bc-split ${b ? "has" : ""}">
+    <section class="card bc-list" aria-label="${esc(S.church)} Bacentas"><div class="card-head"><h2>${shown.length} ${shown.length === 1 ? "Bacenta" : "Bacentas"}</h2><span class="gap"></span>
       ${hidden ? `<label class="check" style="font-size:13px"><input type="checkbox" id="bc-hid" ${S.bcHidden ? "checked" : ""}> Show hidden (${hidden})</label>` : ""}</div>
-      ${shown.length ? `<div class="scroll"><table><thead><tr><th>Bacenta</th><th>Meets</th><th>Shepherd</th><th>Pastor</th><th>Last met</th><th>Came</th><th>People</th><th>Not filled in</th><th></th>${canEdit ? "<th></th>" : ""}</tr></thead><tbody>
-        ${shown.map(x => { const ms = meetings(x.id), last = ms[0], ppl = membersOf(x).size, miss = missing(x).length;
-          return `<tr><td><button class="who ${x.id === b?.id ? "sel" : ""}" data-bc="${esc(x.id)}"><span>${esc(initials(x.name))}</span>${esc(x.name)}</button>${x.active ? "" : ` <small class="muted">Hidden</small>`}</td>
-            <td>${x.meet_day != null ? esc(DAYS[x.meet_day] + "s") : `<span class="muted">Not set</span>`}</td>
-            <td>${x.shepherd ? esc(shortTitle(x.shepherd)) : `<span class="muted">Not set</span>`}</td><td>${x.pastor ? esc(shortTitle(x.pastor)) : `<span class="muted">Not set</span>`}</td><td>${last ? esc(short(last[0])) : `<span class="muted">Not yet</span>`}</td><td>${last ? last[1] : ""}</td><td>${ppl}</td>
-            <td>${x.meet_day == null ? `<span class="muted">Set its day</span>` : miss ? `<span class="badge yellow" title="Weeks in the last 8 (Monday to Sunday) with no attendance on any day and not marked Didn't meet">${miss} ${miss === 1 ? "week" : "weeks"}</span>` : `<span class="badge ok">Up to date</span>`}</td>
-            <td><button type="button" class="pill-btn sm" data-bc="${esc(x.id)}" aria-expanded="${x.id === b?.id}">${x.id === b?.id ? "Hide" : "Open"}</button></td>
-            ${canEdit ? `<td><button class="pill-btn sm" data-bcedit="${esc(x.id)}" aria-label="Edit ${esc(x.name)}">${svg("edit")}Edit</button></td>` : ""}</tr>`; }).join("")}</tbody></table></div>`
-        : `<p class="empty">${list.length ? "All this church's Bacentas are hidden." : `No Bacentas in ${esc(S.church)} yet.${canEdit ? " Tap Add a Bacenta." : ""}`}</p>`}</div>
-    ${b ? `<div class="card" id="bc-take" style="margin-bottom:14px;scroll-margin-top:12px"><div class="card-head"><h2>${esc(b.name)}</h2><span class="gap"></span>
-        ${b.active && !S.preview && (!lim || bacMine(b)) ? `<button type="button" class="pill-btn primary sm" id="bc-go">${svg("checkin")}Take attendance</button>` : ""}${S.bcOpen === b.id ? `<button type="button" class="pill-btn sm" data-bc="${esc(b.id)}">Close</button>` : ""}</div>
-      <p class="note" style="margin:0 2px 10px">${who(b)}</p><div id="bc-miss"></div></div>
+      ${shown.length ? shown.map(x => { const ms = meetings(x.id), last = ms[0], miss = missing(x).length;
+          return `<button type="button" class="bc-item" data-bc="${esc(x.id)}" aria-pressed="${x.id === b?.id}"><span class="bc-ava" ${avaStyle(x.name)}>${esc(initials(x.name))}</span>
+            <span class="bc-who"><b>${esc(x.name)}${x.active ? "" : ` <small class="muted">· hidden</small>`}</b><small>${esc([x.meet_day != null ? DAYS[x.meet_day] + "s" : "Day not set", x.shepherd ? shortTitle(x.shepherd) : "No shepherd"].join(" · "))}</small></span>
+            <span class="bc-n" title="${last ? `Came on ${esc(short(last[0]))}` : "No meetings yet"}">${last ? last[1] : "–"}${miss && x.meet_day != null ? `<i class="bc-dot" title="${miss} ${miss === 1 ? "week" : "weeks"} not filled in"></i>` : ""}</span></button>`; }).join("")
+        : `<p class="empty">${list.length ? "All this church's Bacentas are hidden." : `No Bacentas in ${esc(S.church)} yet.${canEdit ? " Tap Add a Bacenta." : ""}`}</p>`}</section>
+    ${b ? (() => { const ms = meetings(b.id), last = ms[0], ppl = membersOf(b).size, miss = missing(b).length;
+      return `<div class="bc-detail"><section class="card" id="bc-take" style="margin-bottom:14px;scroll-margin-top:12px">
+        <div class="bc-dhead"><div><h2>${esc(b.name)}</h2><p class="note" style="margin:2px 0 0">${who(b)}</p></div><span class="gap"></span>
+          ${canEdit ? `<button class="pill-btn sm" data-bcedit="${esc(b.id)}">${svg("edit")}Edit</button>` : ""}${!wide ? `<button type="button" class="pill-btn sm" data-bc="${esc(b.id)}">Close</button>` : ""}</div>
+        <div class="og-tiles bc-tiles">
+          <div class="og-tile hero"><p>Last meeting${last ? " · " + esc(short(last[0])) : ""}</p><b>${last ? `${last[1]}<span class="bc-of"> of ${ppl}</span>` : "–"}</b></div>
+          <div class="og-tile"><p>Not filled in</p><b class="${miss ? "og-red" : ""}">${b.meet_day == null ? "–" : miss}</b><small>${b.meet_day == null ? "Set its day first" : miss ? `of the last 8 weeks` : "Up to date"}</small></div>
+          <div class="og-tile"><p>People</p><b>${ppl}</b><small>${ms.length} ${ms.length === 1 ? "meeting" : "meetings"} in the last year</small></div></div>
+        ${b.active && !S.preview && (!lim || bacMine(b)) ? `<div class="bc-go"><button type="button" class="pill-btn primary" id="bc-go">${svg("checkin")}Take attendance</button></div>` : ""}
+        <div id="bc-miss"></div></section>
     <div id="bc-centas"></div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>Follow-up</h2><span class="gap"></span><span class="muted" style="font-size:13px">Missed the last meetings in a row</span></div><div id="bc-follow"></div></div>
     <div class="card" style="margin-bottom:14px"><div class="card-head"><h2>People in ${esc(b.name)}</h2><span class="gap"></span><span class="muted" style="font-size:13px">Came in the last 3 months, and its Bacenta-only people</span></div><div id="bc-people"></div></div>
-    <div class="card"><div class="card-head"><h2>Past meetings</h2></div><div id="bc-past"></div></div>` : ""}`;
+    <div class="card"><div class="card-head"><h2>Past meetings</h2></div><div id="bc-past"></div></div></div>`; })() : ""}</div>`;
     // add, rename, set the shepherd, pastor and day, hide or show again
     const saveB = async (id, body) => {
       const help = body.help; delete body.help;
@@ -4659,8 +4666,8 @@ async function bacentas(el, mode = "manage") {
         x.active ? {label: "Hide Bacenta", confirm: "Tap again to hide", run: async () => { await saveB(x.id, {active: false}); toast(`${x.name} is hidden. Its past attendance is kept.`); }}
           : {label: "Show again", confirm: "Tap again to show", run: async () => { await saveB(x.id, {active: true}); toast(`${x.name} is back.`); }}); });
     el.querySelector("#bc-hid")?.addEventListener("change", e => { S.bcHidden = e.target.checked; render(); });
-    el.querySelectorAll("[data-bc]").forEach(btn => btn.onclick = () => { const id = btn.dataset.bc; S.bacenta = id; S.bcQ = ""; S.bcOpen = S.bcOpen === id ? "" : id; render();  // tap again to close
-      if (S.bcOpen) requestAnimationFrame(() => document.getElementById("bc-take")?.scrollIntoView({behavior: "smooth", block: "start"})); });
+    el.querySelectorAll("[data-bc]").forEach(btn => btn.onclick = () => { const id = btn.dataset.bc; S.bacenta = id; S.bcQ = ""; S.bcOpen = S.bcOpen === id && !wide ? "" : id; render();  // tap again to close (on a phone)
+      if (S.bcOpen && !wide) requestAnimationFrame(() => document.getElementById("bc-take")?.scrollIntoView({behavior: "smooth", block: "start"})); });
     el.querySelector("#bc-go")?.addEventListener("click", () => takeBacenta(b.id, bacLastDay(b) || today()));
     // names added at a Bacenta by a shepherd, pastor or helper, waiting for a church admin to add them to the Congregation list
     const waiting = guests.filter(g => g.status === "pending" && !g.member_id && list.some(x => x.id === g.bacenta));
