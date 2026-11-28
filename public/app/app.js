@@ -379,8 +379,8 @@ const CV_FORM = "https://fcc-new-converts.vercel.app";  // the public New conver
 const CV_STEPS = [["called_on", "Called"], ["visited_on", "Visited"], ["foundation_on", "Foundation class"], ["baptised_on", "Baptised"]];
 const CV_PLACE = {service: "Sunday service", midweek: "Midweek service", bacenta: "Bacenta", outreach: "Outreach", other: "Somewhere else"};
 async function converts(el) {
-  const sub = esc(S.church), canDel = ["admin", "lead"].includes(S.me.role) && !S.preview, ro = !!S.preview;
-  const btns = ro ? "" : `<button class="pill-btn primary" id="cv-add">${svg("plus")}Add a convert</button>`;
+  const sub = `${esc(S.church)} · walk with each one through four steps`, canDel = ["admin", "lead"].includes(S.me.role) && !S.preview, ro = !!S.preview;
+  const btns = `<button class="pill-btn" id="cv-qr">Form link and QR</button>` + (ro ? "" : `<button class="pill-btn primary" id="cv-add">${svg("plus")}Add a convert</button>`);
   el.innerHTML = head("New converts", sub, btns) + `<p class="empty">Loading…</p>`;
   let rows;
   try { rows = await all(`converts?select=*&church=eq.${encodeURIComponent(S.church)}&order=decided_on.desc,created_at.desc`); }
@@ -393,7 +393,7 @@ async function converts(el) {
   const F = {open: ["Still walking with", r => !done(r)], done: ["All four steps done", done], all: ["Everyone", () => true]};
   if (!F[S.cvF]) S.cvF = "open";
   const list = rows.filter(F[S.cvF][1]);
-  const stat = (n, t) => `<div class="cv-stat"><b>${n}</b><span>${t}</span></div>`;
+  let stN = 0; const stat = (n, t) => `<div class="og-tile ${stN++ ? "" : "hero"}"><p>${t.replace(/^./, c => c.toUpperCase())}</p><b>${n}</b></div>`;
   const nice2 = d => d ? new Date(d + "T12:00:00").toLocaleDateString("en-NZ", {day: "numeric", month: "short", year: d.slice(0, 4) === yr ? undefined : "numeric"}) : "";
   const card = r => { const n = CV_STEPS.filter(([k]) => r[k]).length;
     return `<div class="card cv" data-cv="${esc(r.id)}"><div class="cv-top"><span ${avaStyle(r.full_name)}>${esc(initials(r.full_name))}</span>
@@ -404,21 +404,22 @@ async function converts(el) {
       ${r.notes ? `<p class="cv-notes">${esc(r.notes)}</p>` : ""}
       <div class="cv-act">${r.phone ? `<button type="button" class="pill-btn sm" data-cvmsg>${svg("chat")}Message</button>` : ""}${ro ? "" : `<button type="button" class="pill-btn sm" data-cvedit>${svg("edit")}Edit</button>`}</div></div>`; };
   const fLink = `${CV_FORM}/?church=${encodeURIComponent(S.church)}`, nzDay = t => new Date(t).toLocaleDateString("en-CA", {timeZone: "Pacific/Auckland"});
-  const formCard = f => `<div class="cvf" data-cvf-id="${esc(f.id)}"><div class="cvf-top"><b>${esc(f.full_name)}</b><small class="muted">${esc(nice2(nzDay(f.created_at)))}${f.decision === "Rededicated my life to Jesus" ? " · Rededicated" : ""}</small></div>
+  const formCard = f => `<div class="cvf" data-cvf-id="${esc(f.id)}"><div class="cvf-top"><span class="cvf-ava" ${avaStyle(f.full_name)}>${esc(initials(f.full_name))}</span><b>${esc(f.full_name)}</b><small class="muted">${esc(nice2(nzDay(f.created_at)))}${f.decision === "Rededicated my life to Jesus" ? " · Rededicated" : ""}</small></div>
       <small class="muted">${esc([f.phone, f.email, f.suburb].filter(Boolean).join(" · "))}</small>
       ${(f.next_steps || []).length ? `<div class="cvf-tags">${f.next_steps.map(t => `<span class="badge">${esc(t)}</span>`).join("")}</div>` : ""}
       ${f.prayer_request ? `<p class="cv-notes">${esc(f.prayer_request)}</p>` : ""}
       ${ro ? "" : `<div class="cv-act"><button type="button" class="pill-btn sm primary" data-cvf-add>${svg("plus")}Add</button><button type="button" class="pill-btn sm" data-cvf-no>Dismiss</button></div>`}</div>`;
   el.innerHTML = head("New converts", sub, btns) + `
     ${forms.length ? `<div class="card" style="margin-bottom:14px"><div class="card-head"><h2>From the form <span class="badge red">${forms.length}</span></h2></div><div class="cvf-list">${forms.map(formCard).join("")}</div></div>` : ""}
-    <div class="cv-stats">${stat(rows.filter(r => r.decided_on.startsWith(mo)).length, "this month")}${stat(rows.filter(r => r.decided_on.startsWith(yr)).length, "this year")}${stat(rows.filter(r => !done(r)).length, "still walking with")}${stat(rows.filter(r => (r.baptised_on || "").startsWith(yr)).length, "baptised this year")}</div>
-    <div class="chips" style="margin:0 0 12px">${Object.entries(F).map(([k, [t, f]]) => `<button type="button" class="chip ${S.cvF === k ? "on" : ""}" data-cvf="${k}">${t} (${rows.filter(f).length})</button>`).join("")}</div>
+    <div class="og-tiles cv-tiles">${stat(rows.filter(r => r.decided_on.startsWith(mo)).length, "this month")}${stat(rows.filter(r => r.decided_on.startsWith(yr)).length, "this year")}${stat(rows.filter(r => !done(r)).length, "still walking with")}${stat(rows.filter(r => (r.baptised_on || "").startsWith(yr)).length, "baptised this year")}</div>
+    <div class="rpills pp-pills" role="tablist" aria-label="Show">${Object.entries(F).map(([k, [t, f]]) => `<button type="button" class="rpill" role="tab" aria-selected="${S.cvF === k}" data-cvf="${k}">${t} <span>${rows.filter(f).length}</span></button>`).join("")}</div>
     ${list.length ? `<div class="cv-list">${list.map(card).join("")}</div>` : `<div class="card"><p class="empty">${rows.length ? "Nobody in this list." : `No new converts recorded at ${esc(S.church)} yet.${ro ? "" : " Tap <b>Add a convert</b> after an altar call."}`}</p></div>`}
     ${rows.length && !ro ? `<p style="margin-top:14px"><button type="button" class="link" id="cv-dl" style="margin:0">Download the list</button></p>` : ""}
-    <div class="card fl-card" style="margin-top:14px"><div class="fl-row"><div class="fl-txt"><h2>${esc(S.church)}'s new converts form</h2>
+    <div class="card fl-card" id="cv-form-card" style="margin-top:14px"><div class="fl-row"><div class="fl-txt"><h2>${esc(S.church)}'s new converts form</h2>
       <p class="note" style="margin:2px 0 8px">For people to fill in themselves. Their answers show at the top of this page.</p><a class="fl-link" href="${esc(fLink)}" target="_blank" rel="noopener">${esc(decodeURIComponent(fLink.replace(/^https?:\/\//, "")))}</a>
       <div class="fl-btns"><button type="button" class="pill-btn sm" id="cvf-copy">Copy link</button><a class="pill-btn sm" href="${esc(qrImg(fLink, 1000))}" target="_blank" rel="noopener">Open QR to print</a></div></div>
       <img class="fl-qr" src="${esc(qrImg(fLink, 240))}" alt="QR code for ${esc(S.church)}'s new converts form" width="120" height="120" loading="lazy"></div></div>`;
+  el.querySelector("#cv-qr").onclick = () => el.querySelector("#cv-form-card")?.scrollIntoView({behavior: stillMotion() ? "auto" : "smooth", block: "center"});
   el.querySelector("#cvf-copy").onclick = async () => { try { await navigator.clipboard.writeText(fLink); toast("Link copied."); } catch { toast(fLink); } };
   // a form entry: Add makes it a convert here (steps start empty); Dismiss hides it (a duplicate or a test)
   const CVF_PLACE = {"Sunday service": "service", "Church event or outreach": "outreach"};
@@ -4381,11 +4382,13 @@ function careGroups(el, K) {  // the Pastors and Shepherds pages: each one's peo
       ${list.length ? `<div class="scroll"><table><thead><tr><th>Name</th>${canEdit ? "<th></th>" : ""}<th>Came</th><th>Status</th><th>Missed in a row</th><th>Phone</th></tr></thead><tbody>
       ${list.map(x => `<tr><td>${whoBtn(x)}</td>${canEdit ? `<td><button class="pill-btn sm" data-edit="${esc(x.id)}" aria-label="Edit ${esc(x.full_name)}">${svg("edit")}Edit</button></td>` : ""}<td>${p.here[x.id] ? "Yes" : `<span class="muted">No</span>`}</td><td>${flagBadge(x)}</td><td>${x.missed}</td><td class="muted">${esc(x.phone || "")}</td></tr>`).join("")}
       </tbody></table></div>` : `<p class="empty" style="margin:0">Nobody is assigned to ${esc(shortTitle(n))} yet.</p>`}</div></td></tr>`;
-  el.innerHTML = head(K.words, esc(S.church)) + `
-    ${names.length ? `<div class="card" style="margin-bottom:14px"><p class="note" style="margin:0 2px 10px">Tap a name to see their people.</p><div class="scroll"><table class="cg-table"><thead><tr><th>${K.word}</th><th>People</th><th>Came${p.last ? " · " + esc(nice(p.last)) : ""}</th><th>Need a call</th><th></th></tr></thead><tbody>
+  const nP = (S.pastorList[S.church] || []).length, nS = (S.shepherdList?.[S.church] || []).length;
+  el.innerHTML = head(K.words, `${esc(S.church)} · tap a name to see their people`) + `
+    <div class="seg ci-seg pp-switch" role="group" aria-label="Which list"><button type="button" data-ps="pastors" aria-pressed="${S.view === "pastors"}">Pastors · ${nP}</button><button type="button" data-ps="shepherds" aria-pressed="${S.view === "shepherds"}">Shepherds · ${nS}</button></div>
+    ${names.length ? `<div class="card cg-card2" style="margin-bottom:14px"><div class="scroll"><table class="cg-table"><thead><tr><th>${K.word}</th><th>People</th><th>Came${p.last ? " · " + esc(nice(p.last)) : ""}</th><th>Need a call</th><th></th></tr></thead><tbody>
       ${names.map(n => { const g = groups[n], on = n === S[K.sel]; return `<tr class="${on ? "cg-on" : ""}"><td><button class="who ${on ? "sel" : ""}" data-pastor="${esc(n)}" aria-expanded="${on}"><span>${esc(initials(n))}</span>${esc(shortTitle(n))}</button></td>
         <td>${g.length}</td><td>${g.filter(x => p.here[x.id]).length}</td><td>${g.filter(x => x.level !== "ok").length}</td>
-        <td style="text-align:right"><button type="button" class="pill-btn sm" data-pastor="${esc(n)}" aria-expanded="${on}">${on ? "Hide" : "Show people"}</button></td></tr>${on ? open(n) : ""}`; }).join("")}</tbody></table></div></div>`
+        <td style="text-align:right"><button type="button" class="pill-btn sm soft" data-pastor="${esc(n)}" aria-expanded="${on}">${on ? "Hide" : "Show people"}</button></td></tr>${on ? open(n) : ""}`; }).join("")}</tbody></table></div></div>`
       : `<p class="empty">Nobody on this register yet.</p>`}
     ${canEdit ? `<div class="card plist" id="plist"><div class="pl-head"><span class="pl-ico">${svg(K.view)}</span><div><h2>${K.word} list</h2><p>${esc(S.church)} · ${plist.length} ${plist.length === 1 ? "name" : "names"}</p></div><span class="gap"></span>
         <button type="button" class="pill-btn sm primary" id="pl-add">${svg("plus")}Add ${K.word.toLowerCase()}</button></div>
@@ -4393,6 +4396,7 @@ function careGroups(el, K) {  // the Pastors and Shepherds pages: each one's peo
         <button type="button" class="pill-btn primary sm" id="pl-tidy">Tidy titles</button></div>` : ""}
       <label class="find-bar pl-find">${svg("search")}<input id="pl-q" type="search" placeholder="Search ${K.words.toLowerCase()} by name" value="${esc(S[K.sel + "Q"] || "")}" autocomplete="off" aria-label="Search ${K.words.toLowerCase()}"></label>
       <div class="pl-chips" id="pl-chips"></div><div id="pl-rows"></div></div>` : ""}`;
+  el.querySelectorAll("[data-ps]").forEach(b => b.onclick = () => { if (S.view !== b.dataset.ps) { S.view = b.dataset.ps; render(); } });
   // The list of names: search, title chips (Bishop, Reverend, Lady Pastor...), and a row for each name with how many people they have.
   const listBox = el.querySelector("#plist");
   el.querySelector("#pl-tidy")?.addEventListener("click", async e => {
@@ -5026,7 +5030,7 @@ const formLinkCard = () => `<div class="card fl-card" style="margin-bottom:14px"
     <img class="fl-qr" src="${esc(qrImg(formLink(), 240))}" alt="QR code for ${esc(S.church)}'s welcome form" width="120" height="120" loading="lazy"></div></div>`;
 const bindFormLink = el => { const b = el.querySelector("[data-fl-copy]"); if (b) b.onclick = async () => { try { await navigator.clipboard.writeText(formLink()); toast("Link copied."); } catch { toast(formLink()); } }; };
 async function signups(el) {
-  const sub = "From the welcome form, waiting for approval";
+  const sub = "People who filled in the welcome form";
   el.innerHTML = head("Sign-ups", sub) + `<p class="empty">Loading…</p>`;
   let regs;
   try { regs = await api(`registrations?select=id,full_name,phone,email,invited_by,first_visit,notes,wants_contact,created_at&status=eq.pending&church=eq.${encodeURIComponent(S.church)}&order=created_at`); }
@@ -5038,7 +5042,7 @@ async function signups(el) {
     const match = home[norm(r.full_name).replace(/\s+/g, " ")];
     const info = [["Phone", r.phone], ["Email", r.email], ["Invited by / heard via", r.invited_by], ["First visit", r.first_visit && full(r.first_visit)]].filter(x => x[1]);
     return `<div class="card signup" data-reg="${esc(r.id)}" data-match="${esc(match?.id || "")}" style="margin-bottom:14px">
-      <div class="card-head"><h2>${esc(r.full_name)}</h2>${r.wants_contact === false ? `<span class="badge yellow">Prefers no contact</span>` : ""}<span class="gap"></span>
+      <div class="card-head"><span class="su-ava" ${avaStyle(r.full_name)}>${esc(initials(r.full_name))}</span><h2>${esc(r.full_name)}</h2>${r.wants_contact === false ? `<span class="badge yellow">Prefers no contact</span>` : ""}<span class="gap"></span>
         <span style="color:var(--ink-3);font-size:13px">Sent ${esc(when(r.created_at))}</span></div>
       <p class="facts">${info.length ? info.map(([k, v]) => `${k}: ${esc(v)}`).join("<br>") : "No contact details given."}</p>
       ${r.notes ? `<div class="msg" style="margin-top:10px">${esc(r.notes)}</div>` : ""}

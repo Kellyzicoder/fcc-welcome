@@ -1840,6 +1840,29 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
   .og-sm {display: inline; font-size: 12.5px; color: var(--ink-3); margin-left: 2px;}
   .og-go {display: none !important;}
 }
+/* Tables everywhere: no grey band behind the headings, a thin line under them instead (as in the designs) */
+th {background: none; border-bottom: 1px solid var(--line); font-weight: 600;} th:first-child, th:last-child {border-radius: 0;}
+.pill-btn.soft {background: var(--accent-soft); color: var(--accent); border-color: transparent;} .pill-btn.soft:hover {background: color-mix(in srgb, var(--accent) 18%, transparent);}
+/* New converts: numbers like the other pages, form entries as rows */
+.cv-tiles {margin: 0 0 14px;}
+.cvf {border-radius: 18px; padding: 14px 16px;} .cvf-top {display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 0 12px;}
+.cvf-ava, .su-ava {width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; flex: none;}
+.cvf-tag {display: inline-block; margin-left: 6px; padding: 2px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11.5px; font-weight: 600; vertical-align: 2px;}
+.cvf > small, .cvf > .cvf-tags, .cvf > .cv-notes, .cvf > .cv-act {margin-left: 52px;} .cvf > small {display: block;}
+@media (max-width: 640px) { .cvf > small, .cvf > .cvf-tags, .cvf > .cv-notes, .cvf > .cv-act {margin-left: 0;} .cv-tiles {grid-template-columns: repeat(2, minmax(0, 1fr));} .cv-tiles .og-tile.hero {grid-column: auto;} .cv-tiles .og-tile small {display: block;} }
+.cv {border-radius: 22px;}
+/* Sign-ups: each person with a round avatar, rounder cards */
+.signup {border-radius: 22px;} .signup .card-head {gap: 12px;}
+/* Pastors and Shepherds: switch between the two lists */
+.pp-switch {margin: 0 0 14px; width: max-content; max-width: 100%;}
+@media (max-width: 600px) { .pp-switch {width: 100%;} }
+.cg-card2 {border-radius: 24px;} .cg-card2 .cg-table td {border-top: 1px solid var(--line);} .cg-card2 .cg-table .who span {width: 38px; height: 38px;}
+/* Report and summary previews: keep their own row look (the pastor Home styles share some class names) */
+.preview .pm-row {display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 4px 0; border-bottom: 0; grid-template-columns: none;}
+.preview .pm-row > * {grid-area: auto;} .preview .pm-row span {color: inherit;}
+.preview .pm-sub {margin: 0; padding: 4px 0 4px 14px; color: var(--ink-2); opacity: 1; font-size: 13.5px;}
+.wa-paper .preview .pm-sub {border-bottom: 1px dashed color-mix(in srgb, var(--line) 70%, transparent);}
+.preview .pm-total {padding: 12px 0 6px; margin-top: 6px;} .wa-paper .preview .pm-total {border-bottom: 1px solid var(--line);}
 </style>
 </head>
 <body>
