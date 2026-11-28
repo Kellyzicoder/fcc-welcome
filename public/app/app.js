@@ -5465,14 +5465,51 @@ async function activity(el) {
 // ---------------------------------------------------------------- reports: the WhatsApp summary, the emailed report and downloads, as tabs
 function reports(el) {
   const boss = ["admin", "lead"].includes(S.me.role);
-  const tabs = [["summary", "Summary"], ...(boss ? [["email", "Email reports"], ["downloads", "Downloads"]] : [])];
-  if (!tabs.some(t => t[0] === S.repTab)) S.repTab = "summary";
-  el.innerHTML = head("Reports", boss ? "Share the service's numbers: as a message, by email, or as lists to download" : "The service summary")
+  const tabs = [["overview", "Overview"], ["summary", "Summary"], ...(boss ? [["email", "Email reports"], ["downloads", "Downloads"]] : [])];
+  if (!tabs.some(t => t[0] === S.repTab)) S.repTab = "overview";
+  const pl = picture().last;
+  el.innerHTML = head("Reports", S.repTab === "overview" && pl ? `${esc(nice(pl, true))} · ${esc(S.names?.[pl] || svcName(pl))}` : boss ? "Share the service's numbers: as a message, by email, or as lists to download" : "The service summary",
+      S.repTab === "overview" ? `${boss ? `<button type="button" class="pill-btn" data-rgo="downloads">Download</button>` : ""}<button type="button" class="pill-btn primary" data-rgo="summary">${svg("chat")}Send to WhatsApp</button>` : "")
     + `<div class="rep-tabs" role="tablist" aria-label="Reports">${tabs.map(([k, t]) => `<button role="tab" data-rt="${k}" aria-selected="${S.repTab === k}">${t}</button>`).join("")}</div>
     <div class="rep-body" data-tab="${S.repTab}"></div>`;
   el.querySelectorAll("[data-rt]").forEach(b => b.onclick = () => { S.repTab = b.dataset.rt; render(); });
+  el.querySelectorAll("[data-rgo]").forEach(b => b.onclick = () => { S.repTab = b.dataset.rgo; render(); scrollTo(0, 0); });
   const body = el.querySelector(".rep-body");
-  return S.repTab === "summary" ? summaryPage(body) : emailReports(body);
+  return S.repTab === "overview" ? repOverview(body) : S.repTab === "summary" ? summaryPage(body) : emailReports(body);
+}
+// Reports → Overview (as in the design): this service, this month or this year at a glance, the last 8 Sundays and each pastor's people
+async function repOverview(el) {
+  const p = picture();
+  if (!p.last) { el.innerHTML = `<div class="card"><p class="empty">No services recorded at ${esc(S.church)} yet.</p></div>`; return; }
+  const per = ["svc", "month", "year"].includes(S.repPer) ? S.repPer : "svc", yr = p.last.slice(0, 4), mo = p.last.slice(0, 7);
+  const inPer = d => !!d && (per === "svc" ? d === p.last : per === "month" ? d.startsWith(mo) : d.startsWith(yr));
+  const nOn = d => Object.keys(p.byDate[d] || {}).length, ds = p.dates.filter(inPer);
+  const dw = new Date(p.last + "T12:00:00").getDay(), before = [...p.dates].reverse().find(d => d < p.last && new Date(d + "T12:00:00").getDay() === dw);
+  const came = per === "svc" ? nOn(p.last) : ds.length ? Math.round(ds.reduce((a, d) => a + nOn(d), 0) / ds.length) : 0;
+  const chg = per === "svc" && before ? nOn(p.last) - nOn(before) : null;
+  const ft = per === "svc" ? p.first : p.mine.filter(m => m.type === "first_timer" && inPer(m.first_visit)).length;
+  const wk = new Date(p.last + "T12:00:00").toLocaleDateString("en-NZ", {weekday: "short"});
+  const PER = [["svc", "This service"], ["month", "This month"], ["year", "This year"]];
+  const suns = p.dates.filter(isSunday).slice(-8), top = Math.max(1, ...suns.map(nOn));
+  const groups = {}; for (const x of p.people) for (const n of pastorsOf(x).length ? pastorsOf(x) : ["Not assigned yet"]) (groups[n] ??= []).push(x);
+  const pastors = Object.entries(groups).sort((a, b) => (a[0] === "Not assigned yet") - (b[0] === "Not assigned yet") || b[1].length - a[1].length);
+  el.innerHTML = `<div class="seg ci-seg ro-per" role="group" aria-label="Period">${PER.map(([k, l]) => `<button type="button" data-rper="${k}" aria-pressed="${per === k}">${l}</button>`).join("")}</div>
+    <div class="og-tiles">
+      <div class="og-tile hero"><p>${per === "svc" ? "Came" : "Came on average"}</p><b>${came}</b><small>${per === "svc" ? `of ${p.people.length}${chg === null ? "" : chg === 0 ? ` · same as the ${wk} before` : ` · ${chg > 0 ? "up" : "down"} ${Math.abs(chg)} on the ${wk} before`}` : `${ds.length} ${ds.length === 1 ? "service" : "services"}`}</small></div>
+      <div class="og-tile"><p>First-timers</p><b>${ft}</b><small>${per === "svc" ? esc(nice(p.last)) : per === "month" ? "This month" : "This year"}</small></div>
+      <div class="og-tile"><p>New converts</p><b id="ro-cv">…</b><small>${per === "svc" ? "That day" : per === "month" ? "This month" : "This year"}</small></div>
+      <div class="og-tile"><p>Need a call</p><b class="og-red">${p.count("red")}</b><small>Missed ${RED_AT}+ Sundays in a row</small></div></div>
+    <div class="ro-grid">
+      <section class="card ro-card"><h2>Last ${suns.length} Sundays</h2>
+        ${suns.length ? `<div class="ro-bars">${suns.map(d => `<span class="ro-bar ${d === suns[suns.length - 1] ? "now" : ""}"><b>${nOn(d)}</b><i style="height:${Math.max(4, Math.round(120 * nOn(d) / top))}px"></i><small>${esc(new Date(d + "T12:00:00").toLocaleDateString("en-NZ", {day: "numeric", month: "short"}))}</small></span>`).join("")}</div>`
+          : `<p class="empty" style="margin:0">No Sunday services yet.</p>`}</section>
+      <section class="card ro-card"><h2>By pastor <small class="muted">· ${esc(nice(p.last))}</small></h2>
+        ${pastors.length ? pastors.map(([n, g]) => { const c = g.filter(x => p.here[x.id]).length;
+          return `<div class="ro-p"><span class="ro-pn">${esc(n === "Not assigned yet" ? n : shortTitle(n))}</span><span class="ro-pv"><b>${c}</b> of ${g.length}</span><span class="ro-pb"><i style="width:${g.length ? Math.round(100 * c / g.length) : 0}%"></i></span></div>`; }).join("")
+          : `<p class="empty" style="margin:0">Nobody on the register yet.</p>`}</section></div>`;
+  el.querySelectorAll("[data-rper]").forEach(b => b.onclick = () => { S.repPer = b.dataset.rper; repOverview(el); });
+  const cv = await all(`converts?select=decided_on&church=eq.${encodeURIComponent(S.church)}`).catch(() => null);
+  const box = el.querySelector("#ro-cv"); if (box) box.textContent = cv ? cv.filter(r => inPer(r.decided_on)).length : "–";
 }
 async function emailReports(el) {
   const sub = esc(S.church);
