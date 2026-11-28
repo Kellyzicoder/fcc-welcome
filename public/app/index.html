@@ -1770,6 +1770,39 @@ div:has(> .cal-btn) {flex: 0 0 auto !important;} .cal-btn {max-width: none;}
   .ad-badges {grid-column: 2; grid-row: 2; justify-content: flex-start;} .ad-acts {grid-column: 1 / -1;}
   .ad-users .card-head {flex-wrap: wrap;}
 }
+/* Popups with many boxes: two columns on a computer, so everything fits without a long scroll */
+@media (min-width: 721px) { .sheet.fd-wide {width: min(820px, 100%);} .fd-wide .fields {grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px 18px;} .fd-wide .fields > .fd-full {grid-column: 1 / -1;} }
+/* Check-in: which day are these ticks for? */
+.day-ask-btns {display: flex; flex-direction: column; gap: 8px;} .day-ask-btns .pill-btn {justify-content: center; min-height: 46px;}
+/* Filter pills as one pill track, like the design (Congregation, Admin sign-ins) */
+.pp-pills {display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 24px; background: color-mix(in srgb, var(--ink) 7%, transparent); margin: 0 0 14px; max-width: 100%; width: auto;}
+.u-bar .pp-pills {margin: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;} .u-bar .pp-pills .rpill {flex: none;}
+.pp-pills .rpill {border: 0; box-shadow: none; background: none; color: var(--ink-2); border-radius: 999px; padding: 0 16px; min-height: 38px; font-size: 13.5px; font-weight: 500;}
+.pp-pills .rpill i {display: none;} .pp-pills .rpill span {color: inherit; opacity: .7; font-weight: 500;}
+.pp-pills .rpill:hover {color: var(--ink);}
+.pp-pills .rpill[aria-selected="true"] {background: var(--accent); color: var(--accent-ink); font-weight: 600; box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 25%, transparent);}
+.pp-pills .rpill.more {color: var(--accent); font-weight: 600;}
+@media (max-width: 640px) { .pp-pills {display: flex; flex-wrap: nowrap; overflow-x: auto; width: 100%; box-sizing: border-box; border-radius: 22px; scrollbar-width: none;} .pp-pills::-webkit-scrollbar {display: none;} .pp-pills .rpill {flex: none;} }
+/* Congregation: calm list like the design */
+.pp-card {border-radius: 24px;}
+.pp-card .find-bar {border-radius: 999px; min-height: 46px;} .pp-card .u-tools .in {border-radius: 999px;}
+.pp-table thead tr, .pp-table th {background: none;} .pp-table th {font-size: 12.5px; color: var(--ink-3); font-weight: 600; border-bottom: 1px solid var(--line);}
+.pp-table tbody tr {transition: background-color .2s ease;} .pp-table tbody tr:hover {background: var(--soft);}
+.pp-table .who-cell .who span {width: 38px; height: 38px; border-radius: 12px; font-size: 13px;}
+.pp-phone {display: block; margin: 2px 0 0 48px;}
+.pp-table .rbadge {border: 0; margin: 0; padding: 4px 11px; background: color-mix(in srgb, var(--rc, var(--ink-3)) 13%, transparent); color: var(--rc, var(--ink-2));}
+.pp-table td.pp-edit {text-align: right; width: 44px;} .pp-table .pp-last {white-space: nowrap;}
+@media (max-width: 640px) {
+  .pp-card .scroll {overflow: visible; margin: 0;}
+  .pp-table, .pp-table tbody {display: block; width: 100%; min-width: 0;} .pp-table thead {display: none;}
+  .pp-table tr {display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 12px 2px; border-top: 1px solid var(--line);}
+  .pp-table tr::before {content: ""; order: 3; flex-basis: 100%; height: 0;}
+  .pp-table td {display: block; padding: 0; border: 0;}
+  .pp-table td.tick {order: 0;} .pp-table .pp-name {order: 1; flex: 1 1 0; min-width: 0;} .pp-table .pp-edit {order: 2; width: auto;}
+  .pp-table .pp-type {order: 4; margin-left: 48px;} .pp-table tr:has(.tick) .pp-type {margin-left: 84px;}
+  .pp-table .pp-pastor {order: 5; font-size: 13px;} .pp-table .pp-pastor.muted {display: none;}
+  .pp-table .pp-x, .pp-table .pp-last {display: none;}
+}
 </style>
 </head>
 <body>
