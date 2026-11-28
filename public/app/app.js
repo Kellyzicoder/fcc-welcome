@@ -249,9 +249,9 @@ function formDialog(title, fields, save, button = "Save", danger = null) {
   document.querySelectorAll(".modal").forEach(m => m.remove());
   const d = document.createElement("div");
   d.className = "modal";
-  d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+  d.innerHTML = `<form class="sheet narrow ${fields.length >= 5 ? "fd-wide" : ""}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
     <div class="card-head"><h2>${esc(title)}</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
-    <div class="fields">${fields.map(f => `<div><label class="f" for="fd-${f.k}">${esc(f.label)}</label>${f.type === "multi"
+    <div class="fields">${fields.map(f => `<div class="${f.type === "multi" || f.hint ? "fd-full" : ""}"><label class="f" for="fd-${f.k}">${esc(f.label)}</label>${f.type === "multi"
       ? `<div class="checks" id="fd-${f.k}">${f.options.map(([v, t]) => `<label class="chk"><input type="checkbox" value="${esc(v)}" ${f.value.includes(v) ? "checked" : ""}><span>${esc(t)}</span></label>`).join("")}</div>`
       : f.type === "select"
       ? `<select class="in" id="fd-${f.k}">${f.options.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(f.value ?? "") ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`
@@ -2722,8 +2722,33 @@ function checkin(el) {
       toast(lock ? "Saved and locked." : "Unlocked. You can change ticks again."); draw(); showLock();
     } catch (err) { toast(/row-level|policy/i.test(err.message) ? "Not saved: run the latest setup SQL in Supabase once, then try again." : "Not saved: " + err.message); }
   };
+  // Ticks are saved under the date picked. On a day with no usual service (e.g. a Monday, ticking from paper after Sunday),
+  // ask once before the first tick, so the numbers don't end up on the wrong day.
+  const dayKey = () => S.church + "|" + S.date;
+  const usualDay = () => { const dow = new Date(S.date + "T12:00:00").getDay();
+    return dow === 0 || dow === 3 || partsOf(S.date).length > 0 || (S.names[S.date] && S.names[S.date] !== "Service") || Object.keys(here).length > 0 || (S.dayOk ||= {})[dayKey()]; };
+  const dayOk = () => usualDay() ? Promise.resolve(true) : new Promise(res => {
+    const [y, mo, dd] = S.date.split("-").map(Number), dt = new Date(y, mo - 1, dd), sun = new Date(y, mo - 1, dd - dt.getDay());
+    const sunISO = `${sun.getFullYear()}-${pad(sun.getMonth() + 1)}-${pad(sun.getDate())}`, fmt = x => x.toLocaleDateString("en-NZ", {weekday: "long", day: "numeric", month: "short"}).replace(",", "");
+    document.querySelectorAll(".modal").forEach(m => m.remove());
+    const d = document.createElement("div"); d.className = "modal";
+    d.innerHTML = `<div class="sheet narrow day-ask" role="dialog" aria-modal="true" aria-labelledby="day-ask-h">
+      <div class="card-head"><h2 id="day-ask-h">Which day are these ticks for?</h2><span class="gap"></span><button type="button" class="icon-btn" data-x aria-label="Close">${svg("close")}</button></div>
+      <p class="note" style="margin:0 2px 14px">You're ticking for <b>${esc(fmt(dt))}</b>, which has no service set up. If this is from last Sunday, tick under Sunday so the numbers line up.</p>
+      <div class="day-ask-btns"><button type="button" class="pill-btn primary" data-sun>Tick for ${esc(fmt(sun))}</button>
+        <button type="button" class="pill-btn" data-keep>There was a service on ${esc(dt.toLocaleDateString("en-NZ", {weekday: "long"}))}</button></div></div>`;
+    document.body.append(d);
+    const done = v => { d.remove(); document.removeEventListener("keydown", onKey); res(v); }, onKey = e => { if (e.key === "Escape") done(false); };
+    document.addEventListener("keydown", onKey);
+    d.onclick = e => { if (e.target === d || e.target.closest("[data-x]")) done(false); };
+    d.querySelector("[data-keep]").onclick = () => { S.dayOk[dayKey()] = true; log("day_ok", "", "done", `${S.church} · ${S.date}`); done(true); };
+    d.querySelector("[data-sun]").onclick = () => { const inp = el.querySelector("#d"); inp.value = sunISO; inp.onchange({target: inp});
+      toast(`Now on ${fmt(sun)}. Tick again to save it there.`); done(false); };
+    d.querySelector("[data-sun]").focus();
+  });
   box.onchange = async e => {
     if (lock) { e.target.checked = !e.target.checked; return toast("This service is locked. Unlock it to make changes."); }
+    if (e.target.checked && !(await dayOk())) { e.target.checked = false; return draw(); }
     const id = e.target.dataset.id, on = e.target.checked, seen = here[id], at = isoLocal();
     if (on) here[id] = at; else delete here[id];
     pending.set(id, on ? at : null); e.target.blur(); draw();
@@ -2739,6 +2764,7 @@ function checkin(el) {
   el.querySelector("#q").oninput = e => { S.q = e.target.value; S.ciPage = 1; armed = false; draw(); };
   el.querySelector("#ci-all").onclick = async () => {
     const todo = showing().filter(m => !here[m.id]); if (!todo.length || busy) return;
+    if (!(await dayOk())) return;
     busy = true; armed = false; draw();
     try {
       await api("services?on_conflict=service_date", {method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {service_date: S.date, name: svcName(S.date)}});
@@ -2753,8 +2779,9 @@ function checkin(el) {
   };
   // Tick from a list: paste names (from a sign-in sheet, a WhatsApp message or a file) and everyone found is ticked at once.
   // Names are matched to this church's list however they're written ("MENSAH Ama", "ama mensah", "Ama K. Mensah").
-  el.querySelector("#ci-list").onclick = () => {
+  el.querySelector("#ci-list").onclick = async () => {
     if (lock) return toast("This service is locked. Unlock it to make changes.");
+    if (!(await dayOk())) return;
     document.querySelectorAll(".modal").forEach(m => m.remove());
     const d = document.createElement("div"); d.className = "modal";
     d.innerHTML = `<form class="sheet narrow" role="dialog" aria-modal="true" aria-label="Tick from a list">
@@ -2930,6 +2957,7 @@ function checkin(el) {
         S.members.push(m); mine.push(m); mine.sort((a, b) => norm(a.full_name).localeCompare(norm(b.full_name)));
       }
       if (only) { e.target.reset(); toast(known ? `${name} is already on the list.` : `${name} is added to the register.`); draw(); return; }
+      if (!(await dayOk())) { e.target.reset(); toast(`${name} is added to the register. Tick them on the right day.`); draw(); return; }
       await setPresent(id, true, undefined, undefined, curPart());
       e.target.reset(); toast(`${name} is checked in${known ? " (already on the list)" : ""}.`); pull();
     } catch (err) { toast("Not saved: " + err.message); }
@@ -3357,32 +3385,29 @@ function people(el) {
   const TYPECLS = {member: "r-team", first_timer: "r-pastor", visitor: "r-bishop"};
   const DOT = {member: "r-team", first: "r-pastor", visitor: "r-bishop", nopastor: "r-admin", female: "r-lead", male: "r-lead", adult: "", child: ""};
   const mixed = ["admin", "lead"].includes(S.me.role) ? everyone.filter(m => splitNamePhone(m.full_name)) : [];  // phone numbers that went into the name
-  el.innerHTML = head("Congregation", esc(S.church), `${["admin", "lead", "team"].includes(S.me.role) && !S.preview ? `<button class="pill-btn primary" id="one-add">${svg("plus")}Add a person</button><button class="pill-btn" id="bulk-add">${svg("upload")}Import people</button>` : ""}<button class="pill-btn" id="dl">Download</button>`) + `
-    <div class="tiles">${[["Total people", everyone.length, "In " + S.church], ["Members", everyone.filter(SHOW.member[1]).length, "Regular members"],
-        ["First-timers & visitors", everyone.filter(m => m.type === "first_timer" || m.type === "visitor").length, "Still getting to know us"],
-        ["No pastor yet", everyone.filter(SHOW.nopastor[1]).length, "Need a pastor assigned"]]
-      .map(([t, n, sub]) => `<div class="card tile"><div class="label">${t}</div><div class="num">${String(n).padStart(2, "0")}</div><div class="note" style="margin:4px 0 0">${esc(sub)}</div></div>`).join("")}</div>
+  el.innerHTML = head("Congregation", `${everyone.length} ${everyone.length === 1 ? "person" : "people"} at ${esc(S.church)}`, `${["admin", "lead", "team"].includes(S.me.role) && !S.preview ? `<button class="pill-btn primary" id="one-add">${svg("plus")}Add a person</button><button class="pill-btn" id="bulk-add">${svg("upload")}Import people</button>` : ""}<button class="pill-btn" id="dl">Download</button>`) + `
     ${mixed.length ? `<div class="msg np-fix"><span><b>${mixed.length} ${mixed.length === 1 ? "name has" : "names have"} a phone number in ${mixed.length === 1 ? "it" : "them"}.</b> Move each number to Phone and keep just the name.</span>
       <button type="button" class="pill-btn primary sm" id="np-fix">Fix ${mixed.length === 1 ? "it" : "all " + mixed.length}</button></div>` : ""}
-    <div class="card">
+    <div class="card pp-card">
       <div class="find-row"><label class="find-bar">${svg("search")}<input id="find" type="search" placeholder="Search by name, phone, pastor or shepherd" value="${esc(S.findQ || "")}" aria-label="Search people" autocomplete="off"></label>
         <div class="u-tools">${roleKeys.length ? `<select class="in" id="teamF" aria-label="Team"><option value="">All teams</option>${roleKeys.map(k => `<option value="${esc(k)}" ${S.roleF === k ? "selected" : ""}>${esc(counts[k].label)} · ${counts[k].n}</option>`).join("")}</select>` : ""}
           <select class="in" id="sort" aria-label="Sort by">${Object.entries(SORT).map(([k, [t]]) => `<option value="${k}" ${S.sortBy === k ? "selected" : ""}>${t}</option>`).join("")}</select></div></div>
-      <div class="rpills u-pills" role="tablist" aria-label="Show">${(() => {  // the first six (and the one picked), then "+ n more", as on Check-in
+      <div class="rpills u-pills pp-pills" role="tablist" aria-label="Show">${(() => {  // the first six (and the one picked), then "+ n more", as on Check-in
           const all = Object.entries(SHOW), vis = S.pMore ? all : all.filter(([k], i) => i < 6 || k === S.showF), more = all.length - vis.length;
           return vis.map(([k, [t, f]]) =>
           `<button type="button" class="rpill ${DOT[k] || ""}" role="tab" data-show="${k}" aria-selected="${S.showF === k}">${k === "all" || !DOT[k] ? "" : "<i></i>"}${t} <span>${inRole.filter(f).length}</span></button>`).join("")
             + (more ? `<button type="button" class="rpill more" data-pmore>+ ${more} more</button>` : S.pMore && all.length > 6 ? `<button type="button" class="rpill more" data-pmore>Show less</button>` : ""); })()}</div>
       ${edit && picked.length ? `<div class="bulk"><b>${picked.length} selected</b><button class="pill-btn sm" id="bulk-see">${S.selOnly ? "Show all" : "View"}</button><span class="gap"></span><button class="pill-btn sm primary" id="bulk-go">${svg("edit")}Change roles</button><button class="pill-btn sm" id="bulk-pastor">Set pastor</button><button class="pill-btn sm" id="bulk-shepherd">Set shepherd</button><button class="pill-btn sm" id="bulk-set">Set details</button>${["admin", "lead"].includes(S.me.role) && !S.preview ? `<button class="pill-btn sm bulk-del" id="bulk-del">${svg("trash")}Delete</button>` : ""}<button class="pill-btn sm" id="bulk-x">Clear</button></div>` : ""}
-      <div class="scroll"><table class="utable"><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select all ${mine.length} shown" title="Select all ${mine.length} shown" ${mine.length && shownPicked === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th>${edit ? "<th></th>" : ""}<th>Type</th><th>Pastor assigned</th><th>Shepherd</th><th>Age group</th><th>Gender</th><th>Status</th><th>Roles</th></tr></thead><tbody>
+      <div class="scroll"><table class="utable pp-table"><thead><tr>${edit ? `<th class="tick"><input type="checkbox" id="pick-all" aria-label="Select all ${mine.length} shown" title="Select all ${mine.length} shown" ${mine.length && shownPicked === mine.length ? "checked" : ""}></th>` : ""}<th>Name</th><th>Type</th><th>Last here</th><th>Pastor assigned</th><th>Shepherd</th><th>Age group</th><th>Gender</th><th>Status</th><th>Roles</th>${edit ? `<th><span class="ci-sr">Edit</span></th>` : ""}</tr></thead><tbody>
       ${shown.map(m => `<tr>${edit ? `<td class="tick"><input type="checkbox" data-pick="${esc(m.id)}" aria-label="Select ${esc(m.full_name)}" ${S.sel.has(m.id) ? "checked" : ""}></td>` : ""}
-        <td><div class="who-cell">${whoBtn(m)}</div>${m.phone ? `<small class="muted" style="display:block;margin:2px 0 0 40px">${esc(m.phone)}</small>` : ""}</td>
-        ${edit ? `<td><button class="pill-btn sm" data-edit="${esc(m.id)}" aria-label="Edit ${esc(m.full_name)}">${svg("edit")}Edit</button></td>` : ""}
-        <td><span class="rbadge ${TYPECLS[typeKey(m)] || ""}">${esc(typeOf(m))}</span></td>
-        <td class="${pastorsOf(m).length ? "" : "muted"}">${pastorsOf(m).length ? pastorsOf(m).map(pastorBtn).join("<br>") : "Not assigned"}</td>
-        <td class="${shepherdsOf(m).length ? "" : "muted"}">${shepherdsOf(m).length ? shepherdsOf(m).map(shepherdBtn).join("<br>") : "Not assigned"}</td><td class="muted">${ageOf(m)}</td><td class="muted">${genderOf(m)}</td>
-        <td>${m.status ? `<span class="badge">${esc(m.status)}</span>` : `<span class="muted">Active</span>`}</td>
-        <td>${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("")}</td></tr>`).join("")}
+        <td class="pp-name"><div class="who-cell">${whoBtn(m)}</div>${m.phone ? `<small class="muted pp-phone">${esc(m.phone)}</small>` : ""}</td>
+        <td class="pp-type"><span class="rbadge ${TYPECLS[typeKey(m)] || ""}">${esc(typeOf(m))}</span></td>
+        <td class="muted pp-last">${lastOf(m) ? esc(new Date(lastOf(m).slice(0, 10) + "T12:00:00").toLocaleDateString("en-NZ", {day: "numeric", month: "short"})) : "Not yet"}</td>
+        <td class="pp-pastor ${pastorsOf(m).length ? "" : "muted"}">${pastorsOf(m).length ? pastorsOf(m).map(pastorBtn).join("<br>") : "Not assigned"}</td>
+        <td class="pp-x ${shepherdsOf(m).length ? "" : "muted"}">${shepherdsOf(m).length ? shepherdsOf(m).map(shepherdBtn).join("<br>") : "Not assigned"}</td><td class="muted pp-x">${ageOf(m)}</td><td class="muted pp-x">${genderOf(m)}</td>
+        <td class="pp-x">${m.status ? `<span class="badge">${esc(m.status)}</span>` : `<span class="muted">Active</span>`}</td>
+        <td class="pp-x">${rolesOf(m).map(r => `<span class="tag">${esc(r)}</span>`).join("")}</td>
+        ${edit ? `<td class="pp-edit"><button type="button" class="ad-more" data-edit="${esc(m.id)}" aria-label="Edit ${esc(m.full_name)}" title="Edit">${svg("edit")}</button></td>` : ""}</tr>`).join("")}
       </tbody></table></div>${mine.length ? "" : `<p class="empty">${q ? "Nobody matches that search." : "Nobody here. Try another filter, or add people from Check-in."}</p>`}
       ${pages > 1 ? `<div class="pager"><span class="muted">Page ${S.pPage} of ${pages} · ${mine.length} people</span><span class="gap"></span>
         <button class="pg" data-ppg="${S.pPage - 1}" ${S.pPage === 1 ? "disabled" : ""} aria-label="Previous page">${svg("prev")}</button>
@@ -3993,7 +4018,7 @@ async function admin(el) {
     <section ${tab("messages")}>${inboxCard}</section><section ${tab("backup")}>${backupCard}</section><section ${tab("space")}>${spaceCard}</section><section ${tab("push")}><div id="push-card"></div><div id="tech-card"></div></section>
     <section ${tab("names")}><div class="ad-grid">
     <div class="card ad-users"><div class="card-head"><h2>Leaders who can sign in <span class="muted ad-n">${users.length}</span></h2><span class="gap"></span><button type="button" class="pill-btn primary" id="u-add-tg">Invite a leader</button></div>
-      <div class="u-bar"><div class="rpills" role="tablist" aria-label="Filter by role">${(() => {  // every role as it is shown, the first few, then + more
+      <div class="u-bar"><div class="rpills pp-pills" role="tablist" aria-label="Filter by role">${(() => {  // every role as it is shown, the first few, then + more
           const all = [["", "All"], ...UKINDS], shown = S.uMore || all.findIndex(x => x[0] === (S.uRole || "")) >= 5 ? all.length : 5;
           return all.map(([k, t], i) => `<button type="button" class="rpill ${k ? "r-" + k : ""}" role="tab" data-ur="${k}" aria-selected="${(S.uRole || "") === k}" ${i >= shown ? "hidden" : ""}>${k ? "<i></i>" : ""}${t} <span>${k ? users.filter(u => inKind(u, k)).length : users.length}</span></button>`).join("")
             + (shown < all.length ? `<button type="button" class="rpill more" data-umore>+ ${all.length - shown} more</button>` : "");
