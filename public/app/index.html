@@ -1863,6 +1863,22 @@ th {background: none; border-bottom: 1px solid var(--line); font-weight: 600;} t
 .preview .pm-sub {margin: 0; padding: 4px 0 4px 14px; color: var(--ink-2); opacity: 1; font-size: 13.5px;}
 .wa-paper .preview .pm-sub {border-bottom: 1px dashed color-mix(in srgb, var(--line) 70%, transparent);}
 .preview .pm-total {padding: 12px 0 6px; margin-top: 6px;} .wa-paper .preview .pm-total {border-bottom: 1px solid var(--line);}
+/* Bacentas: the list on the left, the open one beside it (as in the design); on a phone the list, then the open one */
+.bc-split {display: grid; gap: 16px; align-items: start;}
+@media (min-width: 1000px) { .bc-split.has {grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);} .bc-list {position: sticky; top: 12px;} }
+.bc-list {border-radius: 24px; padding: 14px 10px; margin: 0;} .bc-list .card-head {padding: 2px 8px 8px; margin: 0;}
+.bc-item {display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 10px; border: 0; border-radius: 16px; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; transition: background-color .2s ease;}
+.bc-item:hover {background: var(--soft);} .bc-item[aria-pressed="true"] {background: var(--accent-soft);}
+.bc-item[aria-pressed="true"] .bc-who b {color: var(--accent);}
+.bc-ava {width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center; font-size: 13px; font-weight: 700;}
+.bc-who {min-width: 0;} .bc-who b {display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;} .bc-who small {display: block; color: var(--ink-3); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+.bc-n {font-weight: 700; font-size: 16px; font-variant-numeric: tabular-nums; position: relative; padding-right: 2px;}
+.bc-dot {position: absolute; top: -2px; right: -8px; width: 8px; height: 8px; border-radius: 50%; background: var(--yellow);}
+.bc-detail > .card {border-radius: 24px;}
+.bc-dhead {display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; margin: 0 0 14px;} .bc-dhead h2 {margin: 0; font-size: 22px;}
+.bc-tiles {grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0 0 14px;} .bc-of {font-size: 15px; font-weight: 500; opacity: .85;}
+.bc-go {margin: 0 0 6px;} .bc-go .pill-btn {min-height: 44px; padding: 0 20px;}
+@media (max-width: 640px) { .bc-tiles {grid-template-columns: repeat(2, minmax(0, 1fr));} .bc-tiles .og-tile.hero {grid-column: 1 / -1;} .bc-tiles .og-tile small {display: block;} .bc-go .pill-btn {width: 100%; justify-content: center;} }
 </style>
 </head>
 <body>
